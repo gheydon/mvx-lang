@@ -1,34 +1,62 @@
 /**
  * @file FSDEMO
- * @version 1.4
- * A tiny full-screen application, sized to the terminal: arrows move
- * the X; HOME centres, END jumps to the right edge, PGUP/PGDN
- * page vertically; q or ESC quits. Bounds re-read every keystroke,
- * so resizing the window adjusts the playfield live.
+ * @version 2.0
+ * Full-screen demo in Midnight Commander dress: cyan menu bar, blue
+ * field, black-on-cyan marker, MC-style function-key bar. Arrows
+ * move; HOME centres, END right edge, PGUP/PGDN page; q or ESC quits.
+ * Resizing the terminal re-flows the chrome live.
  */
 W = SYSTEM(2)
 H = SYSTEM(3)
 X = INT(W / 2)
 Y = INT(H / 2)
-* alternate screen: true full-size grid in every terminal, and the
-* scrollback comes back on exit; hide the cursor while we draw
+K = ""
 PRINT @(-5):@(-7):
 LOOP
    W = SYSTEM(2)
    H = SYSTEM(3)
    IF X > W - 1 THEN X = W - 1
-   IF Y > H - 2 THEN Y = H - 2
-   PRINT @(0, 0):@(-4):COLOR("BRIGHT WHITE", "BLUE"):" MVX full-screen demo  ":W:"x":H:"  arrows/HOME/END/PGUP/PGDN move, q quits ":COLOR("OFF")
-   PRINT @(0, 1):STR("-", W - 1):
-   PRINT @(X, Y):COLOR("BRIGHT YELLOW"):"X":COLOR("OFF"):@(0, H - 1):@(-4):"pos ":X:",":Y:"  key ":K:
+   IF Y > H - 3 THEN Y = H - 3
+   * blue field under everything (BCE clear)
+   PRINT COLOR("WHITE", "BLUE"):
+   * menu bar, MC style
+   HDR = "  Left     File     Command     Options     Right"
+   HDR = HDR:STR(" ", 60):"pos ":X:",":Y:"  key ":K
+   PRINT @(0, 0):COLOR("BLACK", "CYAN"):FMT(HDR, "L#":W):
+   * the marker, drawn like an MC selection
+   PRINT @(X, Y):COLOR("BLACK", "CYAN"):"X":COLOR("WHITE", "BLUE"):
+   * function-key bar
+   BAR = ""
+   VIS = 0
+   NUMS = " 1"
+   LBL = "Help  "
+   GOSUB 9000
+   NUMS = " 4"
+   LBL = "PgUp  "
+   GOSUB 9000
+   NUMS = " 5"
+   LBL = "PgDn  "
+   GOSUB 9000
+   NUMS = " 6"
+   LBL = "Home  "
+   GOSUB 9000
+   NUMS = " 7"
+   LBL = "End  "
+   GOSUB 9000
+   NUMS = " q"
+   LBL = "Quit"
+   GOSUB 9000
+   PAD = W - 1 - VIS
+   IF PAD < 0 THEN PAD = 0
+   PRINT @(0, H - 1):BAR:COLOR("BLACK", "CYAN"):STR(" ", PAD):COLOR("WHITE", "BLUE"):
    K = KEYIN()
 UNTIL K = "q" OR K = "ESC" DO
-   PRINT @(X, Y):" ":
+   PRINT @(X, Y):COLOR("WHITE", "BLUE"):" ":
    BEGIN CASE
    CASE K = "UP"
-      IF Y > 2 THEN Y = Y - 1
+      IF Y > 1 THEN Y = Y - 1
    CASE K = "DOWN"
-      IF Y < H - 2 THEN Y = Y + 1
+      IF Y < H - 3 THEN Y = Y + 1
    CASE K = "LEFT"
       IF X > 0 THEN X = X - 1
    CASE K = "RIGHT"
@@ -40,11 +68,19 @@ UNTIL K = "q" OR K = "ESC" DO
       X = W - 1
    CASE K = "PGUP"
       Y = Y - (H - 4)
-      IF Y < 2 THEN Y = 2
+      IF Y < 1 THEN Y = 1
    CASE K = "PGDN"
       Y = Y + (H - 4)
-      IF Y > H - 2 THEN Y = H - 2
+      IF Y > H - 3 THEN Y = H - 3
    END CASE
 REPEAT
-PRINT @(-8):@(-6):
+PRINT COLOR("OFF"):@(-8):@(-6):
 PRINT "bye"
+STOP
+
+* append one function-key segment to BAR (MC style: white-on-black
+* number, black-on-cyan label)
+9000
+BAR = BAR:COLOR("WHITE", "BLACK"):NUMS:COLOR("BLACK", "CYAN"):LBL
+VIS = VIS + LEN(NUMS) + LEN(LBL)
+RETURN
