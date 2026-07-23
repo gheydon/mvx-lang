@@ -18,12 +18,13 @@ Language support for MVX Pick/MultiValue BASIC.
 ln -s "$(pwd)/editors/vscode/mvx-basic" ~/.vscode/extensions/mvx-basic-0.1.0
 ```
 
-then reload VSCode. Files with the `.b` extension, and files inside a
-`BP/` directory, open as MVX BASIC. For other locations add to your
+then reload VSCode. Files with the `.b` extension, and files inside
+`BP/`, `*.BP/`, or `*_BP/` directories (the usual MV source-file naming
+conventions), open as MVX BASIC. For other layouts add to your
 settings:
 
 ```json
-"files.associations": { "**/BP*/*": "mvx-basic" }
+"files.associations": { "**/SOURCES/*": "mvx-basic" }
 ```
 
 ## Compile task

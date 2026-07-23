@@ -12,7 +12,12 @@
         "id": "mvx-basic",
         "aliases": ["MVX BASIC", "Pick BASIC"],
         "extensions": [".b"],
-        "filenamePatterns": ["**/BP/*", "**/verbs/*.b"],
+        "filenamePatterns": [
+          "**/BP/*",
+          "**/*.BP/*",
+          "**/*_BP/*",
+          "**/verbs/*.b"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
