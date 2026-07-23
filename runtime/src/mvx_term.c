@@ -187,6 +187,15 @@ void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b) {
         case -2: n = snprintf(buf, sizeof buf, "\033[H"); break;
         case -3: n = snprintf(buf, sizeof buf, "\033[J"); break;
         case -4: n = snprintf(buf, sizeof buf, "\033[K"); break;
+        /* MVX extensions for full-screen work: the alternate screen
+           buffer is what makes the geometry from SYSTEM(2)/(3) true in
+           terminals that decorate the main screen (Warp blocks, VSCode
+           prompt rows) — and it restores the scrollback on leave. */
+        case -5: n = snprintf(buf, sizeof buf,
+                              "\033[?1049h\033[2J\033[H"); break;
+        case -6: n = snprintf(buf, sizeof buf, "\033[?1049l"); break;
+        case -7: n = snprintf(buf, sizeof buf, "\033[?25l"); break;
+        case -8: n = snprintf(buf, sizeof buf, "\033[?25h"); break;
         default: n = 0; break;
         }
     }
