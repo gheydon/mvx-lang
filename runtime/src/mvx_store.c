@@ -922,11 +922,35 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
         }
         mv_clear(&names);
     }
-    /* Files on the default daemon, marked remote.  (Files bound to
-       other daemons by explicit REMOTE addresses are not enumerated
-       here.) */
+    /* Remote files.  With a REMOTE record, its entries are the remote
+       files (exactly); otherwise bare $MVXDAEMON means whole-account
+       remote and the default daemon is enumerated. */
+    int listed_remote = 0;
+    {
+        const char *acct2 = getenv("MVXACCOUNT");
+        if (!acct2 || !acct2[0]) acct2 = ".";
+        char rpath[4096];
+        snprintf(rpath, sizeof rpath, "%s/REMOTE", acct2);
+        FILE *rf = fopen(rpath, "r");
+        if (rf) {
+            listed_remote = 1;
+            char ln[1152];
+            while (fgets(ln, sizeof ln, rf)) {
+                char *p = ln;
+                while (*p == ' ' || *p == '\t') p++;
+                char *sp2 = p;
+                while (*sp2 && *sp2 != ' ' && *sp2 != '\t' &&
+                       *sp2 != '\n' && *sp2 != '\r')
+                    sp2++;
+                size_t n = (size_t)(sp2 - p);
+                if (n > 0 && !(n == 1 && p[0] == '*'))
+                    FL_PUT(p, n, 'N');
+            }
+            fclose(rf);
+        }
+    }
     const char *dmn = getenv("MVXDAEMON");
-    if (dmn && dmn[0]) {
+    if (!listed_remote && dmn && dmn[0]) {
         const mvx_driver *net = driver_load("lmdbnet");
         if (net->names) {
             mv_value names;
@@ -970,16 +994,126 @@ static int spec_cstr(const mv_value *spec, char *out, size_t cap) {
     return 1;
 }
 
+/* Maintain the REMOTE binding record (CREATE-FILE writes it,
+   DELETE-FILE cleans it). */
+static void remote_bind_add(const char *cspec, const char *addr) {
+    char dummy[512];
+    if (remote_addr_for(cspec, dummy, sizeof dummy)) {
+        /* already bound (exact or via *): leave as is */
+        const char *acct0 = getenv("MVXACCOUNT");
+        (void)acct0;
+    }
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    char path[4096];
+    snprintf(path, sizeof path, "%s/REMOTE", acct);
+    /* skip when an exact entry already exists */
+    FILE *rp = fopen(path, "r");
+    if (rp) {
+        char ln[1152];
+        size_t cl = strlen(cspec);
+        while (fgets(ln, sizeof ln, rp)) {
+            char *p = ln;
+            while (*p == ' ' || *p == '\t') p++;
+            char *sp2 = p;
+            while (*sp2 && *sp2 != ' ' && *sp2 != '\t' &&
+                   *sp2 != '\n' && *sp2 != '\r')
+                sp2++;
+            if ((size_t)(sp2 - p) == cl && memcmp(p, cspec, cl) == 0) {
+                fclose(rp);
+                return;
+            }
+        }
+        fclose(rp);
+    }
+    FILE *fp = fopen(path, "a");
+    if (!fp) return;
+    if (addr && addr[0]) fprintf(fp, "%s %s\n", cspec, addr);
+    else fprintf(fp, "%s\n", cspec);
+    fclose(fp);
+}
+
+static void remote_bind_remove(const char *cspec) {
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    char path[4096];
+    snprintf(path, sizeof path, "%s/REMOTE", acct);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return;
+    char out[16384];
+    size_t olen = 0;
+    char ln[1152];
+    size_t cl = strlen(cspec);
+    int changed = 0;
+    while (fgets(ln, sizeof ln, fp)) {
+        char *p = ln;
+        while (*p == ' ' || *p == '\t') p++;
+        char *sp2 = p;
+        while (*sp2 && *sp2 != ' ' && *sp2 != '\t' && *sp2 != '\n' &&
+               *sp2 != '\r')
+            sp2++;
+        if ((size_t)(sp2 - p) == cl && memcmp(p, cspec, cl) == 0) {
+            changed = 1;
+            continue;
+        }
+        size_t n = strlen(ln);
+        if (olen + n < sizeof out) {
+            memcpy(out + olen, ln, n);
+            olen += n;
+        }
+    }
+    fclose(fp);
+    if (!changed) return;
+    if (olen == 0) {
+        unlink(path);
+        return;
+    }
+    fp = fopen(path, "w");
+    if (!fp) return;
+    fwrite(out, 1, olen, fp);
+    fclose(fp);
+}
+
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type) {
     (void)ctx;
     char cspec[1024];
     if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
 
-    char tb[40];
+    char tb[600];
     const char *tp = "";
     if (type) mv_val_chars(type, tb, sizeof tb, &tp);
     char err[256] = "";
+
+    /* CREATE-FILE name REMOTE {addr}: bind at creation and create on
+       the daemon.  The binding is recorded in the REMOTE record so
+       every later OPEN resolves there. */
+    if (strncasecmp(tp, "REMOTE", 6) == 0) {
+        const char *ap = tp + 6;
+        while (*ap == ' ' || *ap == '\t') ap++;
+        const char *envd = getenv("MVXDAEMON");
+        if (!ap[0] && (!envd || !envd[0])) {
+            fprintf(stderr, "CREATE-FILE REMOTE: no daemon address "
+                            "(give one, or set $MVXDAEMON)\n");
+            return 0;
+        }
+        remote_bind_add(cspec, ap);
+        char dataspec[1720], dictspec[1720];
+        const mvx_driver *drv =
+            resolve(cspec, 0, dataspec, sizeof dataspec);
+        if (!drv->create(dataspec, err, sizeof err)) {
+            if (err[0]) fprintf(stderr, "CREATE-FILE: %s\n", err);
+            remote_bind_remove(cspec);
+            return 0;
+        }
+        resolve(cspec, 1, dictspec, sizeof dictspec);
+        if (!drv->create(dictspec, err, sizeof err)) {
+            drv->remove(dataspec, err, sizeof err);
+            remote_bind_remove(cspec);
+            return 0;
+        }
+        return 1;
+    }
 
     if (tp[0] == 'D' || tp[0] == 'd') {
         const mvx_driver *drv = driver_load("dir");
@@ -1011,10 +1145,12 @@ int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec) {
     char cspec[1024];
     if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
 
-    char dspec[1152], rspec[1152];
+    char dspec[1720], rspec[1720];
     const mvx_driver *drv = resolve(cspec, 1, dspec, sizeof dspec);
     char err[256] = "";
     drv->remove(dspec, err, sizeof err);        /* dict first, may be absent */
     resolve(cspec, 0, rspec, sizeof rspec);
-    return drv->remove(rspec, err, sizeof err);
+    int64_t r = drv->remove(rspec, err, sizeof err);
+    if (r) remote_bind_remove(cspec);           /* binding dies with it */
+    return r;
 }

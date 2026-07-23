@@ -77,11 +77,14 @@
   daemon-owned, never both. The daemon speaks raw record bytes — MV
   semantics stay in the client runtime — and links only liblmdb.
 - **Deployment is the promised config swap, and migration is per
-  file** (4.4): the account's `REMOTE` record binds individual files
-  to daemons ("SPEC {addr}" lines, `*` for all, exact entry wins,
-  `$MVXDAEMON` the default address; managed by REMOTE-FILE /
-  LOCAL-FILE / LIST-REMOTE). Bare `$MVXDAEMON` with no REMOTE record
-  binds the whole account. The daemon address travels inside the
+  file** (4.4): a file's type is chosen at creation. `CREATE-FILE
+  name REMOTE {addr}` records a binding in the account's `REMOTE`
+  record ("SPEC {addr}" lines, `*` for all, exact entry wins,
+  `$MVXDAEMON` the default address) and creates the file on the
+  daemon; DELETE-FILE removes the binding with the file. Bare
+  `$MVXDAEMON` with no REMOTE record binds the whole account. The
+  REMOTE record is editable by hand, but there are no separate binding
+  verbs — creation is the one place the decision lives. The daemon address travels inside the
   driver-level spec ("addr\nspec"), so lock keys and index metadata
   stay distinct across daemons, and `lmdbnet` keeps one connection
   per daemon. Directory files always stay local. Binding is

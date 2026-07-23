@@ -12,9 +12,11 @@ within it a file is either:
   `mvxdata.lmdb` environment (or the daemon's — see deployment).
 
 `OPEN` decides by looking: a directory of that name means the
-directory driver, otherwise LMDB. Creation is explicit — `OPEN` of a
-nonexistent file takes the ELSE branch; `CREATE-FILE` (or
-`CREATEFILE()`) makes one, and makes its dictionary at the same time.
+directory driver, otherwise LMDB (local, or daemon-backed if the file
+is bound — see Deployment). Creation is explicit — `OPEN` of a
+nonexistent file takes the ELSE branch; `CREATE-FILE name {DIR |
+REMOTE {addr}}` chooses the type once, and makes the dictionary at the
+same time.
 
 ## Dictionaries
 

@@ -30,24 +30,27 @@ dictionaries, indexes, the VOC — lives in the daemon; directory files
 
 ## Mixing local and remote per file
 
-Migration is per file. The account's `REMOTE` record binds individual
-files to daemons, managed by verbs:
+Migration is per file, and a file's type is chosen at creation:
 
 ```
-> REMOTE-FILE SHARED /run/mvxd.sock      bind one file (own address)
-> REMOTE-FILE HOT                        bind to the default $MVXDAEMON
-> LIST-REMOTE
-> LOCAL-FILE HOT                         unbind
+> CREATE-FILE ORDERS                     local LMDB
+> CREATE-FILE ARCHIVE DIR                directory (git-native source)
+> CREATE-FILE SHARED REMOTE /run/mvxd.sock   on that daemon
+> CREATE-FILE HOT REMOTE                 on the default $MVXDAEMON
 ```
 
-Rules: an exact entry wins, a `*` entry binds every LMDB file, an
-entry without an address uses `$MVXDAEMON`, and different files may
-name different daemons. With a `REMOTE` record present, unlisted
-files stay local — so one account can mix local LMDB, several
-daemons, and directory files, and one program reads all of them
-through ordinary `OPEN`/`READ`/`WRITE`. Binding affects resolution
-only: existing data does not move when a binding changes (copy it
-with a `SELECT`/`READ`/`WRITE` loop, or a future MIGRATE-FILE verb).
+`CREATE-FILE ... REMOTE` records the binding in the account's `REMOTE`
+file and creates the file on the daemon; `DELETE-FILE` removes both
+the file and its binding; `LISTF` shows each file's type (lmdb /
+directory / remote). Different files may name different daemons, so
+one account can mix local LMDB, several daemons, and directory files —
+and one program reads them all through ordinary `OPEN`/`READ`/`WRITE`.
+
+The binding is a plain record you can edit directly: `SPEC {address}`
+per line, `*` for every LMDB file, an address defaulting to
+`$MVXDAEMON`. With no `REMOTE` file, bare `$MVXDAEMON` binds the whole
+account (the simple all-remote deployment). Binding is resolution
+only — existing data does not move when it changes.
 
 What the daemon guarantees:
 

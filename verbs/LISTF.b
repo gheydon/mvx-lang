@@ -10,11 +10,14 @@ FOR I = 1 TO N
    E = L<I>
    NM = E<1, 1>
    TY = E<1, 2>
-   IF TY = "D" THEN
+   BEGIN CASE
+   CASE TY = "D"
       TYX = "directory"
-   END ELSE
+   CASE TY = "N"
+      TYX = "remote"
+   CASE 1
       TYX = "lmdb"
-   END
+   END CASE
    PRINT FMT(NM, "L#24"):" ":TYX
 NEXT I
 PRINT N:" file(s)"
