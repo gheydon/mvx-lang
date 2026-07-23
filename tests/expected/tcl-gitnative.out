@@ -1,7 +1,9 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-initialised git repository
-2 record(s) exported to CUST.EXP
-CUST.EXP staged
-committed HASH
-HASH initial export
+saved 2 record(s), HASH
+HASH first
+1 record(s) deleted
+restored 2 record(s), 0 removed
+C1
+001 Ada
+002 London

@@ -228,10 +228,11 @@ WRITE "Bob":@AM:"Paris" ON F, "C2"
 GSEOF
 "$MVX" "$gseed" -o "$TESTROOT/gseedbin" 2>/dev/null
 (cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gseedbin")
-printf 'mvxdata.lmdb/\nCATALOG/\nPACKAGES\n' > "$GACCT/.gitignore"
 check tcl-gitnative "$( \
-  printf "LINK-PKG $ROOT/packages/git\nGIT INIT\nGIT EXPORT CUST\nGIT COMMIT initial export\nGIT LOG\n" | \
-    "$TCL" -a "$GACCT" 2>&1 | sed -E 's/[0-9a-f]{7,40}/HASH/g' | normalise)"
+  printf "LINK-PKG $ROOT/packages/git\nGIT SAVE CUST first\nGIT LOG\n" | \
+    "$TCL" -a "$GACCT" 2>&1 | sed -E 's/[0-9a-f]{7,40}/HASH/g' | normalise; \
+  printf 'DELETE CUST C1\n' | "$TCL" -a "$GACCT" 2>&1; \
+  printf 'GIT RESTORE CUST\nCT CUST C1\n' | "$TCL" -a "$GACCT" 2>&1)"
 
 # PORT-SOURCE: C-style comments to classic, output must compile
 cat > "$ACCT/BP/CPORT" <<'EOF'

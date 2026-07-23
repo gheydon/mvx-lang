@@ -49,7 +49,7 @@ standard verbs.
 | `WHO` `TIME` `DATE` | session information |
 | `EXPORT file {dir}` | copy records to a git-native directory file |
 | `IMPORT file {dir}` | mirror a directory file back (full sync) |
-| `GIT ...` | git package: status, log, diff, init, export, import, commit |
+| `GIT SAVE\|RESTORE\|LOG file` | git package: version hash-file records directly |
 
 ## Select lists between commands
 

@@ -1,18 +1,14 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-git@2.0        ok     @ROOT@/packages/git     requires cmd
+git@3.0        ok     @ROOT@/packages/git     requires cmd
 cmd@1.0        ok     @ROOT@/packages/cmd     
 2 package(s) linked
-GIT - work with the account's git repository
+GIT - version hash-file records with git
 usage: GIT <command>
 commands:
-  status       working tree status
+  save         commit a file's records
+  restore      restore a file's records from git
   log          recent history
-  diff         unstaged changes
-  init         initialise a repository here
-  export       export a hash file and stage it
-  import       import a hash file from its export
-  commit       commit staged changes
   help         show this help
 cannot unlink cmd: @ROOT@/packages/git depends on it
 unlinked @ROOT@/packages/git

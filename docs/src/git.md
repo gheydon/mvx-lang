@@ -1,62 +1,68 @@
 # Version Control
 
-Hash-file records live in a keyed store, but git works on text files.
-MVX bridges the two by **exporting a hash file into a directory file**
-— and directory files are already git-native (one record per Unix
-file, attributes as lines), so git tracks them with no sync logic.
-
-## EXPORT / IMPORT
-
-```
-> EXPORT CUST                copy CUST's records into CUST.EXP (a
-                             directory file), git-native
-> IMPORT CUST                mirror CUST.EXP back into CUST
-```
-
-`EXPORT file {dir}` writes each record (respecting an active select
-list) as a text file in the directory file `dir` (default
-`<file>.EXP`). `IMPORT file {dir}` is a **full mirror**: every record
-in the directory is written to the file, and file records absent from
-the directory are deleted — so a checkout, merge, or pull that added,
-changed, or removed record files is reflected exactly.
+Hash-file records can be versioned with git **directly** — a record's
+bytes become a git blob in memory, and a blob's bytes are written
+straight back to the record. No copy to an intermediate file: the hash
+file is git's source of truth. Attribute marks map to newlines in the
+blob, so git diffs are legible and line-oriented, and back on restore.
 
 ## The git package
 
-Linking `packages/git` adds a `GIT` verb whose subcommands wrap the
-workflow. Git operations run through **libgit2** as native cataloged
-subroutines (in the package's `LIB/`), not by spawning the `git` CLI —
-so they need no external binary, work at any privilege tier, and take
-structured arguments (a commit message cannot inject into a shell):
+Linking `packages/git` adds a `GIT` verb. Git runs through **libgit2**
+as native cataloged subroutines (no `git` binary, any privilege tier,
+no shell — a commit message cannot inject), and git objects live in a
+small bare repo (`.recgit`) in the account.
 
 ```
-> GIT INIT                   git init in the account
-> GIT EXPORT CUST            EXPORT, then git add CUST.EXP
-> GIT COMMIT saved customers git commit -m ...
-> GIT STATUS / LOG / DIFF    the usual
-> GIT IMPORT CUST            after a pull/checkout, mirror back
+> GIT SAVE CUST added customers    commit CUST's records directly
+> GIT LOG                          history
+> GIT RESTORE CUST                 write the records back from git,
+                                   deleting any absent from the commit
 ```
 
-Local plumbing (init, add, commit, status, log, diff) is native.
-Network operations (clone, push, pull) still need credential handling
-and are a later addition.
+`GIT SAVE file {message}` reads each record, makes a blob, and commits
+them under `file/<id>` — a change to one record is a one-line diff in
+`file/<id>`. `GIT RESTORE file` mirrors the latest commit back into the
+hash file: every recorded blob is written, and records absent from the
+commit are deleted, so a revert or a checkout of an older commit
+restores the file exactly.
 
-A change to a record produces a one-line git diff in
-`CUST.EXP/<id>`, so history is legible and merges behave. The typical
-cycle: edit records (with `ED`, `VI`, or a program), `GIT EXPORT`,
-`GIT COMMIT`; and on another machine, `git pull` then `GIT IMPORT`.
+Because the blobs are line-oriented text, ordinary git tooling works
+on the record history:
+
+```
+git --git-dir=.recgit log --oneline
+git --git-dir=.recgit diff HEAD~1 HEAD --stat
+git --git-dir=.recgit show HEAD:CUST/C1
+```
+
+## EXPORT / IMPORT (materialised mirror)
+
+When you want the records as real files on disk — to browse, to feed a
+non-git tool, or to track BP source that is already a directory file —
+`EXPORT` and `IMPORT` copy between a hash file and a **directory file**
+(git-native: one record per Unix file, attributes as lines):
+
+```
+> EXPORT CUST                copies CUST's records into CUST.EXP
+> IMPORT CUST                mirrors CUST.EXP back (full sync)
+```
+
+The difference: `GIT SAVE` versions records with no on-disk copy;
+`EXPORT` produces a browsable directory file. Both round-trip records
+faithfully.
 
 ## What to track
 
 Per ARCHITECTURE.md 9:
 
-| artifact | source of truth | git |
+| artifact | source of truth | approach |
 |---|---|---|
-| BP / source | the directory | native — edit in place, no export |
-| VOC / dictionaries | the hash file | `EXPORT`/`IMPORT` a text mirror |
+| BP / source | the directory | git tracks the directory file natively |
+| VOC / dictionaries | the hash file | `GIT SAVE` / `GIT RESTORE`, or `EXPORT`/`IMPORT` |
 | data files | the backend store | usually not tracked |
 
-Source in a `BP` directory file is tracked directly. Operational data
-— VOC, dictionaries — is exported explicitly rather than synced live,
-because a `git checkout` must not silently rewrite verb dispatch
-underneath a running session. Movement between store and repository is
-a deliberate `EXPORT`/`IMPORT`, like `pg_dump`/`psql`.
+Operational data is versioned by an explicit `GIT SAVE`, not synced
+live, because a checkout must never rewrite verb dispatch underneath a
+running session — the movement between store and history is a
+deliberate command.
