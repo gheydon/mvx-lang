@@ -54,8 +54,32 @@ target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 # --- classic TCL shell -------------------------------------------------
 add_executable(mvx-tcl tcl/mvx_tcl.c)
 target_link_libraries(mvx-tcl PRIVATE mvxrt ${CMAKE_DL_LIBS})
+target_compile_definitions(mvx-tcl PRIVATE
+  MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
 set_target_properties(mvx-tcl PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# --- system account: the source of truth for standard verbs ------------
+# Master VOC lives in the repo as a directory file (system/VOC, one text
+# record per verb); the build compiles verbs/*.b into system/CATALOG.
+# Accounts hold only local VOC entries and fall back to this.
+set(MVX_SYS_DIR ${CMAKE_BINARY_DIR}/system)
+file(GLOB MVX_VERB_SOURCES ${CMAKE_SOURCE_DIR}/verbs/*.b)
+set(MVX_SYS_VERBS "")
+foreach(vsrc ${MVX_VERB_SOURCES})
+  get_filename_component(vname ${vsrc} NAME_WE)
+  add_custom_command(OUTPUT ${MVX_SYS_DIR}/CATALOG/${vname}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${MVX_SYS_DIR}/CATALOG
+    COMMAND $<TARGET_FILE:mvx> ${vsrc} -o ${MVX_SYS_DIR}/CATALOG/${vname}
+    DEPENDS mvx mvxrt mvx_crt mvxdrv_dir mvxdrv_lmdb ${vsrc}
+    COMMENT "Cataloging ${vname}")
+  list(APPEND MVX_SYS_VERBS ${MVX_SYS_DIR}/CATALOG/${vname})
+endforeach()
+add_custom_target(system-account ALL
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${MVX_SYS_DIR}/VOC
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_SOURCE_DIR}/system/VOC ${MVX_SYS_DIR}/VOC
+  DEPENDS ${MVX_SYS_VERBS})
 
 # Program-entry object, shipped standalone so shared-library builds never
 # pick up a main().  The driver links it explicitly for executables.

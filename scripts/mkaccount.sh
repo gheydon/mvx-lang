@@ -1,20 +1,13 @@
 #!/bin/sh
-# Create an MVX account: compile the base verbs into CATALOG/ and seed
-# the VOC.  Usage: scripts/mkaccount.sh <account-directory>
+# Create an MVX account.  Standard verbs come from the system account
+# (built into build/system, overridable with $MVXSYSTEM); the account
+# itself gets only an empty local VOC for its own cataloged programs.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MVX="$ROOT/build/bin/mvx"
 ACCT="${1:?usage: mkaccount.sh <account-directory>}"
 
-mkdir -p "$ACCT/CATALOG"
-
-for src in "$ROOT"/verbs/*.b; do
-  name="$(basename "$src" .b)"
-  "$MVX" "$src" -o "$ACCT/CATALOG/$name"
-done
-
-"$MVX" "$ROOT/scripts/setup-voc.b" -o "$ACCT/CATALOG/.setup-voc"
-(cd "$ACCT" && MVXACCOUNT=. "./CATALOG/.setup-voc")
+mkdir -p "$ACCT"
+"$ROOT/build/bin/mvx-tcl" -a "$ACCT" -c "CREATE-FILE VOC" >/dev/null
 
 echo "account ready: $ACCT"

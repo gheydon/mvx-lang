@@ -28,26 +28,37 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifndef MVX_SYSTEM_DIR
+#define MVX_SYSTEM_DIR "."
+#endif
+
 static mvx_ctx *g_ctx;
-static mv_value g_voc;
-static int g_voc_state;                 /* 0 untried, 1 open, -1 absent */
+static mv_value g_voc, g_sysvoc;
+static int g_voc_state, g_sysvoc_state; /* 0 untried, 1 open, -1 absent */
 
-static int voc_lookup(const char *verb, char *path, size_t cap) {
-    if (g_voc_state == 0) {
-        mv_value spec;
-        mv_init(&spec);
-        mv_set_str(&spec, "VOC", 3);
-        mv_init(&g_voc);
-        g_voc_state = mvx_open(g_ctx, NULL, &spec, &g_voc) ? 1 : -1;
-        mv_clear(&spec);
-    }
-    if (g_voc_state < 0) return -1;
+static const char *system_dir(void) {
+    const char *p = getenv("MVXSYSTEM");
+    return p && p[0] ? p : MVX_SYSTEM_DIR;
+}
 
+static int voc_open(mv_value *voc, const char *spec) {
+    mv_value s;
+    mv_init(&s);
+    mv_set_str(&s, spec, (int64_t)strlen(spec));
+    mv_init(voc);
+    int ok = mvx_open(g_ctx, NULL, &s, voc) ? 1 : -1;
+    mv_clear(&s);
+    return ok;
+}
+
+/* Read a V-record from the given VOC; path receives attribute 2. */
+static int voc_read(mv_value *voc, const char *verb, char *path,
+                    size_t cap) {
     mv_value id, rec, a1, a2;
     mv_init(&id); mv_init(&rec); mv_init(&a1); mv_init(&a2);
     mv_set_str(&id, verb, (int64_t)strlen(verb));
     int found = 0;
-    if (mvx_read(g_ctx, &rec, &g_voc, &id, 0)) {
+    if (mvx_read(g_ctx, &rec, voc, &id, 0)) {
         mv_extract_fn(&a1, &rec, 1, 0, 0);
         mv_extract_fn(&a2, &rec, 2, 0, 0);
         char nb[40];
@@ -64,6 +75,29 @@ static int voc_lookup(const char *verb, char *path, size_t cap) {
     }
     mv_clear(&id); mv_clear(&rec); mv_clear(&a1); mv_clear(&a2);
     return found;
+}
+
+/* Resolution: account VOC first (local overrides), then the system
+   account's master VOC.  System verbs execute from the system CATALOG
+   by absolute path but run in the user's account (cwd). */
+static int voc_lookup(const char *verb, char *path, size_t cap) {
+    if (g_voc_state == 0) g_voc_state = voc_open(&g_voc, "VOC");
+    if (g_voc_state > 0 && voc_read(&g_voc, verb, path, cap))
+        return 1;
+
+    if (g_sysvoc_state == 0) {
+        char sysvoc[4096];
+        snprintf(sysvoc, sizeof sysvoc, "%s/VOC", system_dir());
+        g_sysvoc_state = voc_open(&g_sysvoc, sysvoc);
+    }
+    if (g_sysvoc_state > 0) {
+        char rel[1024];
+        if (voc_read(&g_sysvoc, verb, rel, sizeof rel)) {
+            snprintf(path, cap, "%s/%s", system_dir(), rel);
+            return 1;
+        }
+    }
+    return (g_voc_state < 0 && g_sysvoc_state < 0) ? -1 : 0;
 }
 
 static void run_verb(const char *path, const char *line) {
@@ -126,11 +160,11 @@ static void command(char *line) {
         return;
     }
     if (r < 0)
-        fprintf(stderr, "mvx-tcl: this account has no VOC "
-                        "(run the account bootstrap); only builtins "
-                        "are available\n");
+        fprintf(stderr, "mvx-tcl: no VOC found in this account or the "
+                        "system account (%s); only builtins are "
+                        "available\n", system_dir());
     else
-        fprintf(stderr, "verb \"%s\" not found in VOC\n", verb);
+        fprintf(stderr, "verb \"%s\" not found\n", verb);
 }
 
 int main(int argc, char **argv) {

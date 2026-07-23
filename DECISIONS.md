@@ -49,7 +49,18 @@
   the builtin table (OFF/QUIT/BYE, `!`), VOC lookup, and fork/exec of
   cataloged executables — nothing else. Verbs are compiled BASIC
   programs in `CATALOG/`, named by VOC records (attr 1 `V`, attr 2
-  executable path). Dispatch order: builtins, VOC, not-found.
+  executable path). Dispatch order: builtins, account VOC, system VOC,
+  not-found.
+- **Standard verbs live once, in the system account** (SYSPROG-style).
+  The build compiles `verbs/*.b` into `build/system/CATALOG` and the
+  master VOC is a directory file kept in the repo (`system/VOC`, one
+  text record per verb — configuration-as-code, diffable). Accounts
+  hold only local VOC entries; local overrides system on lookup.
+  System verbs execute by absolute path but run in the user's account
+  (cwd), so they operate on account data. `$MVXSYSTEM` overrides the
+  baked-in system location. Reading the master VOC needs no special
+  machinery: it is an absolute-path directory file, which the existing
+  directory driver already serves.
 - **The sentence crosses via the environment**: TCL sets
   `$MVX_SENTENCE`; the `SENTENCE()` intrinsic reads it. Verbs parse
   their own arguments with FIELD().
