@@ -1,0 +1,12 @@
+[book]
+title = "The MVX Book"
+authors = ["Gordon Heydon"]
+description = "MVX: a native compiler and environment for Pick/MultiValue BASIC"
+src = "src"
+
+[build]
+build-dir = "../build/docs"
+
+[output.html]
+default-theme = "rust"
+git-repository-url = ""
