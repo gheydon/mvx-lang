@@ -304,7 +304,13 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
 
     char err[256] = "";
     mvx_file *f = drv->open(rspec, err, sizeof err);
-    if (!f) return 0;
+    if (!f) {
+        /* A plain missing file is the normal ELSE path and stays
+           silent; an infrastructure failure must say why. */
+        if (err[0])
+            fprintf(stderr, "OPEN %s: %s\n", rspec, err);
+        return 0;
+    }
 
     store_state *st = state(ctx);
     open_file *o = malloc(sizeof(open_file));

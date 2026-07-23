@@ -50,6 +50,11 @@ static MDB_env *env_get(char *err, size_t errlen) {
         if (env) mdb_env_close(env);
         return NULL;
     }
+    /* Reap reader-table slots left by killed processes; without this,
+       enough unclean exits eventually exhaust the table and every
+       open fails with MDB_READERS_FULL. */
+    int dead = 0;
+    mdb_reader_check(env, &dead);
     return g_env = env;
 }
 
