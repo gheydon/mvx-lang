@@ -30,6 +30,12 @@
   successful driver write.
 - **Two-part `OPEN "DICT","F"`** parses but fails (ELSE) until
   dictionaries exist.
+- **File creation is explicit.** `OPEN` never creates; a nonexistent
+  file takes ELSE, classic style. The driver contract carries handle-
+  less `create`/`remove` operations, surfaced in BASIC as
+  `CREATEFILE(spec {,"DIR"})` and `DELETEFILE(spec)` — these are the
+  primitives the CREATE-FILE / DELETE-FILE verbs will wrap when TCL
+  arrives, since verbs are BASIC programs, not C.
 
 # Slice 1 decisions
 

@@ -153,6 +153,9 @@ int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
 void    mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id);
 void    mvx_select(mvx_ctx *ctx, const mv_value *fvar);
 int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id);
+int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
+                       const mv_value *type);       /* type NULL/"DIR" */
+int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);
 void    mvx_store_shutdown(mvx_ctx *ctx);           /* ctx destroy hook */
 void   *mvx_ctx_store_get(mvx_ctx *ctx);
 void    mvx_ctx_store_set(mvx_ctx *ctx, void *p);

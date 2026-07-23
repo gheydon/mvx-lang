@@ -183,11 +183,55 @@ static void dir_select_end(mvx_cursor *c) {
     free(c);
 }
 
+static void spec_path(const char *spec, char *path, size_t cap) {
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    if (spec[0] == '/')
+        snprintf(path, cap, "%s", spec);
+    else
+        snprintf(path, cap, "%s/%s", acct, spec);
+}
+
+static int dir_create(const char *spec, char *err, size_t errlen) {
+    char path[4096];
+    spec_path(spec, path, sizeof path);
+    if (mkdir(path, 0775) != 0) {
+        snprintf(err, errlen, "dir: cannot create %s", path);
+        return 0;
+    }
+    return 1;
+}
+
+static int dir_remove(const char *spec, char *err, size_t errlen) {
+    char path[4096];
+    spec_path(spec, path, sizeof path);
+    DIR *d = opendir(path);
+    if (!d) {
+        snprintf(err, errlen, "dir: %s does not exist", path);
+        return 0;
+    }
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+            continue;
+        char p[4352];
+        snprintf(p, sizeof p, "%s/%s", path, e->d_name);
+        unlink(p);                      /* leaves subdirectories behind */
+    }
+    closedir(d);
+    if (rmdir(path) != 0) {
+        snprintf(err, errlen, "dir: %s not empty", path);
+        return 0;
+    }
+    return 1;
+}
+
 static const mvx_driver mvx_driver_dir = {
     "dir",
     dir_open, dir_close,
     dir_read, dir_write, dir_del,
     dir_select_begin, dir_select_next, dir_select_end,
+    dir_create, dir_remove,
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

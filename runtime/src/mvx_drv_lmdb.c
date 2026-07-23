@@ -55,28 +55,36 @@ static MDB_env *env_get(char *err, size_t errlen) {
 
 static const mvx_driver mvx_driver_lmdb;
 
-static mvx_file *lmdb_open(const char *spec, char *err, size_t errlen) {
+/* Open the named DB; creating is the caller's choice via flags. */
+static int dbi_open(unsigned flags, const char *spec, MDB_dbi *dbi,
+                    char *err, size_t errlen) {
     MDB_env *env = env_get(err, errlen);
-    if (!env) return NULL;
-
+    if (!env) return 0;
     MDB_txn *txn;
     int rc = mdb_txn_begin(env, NULL, 0, &txn);
     if (rc != 0) {
         snprintf(err, errlen, "lmdb: %s", mdb_strerror(rc));
-        return NULL;
+        return 0;
     }
-    MDB_dbi dbi;
-    rc = mdb_dbi_open(txn, spec, MDB_CREATE, &dbi);
+    rc = mdb_dbi_open(txn, spec, flags, dbi);
     if (rc != 0) {
         mdb_txn_abort(txn);
-        snprintf(err, errlen, "lmdb: %s: %s", spec, mdb_strerror(rc));
-        return NULL;
+        if (rc != MDB_NOTFOUND)
+            snprintf(err, errlen, "lmdb: %s: %s", spec, mdb_strerror(rc));
+        return 0;
     }
     rc = mdb_txn_commit(txn);
     if (rc != 0) {
         snprintf(err, errlen, "lmdb: %s", mdb_strerror(rc));
-        return NULL;
+        return 0;
     }
+    return 1;
+}
+
+static mvx_file *lmdb_open(const char *spec, char *err, size_t errlen) {
+    MDB_dbi dbi;
+    if (!dbi_open(0, spec, &dbi, err, errlen))   /* no MDB_CREATE: explicit */
+        return NULL;
 
     lmdb_file *f = calloc(1, sizeof(lmdb_file));
     if (!f) mvx_fatal("out of memory opening %s", spec);
@@ -176,12 +184,31 @@ static void lmdb_select_end(mvx_cursor *c) {
     free(c);
 }
 
+static int lmdb_create(const char *spec, char *err, size_t errlen);
+static int lmdb_remove(const char *spec, char *err, size_t errlen);
+
 static const mvx_driver mvx_driver_lmdb = {
     "lmdb",
     lmdb_open, lmdb_close,
     lmdb_read, lmdb_write, lmdb_del,
     lmdb_select_begin, lmdb_select_next, lmdb_select_end,
+    lmdb_create, lmdb_remove,
 };
+
+static int lmdb_create(const char *spec, char *err, size_t errlen) {
+    MDB_dbi dbi;
+    if (dbi_open(0, spec, &dbi, err, errlen)) return 0;  /* already exists */
+    return dbi_open(MDB_CREATE, spec, &dbi, err, errlen);
+}
+
+static int lmdb_remove(const char *spec, char *err, size_t errlen) {
+    MDB_dbi dbi;
+    if (!dbi_open(0, spec, &dbi, err, errlen)) return 0;
+    MDB_txn *txn;
+    if (mdb_txn_begin(g_env, NULL, 0, &txn) != 0) return 0;
+    if (mdb_drop(txn, dbi, 1) != 0) { mdb_txn_abort(txn); return 0; }
+    return mdb_txn_commit(txn) == 0;
+}
 
 const mvx_driver *mvx_driver_entry(int abi) {
     return abi == MVX_DRIVER_ABI ? &mvx_driver_lmdb : NULL;

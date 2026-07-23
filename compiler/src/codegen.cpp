@@ -49,6 +49,7 @@ const std::set<std::string> kStrIntrinsics = {
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
+    "CREATEFILE", "DELETEFILE",
 };
 
 // String-valued intrinsics (boxed results).
@@ -587,6 +588,18 @@ private:
                                numIndex(*e.args[2])});
             if (f == "STATUS" && e.args.empty())
                 return callRt("mvx_status", i64Ty_, {ptrTy_}, {ctxArg_});
+            if (f == "CREATEFILE" &&
+                (e.args.size() == 1 || e.args.size() == 2)) {
+                Value *type = e.args.size() == 2
+                                  ? evalPtr(*e.args[1])
+                                  : (Value *)ConstantPointerNull::get(ptrTy_);
+                return callRt("mvx_createfile", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]), type});
+            }
+            if (f == "DELETEFILE" && e.args.size() == 1)
+                return callRt("mvx_deletefile", i64Ty_, {ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0])});
             if (kIntIntrinsics.count(f))
                 err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")

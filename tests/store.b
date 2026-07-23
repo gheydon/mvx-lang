@@ -1,5 +1,12 @@
 * Storage: LMDB named-DB file
-OPEN "PARTS" TO F ELSE PRINT "cannot open PARTS" ; STOP
+* OPEN must not auto-create; creation is explicit.
+OPEN "PARTS" TO F THEN
+   PRINT "PARTS pre-existed"
+END ELSE
+   IF CREATEFILE("PARTS") ELSE PRINT "create failed" ; STOP
+   OPEN "PARTS" TO F ELSE PRINT "cannot open after create" ; STOP
+   PRINT "created PARTS"
+END
 WRITE "Widget":@AM:"9.99" ON F, "W1"
 WRITE "Gadget":@AM:"4.50" ON F, "W2"
 WRITE "Sprocket":@AM:"1.25" ON F, "W3"
@@ -22,7 +29,7 @@ UNTIL DONE DO
    READ R FROM F, ID THEN PRINT ID:" = ":R<1>
 REPEAT
 PRINT "count ":N
-* clean up for reruns
-DELETE F, "W1"
-DELETE F, "W2"
+* remove the whole file; a fresh OPEN must then fail
+IF DELETEFILE("PARTS") ELSE PRINT "deletefile failed"
+OPEN "PARTS" TO G THEN PRINT "still opens?!" ELSE PRINT "gone ok"
 END

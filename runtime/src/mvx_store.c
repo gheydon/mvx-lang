@@ -337,3 +337,56 @@ int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id) {
     mv_copy(id, &st->sel_ids[st->sel_pos++]);
     return 1;
 }
+
+/* -------------------------------------------------------- file lifecycle
+   The primitives behind the future CREATE-FILE / DELETE-FILE verbs
+   (which will be BASIC programs, per the architecture). */
+
+static int spec_cstr(const mv_value *spec, char *out, size_t cap) {
+    char nb[40];
+    const char *sp;
+    int64_t slen = mv_val_chars(spec, nb, sizeof nb, &sp);
+    if (slen == 0 || (size_t)slen >= cap) return 0;
+    memcpy(out, sp, (size_t)slen);
+    out[slen] = '\0';
+    return 1;
+}
+
+int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
+                       const mv_value *type) {
+    (void)ctx;
+    char cspec[1024];
+    if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
+
+    const char *drvname = "lmdb";
+    char tb[40];
+    const char *tp = "";
+    if (type) mv_val_chars(type, tb, sizeof tb, &tp);
+    if (tp[0] == 'D' || tp[0] == 'd') drvname = "dir";
+
+    const mvx_driver *drv = driver_load(drvname);
+    char err[256] = "";
+    return drv->create(cspec, err, sizeof err);
+}
+
+int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec) {
+    (void)ctx;
+    char cspec[1024];
+    if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
+
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    char path[4096];
+    if (cspec[0] == '/')
+        snprintf(path, sizeof path, "%s", cspec);
+    else
+        snprintf(path, sizeof path, "%s/%s", acct, cspec);
+
+    struct stat sb;
+    const mvx_driver *drv =
+        (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode))
+            ? driver_load("dir")
+            : driver_load("lmdb");
+    char err[256] = "";
+    return drv->remove(cspec, err, sizeof err);
+}

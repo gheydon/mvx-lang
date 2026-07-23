@@ -44,6 +44,13 @@ typedef struct mvx_driver {
     mvx_cursor *(*select_begin)(mvx_file *f);
     int (*select_next)(mvx_cursor *c, mv_value *id);   /* 1 = got, 0 = end */
     void (*select_end)(mvx_cursor *c);
+
+    /* File lifecycle: handle-less operations on the spec.  open() must
+       NOT create — creation is explicit (the CREATE-FILE verb's
+       primitive).  create returns 0 if the file already exists;
+       remove returns 0 if it does not. */
+    int (*create)(const char *spec, char *err, size_t errlen);
+    int (*remove)(const char *spec, char *err, size_t errlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
