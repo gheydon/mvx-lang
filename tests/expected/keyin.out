@@ -3,6 +3,7 @@ key: ENTER
 key: TAB
 key: BS
 key: UP
+key: DOWN
 key: DEL
 key: F1
 key: F12

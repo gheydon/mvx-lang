@@ -1,7 +1,8 @@
 /**
  * @file keyin
  * KEYIN() decoding: printable, named specials, escape sequences,
- * pushback after a lone ESC, and @() screen-code strings.
+ * pushback after a lone ESC, SS3 application-cursor arrows,
+ * and @() screen-code strings.
  */
 ECHO OFF
 ECHO ON

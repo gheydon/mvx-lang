@@ -95,7 +95,7 @@ lang strfns world
 # sequences, ESC pushback)
 out="$TESTROOT/keyin"
 if "$MVX" "$ROOT/tests/keyin.b" -o "$out" 2>"$TESTROOT/cerr"; then
-  actual="$(printf 'a\r\t\177\033[A\033[3~\033OP\033[24~\001\033q' | \
+  actual="$(printf 'a\r\t\177\033[A\033OB\033[3~\033OP\033[24~\001\033q' | \
             "$out" 2>&1)"
   check keyin "$actual"
 else

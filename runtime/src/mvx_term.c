@@ -64,13 +64,21 @@ static void decode_escape(mv_value *dst) {
         set_name(dst, "ESC");
         return;
     }
-    if (c == 'O') {                     /* SS3: F1-F4 */
+    if (c == 'O') {                     /* SS3: F1-F4, and arrows when
+                                           the terminal runs application
+                                           cursor mode (Warp does) */
         if (!read_byte(30, &c)) { set_name(dst, "ESC"); return; }
         switch (c) {
         case 'P': set_name(dst, "F1"); return;
         case 'Q': set_name(dst, "F2"); return;
         case 'R': set_name(dst, "F3"); return;
         case 'S': set_name(dst, "F4"); return;
+        case 'A': set_name(dst, "UP"); return;
+        case 'B': set_name(dst, "DOWN"); return;
+        case 'C': set_name(dst, "RIGHT"); return;
+        case 'D': set_name(dst, "LEFT"); return;
+        case 'H': set_name(dst, "HOME"); return;
+        case 'F': set_name(dst, "END"); return;
         default:  set_name(dst, "ESC"); g_pushed = c; return;
         }
     }
