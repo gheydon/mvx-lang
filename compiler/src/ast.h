@@ -24,6 +24,7 @@ struct Expr {
         Var,        // name
         Paren,      // name(args): array element or intrinsic, resolved in codegen
         Extract,    // lhs<args>: dynamic-array extraction (1-3 subscripts)
+        Fmt,        // lhs "mask": format-mask application; rhs = mask expr
         Bin, Neg, Not,
     };
     K kind;
@@ -54,6 +55,7 @@ struct Stmt {
                     // value: optional order; body/elseBody: THEN/ELSE
         Input,      // target: Var or array element read from stdin
         Mat,        // MAT name = value  |  MAT name = MAT name2
+        Common,     // args: Var/Paren items; name2: block name ("" unnamed)
     };
     enum class LoopCond { None, While, Until };
 

@@ -48,7 +48,7 @@ const std::set<std::string> kStrIntrinsics = {
 
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
-    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM",
+    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
 };
 
 // String-valued intrinsics (boxed results).
@@ -138,6 +138,7 @@ public:
         case Expr::K::Not:
             return numericExpr(*e.lhs) ? NK::Int : NK::NotNum;
         case Expr::K::Extract: return NK::NotNum;
+        case Expr::K::Fmt:     return NK::NotNum;
         case Expr::K::Paren: {
             if (arrays_.count(e.sval))
                 switch (arrClass(e.sval)) {
@@ -204,6 +205,17 @@ private:
                 if (s.name2.empty() ? !isByteLit(*s.value) : true)
                     byteUnsafe_.insert(s.name);
                 if (!s.name2.empty()) byteUnsafe_.insert(s.name2);
+            }
+            if (s.kind == Stmt::K::Common) {
+                // COMMON storage is shared across programs: always boxed.
+                for (const auto &item : s.args) {
+                    if (item->kind == Expr::K::Var)
+                        varK_[item->sval] = NK::NotNum;
+                    else {
+                        arrays_.insert(item->sval);
+                        arrK_[item->sval] = NK::NotNum;
+                    }
+                }
             }
             collect(s.body); collect(s.elseBody);
             collect(s.pre);  collect(s.post);
@@ -320,6 +332,8 @@ private:
 
     std::vector<Value *> tempPool_;
     size_t tempUsed_ = 0;
+
+    std::set<std::string> commonArrays_;
 
     // Labels and GOSUB.
     std::map<std::string, BasicBlock *> labelBBs_;
@@ -561,6 +575,8 @@ private:
                               {ptrTy_, ptrTy_, i64Ty_},
                               {evalPtr(*e.args[0]), evalPtr(*e.args[1]),
                                numIndex(*e.args[2])});
+            if (f == "STATUS" && e.args.empty())
+                return callRt("mvx_status", i64Ty_, {ptrTy_}, {ctxArg_});
             if (kIntIntrinsics.count(f))
                 err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")
@@ -712,6 +728,9 @@ private:
                    {dest, base, subIdx(e, 0), subIdx(e, 1), subIdx(e, 2)});
             return;
         }
+        case Expr::K::Fmt:
+            call3("mv_fmt", dest, evalPtr(*e.lhs), evalPtr(*e.rhs));
+            return;
         case Expr::K::Neg:
             call2("mv_neg", dest, evalPtr(*e.lhs));
             return;
@@ -762,6 +781,15 @@ private:
             return; }
         if (f == "TRIM") { need(1);
             call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
+            return; }
+        if (f == "OCONV" || f == "ICONV") { need(2);
+            callRt(f == "OCONV" ? "mv_oconv" : "mv_iconv", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0]),
+                    evalPtr(*e.args[1])});
+            return; }
+        if (f == "FMT") { need(2);
+            call3("mv_fmt", dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]));
             return; }
         if (f == "FIELD") {
             if (e.args.size() != 3 && e.args.size() != 4)
@@ -951,6 +979,9 @@ private:
         case Stmt::K::Mat:
             emitMat(s);
             break;
+        case Stmt::K::Common:
+            break;          // bound at function entry
+
         case Stmt::K::Return:
             // With GOSUBs present, RETURN pops the return stack; with an
             // empty stack it ends the program / returns to the caller.
@@ -967,6 +998,44 @@ private:
             }
             b_.SetInsertPoint(newBB("dead"));
             break;
+        }
+    }
+
+    // Bind every COMMON item to its context-owned slot, positionally per
+    // block, before any body statement runs.
+    void emitCommonBindings(const std::vector<StmtP> &stmts,
+                            std::map<std::string, int64_t> &counters) {
+        for (const auto &sp : stmts) {
+            const Stmt &s = *sp;
+            if (s.kind == Stmt::K::Common) {
+                for (const auto &item : s.args) {
+                    int64_t idx = counters[s.name2]++;
+                    Value *block = stringConst(s.name2);
+                    Value *iv = ConstantInt::get(i64Ty_, idx);
+                    if (item->kind == Expr::K::Var) {
+                        scalars_[item->sval] = callRt(
+                            "mvx_common_scalar", ptrTy_,
+                            {ptrTy_, ptrTy_, i64Ty_}, {ctxArg_, block, iv});
+                    } else {
+                        if (item->args.empty() || item->args.size() > 2)
+                            err(item->line, "COMMON array " + item->sval +
+                                                " needs 1 or 2 dimensions");
+                        Value *d1 = numIndex(*item->args[0]);
+                        Value *d2 = item->args.size() == 2
+                                        ? numIndex(*item->args[1])
+                                        : ConstantInt::get(i64Ty_, 0);
+                        Value *arr = callRt(
+                            "mvx_common_arr", ptrTy_,
+                            {ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_},
+                            {ctxArg_, block, iv, d1, d2});
+                        b_.CreateStore(arr, getArraySlot(item->sval));
+                    }
+                }
+            }
+            emitCommonBindings(s.body, counters);
+            emitCommonBindings(s.elseBody, counters);
+            emitCommonBindings(s.pre, counters);
+            emitCommonBindings(s.post, counters);
         }
     }
 
@@ -1207,6 +1276,8 @@ private:
     }
 
     void emitDim(const Stmt &s) {
+        if (commonArrays_.count(s.name))
+            err(s.line, "cannot DIM COMMON array " + s.name);
         Value *d1 = numIndex(*s.args[0]);
         Value *d2 = s.args.size() == 2 ? numIndex(*s.args[1])
                                        : ConstantInt::get(i64Ty_, 0);
@@ -1407,6 +1478,12 @@ private:
         for (const auto &sp : stmts) {
             const Stmt &s = *sp;
             if (s.kind == Stmt::K::Dim) arrayNames_.insert(s.name);
+            if (s.kind == Stmt::K::Common)
+                for (const auto &item : s.args)
+                    if (item->kind == Expr::K::Paren) {
+                        arrayNames_.insert(item->sval);
+                        commonArrays_.insert(item->sval);
+                    }
             collectArrayNames(s.body);
             collectArrayNames(s.elseBody);
             collectArrayNames(s.pre);
@@ -1547,6 +1624,11 @@ private:
                                 prog_.body.empty() ? 1
                                     : prog_.body.front()->line);
             }
+        }
+
+        {
+            std::map<std::string, int64_t> commonCounters;
+            emitCommonBindings(prog_.body, commonCounters);
         }
 
         emitBlock(prog_.body);

@@ -17,6 +17,7 @@ static const std::unordered_map<std::string, Tok> kKeywords = {
     {"STOP", Tok::KwStop},   {"GOTO", Tok::KwGoto},   {"GO", Tok::KwGo},
     {"GOSUB", Tok::KwGosub}, {"BEGIN", Tok::KwBegin}, {"CASE", Tok::KwCase},
     {"LOCATE", Tok::KwLocate}, {"INPUT", Tok::KwInput}, {"MAT", Tok::KwMat},
+    {"COMMON", Tok::KwCommon}, {"COM", Tok::KwCommon},
     {"AND", Tok::KwAnd},     {"OR", Tok::KwOr},
     {"NOT", Tok::KwNot},
     // word-form comparators normalise to the symbol tokens

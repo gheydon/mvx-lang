@@ -122,6 +122,12 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
   Assigning through `A<...>` demotes the base from the numeric tiers,
   since the value then carries marks. `BEGIN CASE` desugars to a nested
   IF chain in the parser; there is no CASE node in codegen.
+- **COMMON is context-owned, positional, always boxed.** Blocks (unnamed
+  and `/NAME/`) live in `mvx_ctx`, so all programs in a process share
+  them through the hidden context parameter — no process-global state.
+  Slot storage is chunked and never realloc'd: compiled code binds slot
+  addresses once at function entry, so addresses must stay stable as
+  later programs extend a block. COMMON variables never specialise.
 - **Runtime is C11** (clean frozen ABI, no C++ mangling in the contract);
   the compiler is C++17 against the LLVM C++ API.
 - **Arrays**: `DIM A(n[,m])`, 1-based, bounds-checked, elements are

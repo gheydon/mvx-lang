@@ -17,6 +17,7 @@ add_library(mvxrt STATIC
   runtime/src/mv_value.c
   runtime/src/mv_dyn.c
   runtime/src/mv_str.c
+  runtime/src/mv_conv.c
   runtime/src/mvx_ctx.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
 set_target_properties(mvxrt PROPERTIES

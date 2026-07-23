@@ -124,6 +124,22 @@ private:
             s->target = primaryRef();
             endStatementSoft();
             break;
+        case Tok::KwCommon: {
+            advance();
+            s = mk(Stmt::K::Common);
+            if (at(Tok::Slash)) {                   // COMMON /BLOCK/ ...
+                advance();
+                s->name2 = expect(Tok::Ident, "common block name").text;
+                expect(Tok::Slash, "'/' closing block name");
+            }
+            for (;;) {
+                s->args.push_back(primaryRef());    // Var or name(dims)
+                if (!at(Tok::Comma)) break;
+                advance();
+            }
+            endStatementSoft();
+            break;
+        }
         case Tok::KwMat:
             advance();
             s = mk(Stmt::K::Mat);
@@ -212,7 +228,22 @@ private:
     // at additive precedence, so comparisons inside need parentheses —
     // which is what resolves the grammar, as in classic MV compilers.
     ExprP maybeExtract(ExprP base) {
-        while (at(Tok::Lt)) {
+        for (;;) {
+            // Juxtaposed format mask: expr "R#10" — classic FMT operator.
+            if (at(Tok::StrLit)) {
+                Token m = advance();
+                auto e = std::make_unique<Expr>();
+                e->kind = Expr::K::Fmt;
+                e->line = m.line;
+                e->lhs = std::move(base);
+                e->rhs = std::make_unique<Expr>();
+                e->rhs->kind = Expr::K::StrLit;
+                e->rhs->sval = m.text;
+                e->rhs->line = m.line;
+                base = std::move(e);
+                continue;
+            }
+            if (!at(Tok::Lt)) return base;
             size_t save = pos_;
             int line = cur().line;
             advance();
@@ -255,10 +286,12 @@ private:
         if (at(Tok::LParen)) {
             e->kind = Expr::K::Paren;
             advance();
-            for (;;) {
-                e->args.push_back(expression());
-                if (!at(Tok::Comma)) break;
-                advance();
+            if (!at(Tok::RParen)) {
+                for (;;) {
+                    e->args.push_back(expression());
+                    if (!at(Tok::Comma)) break;
+                    advance();
+                }
             }
             expect(Tok::RParen, "')'");
         } else {
@@ -615,7 +648,7 @@ private:
             e->kind = Expr::K::IntLit;
             e->ival = t.ival;
             e->line = line;
-            return e;
+            return maybeExtract(std::move(e));
         }
         case Tok::FltLit: {
             Token t = advance();
@@ -623,7 +656,7 @@ private:
             e->kind = Expr::K::FltLit;
             e->fval = t.fval;
             e->line = line;
-            return e;
+            return maybeExtract(std::move(e));
         }
         case Tok::StrLit: {
             Token t = advance();
@@ -631,7 +664,7 @@ private:
             e->kind = Expr::K::StrLit;
             e->sval = t.text;
             e->line = line;
-            return e;
+            return maybeExtract(std::move(e));
         }
         case Tok::LParen: {
             advance();

@@ -5,11 +5,32 @@
 #include <string.h>
 #include <sys/time.h>
 
-/* Session context.  Slice 1 carries only output state; the field exists
-   in every ABI signature so that session identity, locks, and the
-   privilege gate can land here later without breaking compiled code. */
+/* Session context.  The parameter exists in every ABI signature so that
+   session identity, locks, and the privilege gate can land here later
+   without breaking compiled code.  It currently carries output state,
+   the STATUS() flag, and COMMON block storage. */
+
+typedef struct common_slot {
+    mv_value v;
+    mv_array *arr;
+} common_slot;
+
+/* Slots are handed out by address and held for the life of compiled
+   code, so storage must never move: slots live in fixed-size chunks
+   allocated on demand, never realloc'd. */
+#define COMMON_CHUNK 64
+#define COMMON_MAX_CHUNKS 1024
+
+typedef struct common_block {
+    char *name;
+    common_slot *chunks[COMMON_MAX_CHUNKS];
+    struct common_block *next;
+} common_block;
+
 struct mvx_ctx {
     int64_t print_col;      /* current output column, for comma zones */
+    int64_t status;         /* STATUS() value, set by conversions */
+    common_block *commons;
 };
 
 mvx_ctx *mvx_ctx_create(void) {
@@ -19,7 +40,63 @@ mvx_ctx *mvx_ctx_create(void) {
 }
 
 void mvx_ctx_destroy(mvx_ctx *ctx) {
+    common_block *b = ctx->commons;
+    while (b) {
+        common_block *next = b->next;
+        for (int c = 0; c < COMMON_MAX_CHUNKS; c++) {
+            if (!b->chunks[c]) continue;
+            for (int i = 0; i < COMMON_CHUNK; i++) {
+                mv_clear(&b->chunks[c][i].v);
+                mv_arr_destroy(b->chunks[c][i].arr);
+            }
+            free(b->chunks[c]);
+        }
+        free(b->name);
+        free(b);
+        b = next;
+    }
     free(ctx);
+}
+
+void mvx_ctx_set_status(mvx_ctx *ctx, int64_t s) { ctx->status = s; }
+
+int64_t mvx_status(mvx_ctx *ctx) { return ctx->status; }
+
+/* ------------------------------------------------------- COMMON blocks */
+
+static common_block *common_get(mvx_ctx *ctx, const char *name) {
+    for (common_block *b = ctx->commons; b; b = b->next)
+        if (strcmp(b->name, name) == 0) return b;
+    common_block *b = calloc(1, sizeof(common_block));
+    if (!b) mvx_fatal("out of memory creating COMMON block");
+    b->name = strdup(name);
+    b->next = ctx->commons;
+    ctx->commons = b;
+    return b;
+}
+
+static common_slot *common_slot_at(mvx_ctx *ctx, const char *name,
+                                   int64_t idx) {
+    common_block *b = common_get(ctx, name);
+    if (idx < 0 || idx >= (int64_t)COMMON_CHUNK * COMMON_MAX_CHUNKS)
+        mvx_fatal("COMMON index %lld out of range", (long long)idx);
+    int64_t c = idx / COMMON_CHUNK;
+    if (!b->chunks[c]) {
+        b->chunks[c] = calloc(COMMON_CHUNK, sizeof(common_slot));
+        if (!b->chunks[c]) mvx_fatal("out of memory extending COMMON block");
+    }
+    return &b->chunks[c][idx % COMMON_CHUNK];
+}
+
+mv_value *mvx_common_scalar(mvx_ctx *ctx, const char *block, int64_t idx) {
+    return &common_slot_at(ctx, block, idx)->v;
+}
+
+mv_array *mvx_common_arr(mvx_ctx *ctx, const char *block, int64_t idx,
+                         int64_t d1, int64_t d2) {
+    common_slot *s = common_slot_at(ctx, block, idx);
+    if (!s->arr) s->arr = mv_arr_create(d1, d2);
+    return s->arr;
 }
 
 /* --------------------------------------------------------------- output */

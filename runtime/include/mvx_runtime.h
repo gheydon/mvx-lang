@@ -83,6 +83,19 @@ void    mv_field_fn(mv_value *dst, const mv_value *src,
 int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ);
 int64_t mv_num_fn(const mv_value *v);
 
+/* --- conversions and formatting ---------------------------------------- */
+void    mv_oconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
+                 const mv_value *code);
+void    mv_iconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
+                 const mv_value *code);
+void    mv_fmt(mv_value *dst, const mv_value *src, const mv_value *mask);
+int64_t mvx_status(mvx_ctx *ctx);
+
+/* --- COMMON blocks ------------------------------------------------------ */
+mv_value *mvx_common_scalar(mvx_ctx *ctx, const char *block, int64_t idx);
+mv_array *mvx_common_arr(mvx_ctx *ctx, const char *block, int64_t idx,
+                         int64_t d1, int64_t d2);
+
 /* --- input / output ---------------------------------------------------- */
 void mv_input(mvx_ctx *ctx, mv_value *dst);         /* read line from stdin */
 void mv_print(mvx_ctx *ctx, const mv_value *v);     /* no newline */
