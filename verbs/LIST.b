@@ -210,7 +210,9 @@ LOOP
 UNTIL DONE DO
    READ R FROM F, ID ELSE R = ""
    OK = 1
-   IF WI # "" THEN
+   * control records (%FILE%, %INDEXES%, ...) are metadata, not fields
+   IF DICTF AND ID[1, 1] = "%" THEN OK = 0
+   IF OK AND WI # "" THEN
       BEGIN CASE
       CASE WANO = 0
          RV = ID

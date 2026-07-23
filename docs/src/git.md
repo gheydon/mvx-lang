@@ -143,15 +143,19 @@ mvx-tcl -a . -c BUILD          # developer privilege (it catalogs)
 
 1. ensures the account (`VOC`) exists;
 2. for each dictionary present without its data file, **creates the
-   file** — the type comes from the `FILES` manifest (`name type`
-   per line), then an interactive prompt (`MVXBUILD_ASK=1`), then the
-   `lmdb` default — and imports the dictionary into it;
+   file** — the type comes from the `FILES` manifest override, then the
+   `%FILE%` control record stored in the dictionary itself, then an
+   interactive prompt (`MVXBUILD_ASK=1`), then the `lmdb` default — and
+   imports the dictionary, rebuilding indexes from `%INDEXES%`;
 3. catalogs BP source into runnable verbs;
 4. links the packages listed in `PACKAGES`.
 
 This is why a `.DICT` directory with no data file is enough to
-rebuild: it tells `BUILD` a file exists and what its schema is, and
-`FILES` says what backend to make it on. Prepare an account for
+rebuild: it tells `BUILD` a file exists, what its schema is, and — via
+the `%FILE%` control record `CREATE-FILE` stamped in — what backend to
+make it on and which indexes to rebuild. A `FILES` manifest is only
+needed to override those hints (e.g. a client putting a file on a
+different backend than the vendor used). Prepare an account for
 delivery by exporting each dictionary — `EXPORT DICT PARTS` writes
 `PARTS.DICT` — and declaring types in `FILES`; the data stays in the
 store. Packages are themselves account-shaped, so the same `BUILD`

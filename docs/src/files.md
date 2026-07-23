@@ -34,6 +34,14 @@ attr 4: column heading
 attr 5: format, e.g. 12L or 8R
 ```
 
+**Control records** (ids starting with `%`) hold file metadata, not
+fields, and are hidden from `LIST DICT`. `CREATE-FILE` stamps `%FILE%`
+(attribute 1 `FILE`, then the backend type and connection) into every
+new file's dictionary, and `CREATE-INDEX` maintains `%INDEXES%`.
+Because they live in the dictionary, they travel with it in git — so a
+clone knows a file's backend and indexes without a separate manifest
+(see Version Control / `BUILD`).
+
 **I-type** (computed) items put an expression in attribute 2 instead
 of a number. The first computed function is `DOCTAG(tag)`, which
 scans a record's comment lines for a docblock annotation `@tag value`

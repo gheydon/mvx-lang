@@ -3,5 +3,6 @@ linked @ROOT@/packages/cmd
 initialised empty git repository
 ignoring ORDERS
 ORDERS is in GITIGNORE, nothing staged
-staged 1 record(s)
+staged 2 record(s)
+A  ORDERS.DICT/%FILE%
 A  ORDERS.DICT/CUST

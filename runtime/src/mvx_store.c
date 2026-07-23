@@ -1114,6 +1114,34 @@ static void binding_remove(const char *cspec) {
     fclose(fp);
 }
 
+/* Stamp a %FILE% control record into a just-created dictionary: a
+   metadata hint that travels with the schema in git (BUILD reads it to
+   know a file's backend after a clone).  Record = "FILE" VM type VM
+   conn (attribute 1). */
+static void write_file_meta(const mvx_driver *drv, const char *dictspec,
+                            const char *type, const char *conn) {
+    char err[256] = "";
+    mvx_file *d = drv->open(dictspec, err, sizeof err);
+    if (!d) return;
+    char rec[700];
+    size_t n = 0;
+    memcpy(rec + n, "FILE", 4); n += 4;
+    rec[n++] = (char)0xFD;              /* value mark */
+    size_t tl = strlen(type);
+    memcpy(rec + n, type, tl); n += tl;
+    if (conn && conn[0]) {
+        rec[n++] = (char)0xFD;
+        size_t cl = strlen(conn);
+        memcpy(rec + n, conn, cl); n += cl;
+    }
+    mv_value rv;
+    mv_init(&rv);
+    mv_set_str(&rv, rec, (int64_t)n);
+    drv->write(d, "%FILE%", 6, &rv);
+    mv_clear(&rv);
+    drv->close(d);
+}
+
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type) {
     (void)ctx;
@@ -1165,6 +1193,7 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
             binding_remove(cspec);
             return 0;
         }
+        write_file_meta(drv, dictspec, drvname, ap);
         return 1;
     }
 
@@ -1177,6 +1206,7 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
             drv->remove(cspec, err, sizeof err);
             return 0;
         }
+        write_file_meta(drv, dspec, "dir", "");
         return 1;
     }
 
@@ -1190,6 +1220,7 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
         drv->remove(dataspec, err, sizeof err);
         return 0;
     }
+    write_file_meta(drv, dictspec, "lmdb", "");
     return 1;
 }
 

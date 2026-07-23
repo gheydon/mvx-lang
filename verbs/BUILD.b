@@ -69,14 +69,23 @@ STOP
 * ---- 1000: ensure data file BASE exists, import its dictionary ---------
 1000
 OPEN BASE TO EXIST THEN RETURN     ;* data file already present
-* determine the type
+* type precedence: FILES manifest override, then the %FILE% hint
+* stored in the dictionary, then a prompt (interactive), then lmdb.
 TY = ""
-LOCATE(BASE, FILETYPES; FP; "AL") ELSE FP = 0
 FOR K = 1 TO DCOUNT(FILETYPES, @AM)
    IF FIELD(FILETYPES<K>, " ", 1) = BASE THEN
       TY = FIELD(FILETYPES<K>, " ", 2)
    END
 NEXT K
+CONN = ""
+IF TY = "" THEN
+   OPEN BASE:".DICT" TO MDD THEN
+      READ META FROM MDD, "%FILE%" THEN
+         TY = META<1, 2>
+         CONN = META<1, 3>
+      END
+   END
+END
 IF TY = "" AND ASK THEN
    PRINT "file ":BASE:" — type? [lmdb/dir] (default lmdb): ":
    INPUT TY
@@ -88,6 +97,8 @@ CASE TY = "dir"
    OK = CREATEFILE(BASE, "DIR")
 CASE TY = "lmdb"
    OK = CREATEFILE(BASE)
+CASE CONN # ""
+   OK = CREATEFILE(BASE, "USING ":TY:" ":CONN)
 CASE 1
    OK = CREATEFILE(BASE, "USING ":TY)
 END CASE
@@ -106,4 +117,9 @@ LOOP
 UNTIL DDONE DO
    READ DR FROM DSRC, DID THEN WRITE DR ON DDST, DID
 REPEAT
+* rebuild indexes declared in the dictionary's %INDEXES% control record
+READ IXL FROM DDST, "%INDEXES%" ELSE IXL = ""
+FOR IX = 1 TO DCOUNT(IXL, @AM)
+   EXECUTE "CREATE-INDEX ":BASE:" ":IXL<IX> CAPTURING R
+NEXT IX
 RETURN
