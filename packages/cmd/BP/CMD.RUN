@@ -1,0 +1,34 @@
+* /**
+*  * @file CMD.RUN
+*  * @version 1.0
+*  */
+* CMD.RUN — parse the sentence, dispatch to the matching handler,
+* or print generated help.
+SUBROUTINE CMD.RUN
+COMMON /CMDPKG/ CNAME, CDESC, CSUBS, CDESCS, CHANDLERS
+S = TRIM(SENTENCE())
+W = FIELD(S, " ", 2)
+WU = OCONV(W, "MCU")
+IF WU = "" OR WU = "HELP" THEN
+   GOSUB 9100
+   RETURN
+END
+LOCATE(WU, CSUBS; POS) THEN
+   H = CHANDLERS<POS>
+   CALL @H
+END ELSE
+   PRINT CNAME:": unknown command '":W:"'"
+   GOSUB 9100
+END
+RETURN
+* generated help
+9100
+PRINT CNAME:" - ":CDESC
+PRINT "usage: ":CNAME:" <command>"
+PRINT "commands:"
+N = DCOUNT(CSUBS, @AM)
+FOR I = 1 TO N
+   PRINT "  ":FMT(OCONV(CSUBS<I>, "MCL"), "L#12"):" ":CDESCS<I>
+NEXT I
+PRINT "  ":FMT("help", "L#12"):" show this help"
+RETURN

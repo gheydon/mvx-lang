@@ -20,11 +20,13 @@ add_library(mvxrt STATIC
   runtime/src/mv_conv.c
   runtime/src/mvx_ctx.c
   runtime/src/mvx_store.c
-  runtime/src/mvx_exec.c)
+  runtime/src/mvx_exec.c
+  runtime/src/mvx_call.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
 target_compile_definitions(mvxrt PRIVATE
   MVX_DRIVER_DIR="${CMAKE_BINARY_DIR}/lib"
-  MVX_BIN_DIR="${CMAKE_BINARY_DIR}/bin")
+  MVX_BIN_DIR="${CMAKE_BINARY_DIR}/bin"
+  MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
 set_target_properties(mvxrt PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 

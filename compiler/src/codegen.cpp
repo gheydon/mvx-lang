@@ -1586,6 +1586,10 @@ private:
             callRt("mv_print_nl", voidTy_, {ptrTy_}, {ctxArg_});
     }
 
+    // CALL binds at runtime through mvx_call (the jBASE catalog model):
+    // subroutines may live in this program, in cataloged LIB/ shared
+    // libraries, in linked packages, or in the system account.
+    // CALL @VAR takes the target name from the variable.
     void emitCall(const Stmt &s) {
         size_t n = s.args.size();
         Value *argv = eb_.CreateAlloca(ptrTy_, ConstantInt::get(i64Ty_, n ? n : 1),
@@ -1593,7 +1597,8 @@ private:
         for (size_t k = 0; k < n; k++) {
             const Expr &a = *s.args[k];
             Value *p;
-            if (a.kind == Expr::K::Var)
+            if (a.kind == Expr::K::Var && sysConstChar(a.sval) < 0 &&
+                !arrayNames_.count(a.sval))
                 p = getScalar(a.sval, a.line);
             else if (a.kind == Expr::K::Paren && arrayNames_.count(a.sval))
                 p = arrayElemPtr(a);
@@ -1603,11 +1608,17 @@ private:
                                        ConstantInt::get(i64Ty_, k));
             b_.CreateStore(p, cell);
         }
-        std::string sym = "mvx_sub_" + s.name;
-        FunctionCallee callee =
-            rt(sym.c_str(), voidTy_, {ptrTy_, i32Ty_, ptrTy_});
-        b_.CreateCall(callee, {ctxArg_, ConstantInt::get(i32Ty_, (int)n),
-                               argv});
+        Value *argc = ConstantInt::get(i32Ty_, (int)n);
+        if (!s.name.empty() && s.name[0] == '@') {
+            Value *namev = getScalar(s.name.substr(1), s.line);
+            callRt("mvx_call_var", voidTy_,
+                   {ptrTy_, ptrTy_, i32Ty_, ptrTy_},
+                   {ctxArg_, namev, argc, argv});
+        } else {
+            callRt("mvx_call", voidTy_,
+                   {ptrTy_, ptrTy_, i32Ty_, ptrTy_},
+                   {ctxArg_, stringConst(s.name), argc, argv});
+        }
     }
 
     // -------------------------------------------------------------- function

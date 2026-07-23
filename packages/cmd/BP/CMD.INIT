@@ -1,0 +1,13 @@
+* /**
+*  * @file CMD.INIT
+*  * @version 1.0
+*  */
+* CMD.INIT(name, description) — begin defining a command.
+SUBROUTINE CMD.INIT(NAME, DESC)
+COMMON /CMDPKG/ CNAME, CDESC, CSUBS, CDESCS, CHANDLERS
+CNAME = NAME
+CDESC = DESC
+CSUBS = ""
+CDESCS = ""
+CHANDLERS = ""
+RETURN

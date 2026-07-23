@@ -87,13 +87,24 @@ static char g_pkgs[MAX_PKGS][1024];
 static mv_value g_pkgvoc[MAX_PKGS];
 static int g_pkgvoc_state[MAX_PKGS];
 static int g_npkgs;
-static long g_pkg_mtime = -1;
+static long long g_pkg_stamp = -1;
 
 static void pkgs_reload(void) {
     struct stat sb;
-    long mt = stat("PACKAGES", &sb) == 0 ? (long)sb.st_mtime : 0;
-    if (mt == g_pkg_mtime) return;
-    g_pkg_mtime = mt;
+    long long mt = 0;
+    if (stat("PACKAGES", &sb) == 0) {
+        /* Nanosecond stamp + size: whole-second mtime misses a LINK-PKG
+           landing in the same second as the previous reload. */
+#ifdef __APPLE__
+        mt = (long long)sb.st_mtimespec.tv_sec * 1000000000LL +
+             sb.st_mtimespec.tv_nsec + sb.st_size;
+#else
+        mt = (long long)sb.st_mtim.tv_sec * 1000000000LL +
+             sb.st_mtim.tv_nsec + sb.st_size;
+#endif
+    }
+    if (mt == g_pkg_stamp) return;
+    g_pkg_stamp = mt;
     for (int i = 0; i < g_npkgs; i++)
         if (g_pkgvoc_state[i] > 0) mv_clear(&g_pkgvoc[i]);
     g_npkgs = 0;

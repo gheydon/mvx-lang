@@ -5,3 +5,4 @@ build/
 CLAUDE.md
 demo/
 packages/*/CATALOG/
+packages/*/LIB/

@@ -171,6 +171,8 @@ int main(int argc, char **argv) {
     cmd += " " + shellQuote((lib / "libmvxrt.a").string());
 #ifndef __APPLE__
     cmd += " -ldl";                     // dlopen for storage drivers
+    if (!shared)
+        cmd += " -rdynamic";            // expose mvx_sub_* to runtime CALL
 #endif
     cmd += " -o " + shellQuote(outPath);
 

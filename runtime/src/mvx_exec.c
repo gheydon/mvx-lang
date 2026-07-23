@@ -134,6 +134,18 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
     snprintf(mvx, sizeof mvx, "%s/mvx", bin_dir());
     snprintf(srcbuf, sizeof srcbuf, "%.*s", (int)sl, sp);
     snprintf(outbuf, sizeof outbuf, "%.*s", (int)ol, op);
+    if (mp[0] == 's' || mp[0] == 'S') {
+        /* Shared subroutine libraries get the platform suffix so BASIC
+           callers stay portable. */
+        const char *slash = strrchr(outbuf, '/');
+        if (!strchr(slash ? slash : outbuf, '.')) {
+#ifdef __APPLE__
+            strncat(outbuf, ".dylib", sizeof outbuf - strlen(outbuf) - 1);
+#else
+            strncat(outbuf, ".so", sizeof outbuf - strlen(outbuf) - 1);
+#endif
+        }
+    }
 
     char *argv[8];
     int n = 0;

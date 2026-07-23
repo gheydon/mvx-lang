@@ -163,6 +163,12 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);
 void    mvx_store_shutdown(mvx_ctx *ctx);           /* ctx destroy hook */
 
+/* --- runtime CALL resolution (jBASE catalog model) --------------------- */
+void mvx_call(mvx_ctx *ctx, const char *name, int32_t argc,
+              mv_value **argv);
+void mvx_call_var(mvx_ctx *ctx, const mv_value *name, int32_t argc,
+                  mv_value **argv);
+
 /* --- spawning, behind the privilege gate (see mvx_exec.c) -------------- */
 int64_t mvx_unix_cmd(mvx_ctx *ctx, const char *cmd);    /* unrestricted */
 int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,

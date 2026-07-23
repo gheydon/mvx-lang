@@ -51,6 +51,21 @@
   programs in `CATALOG/`, named by VOC records (attr 1 `V`, attr 2
   executable path). Dispatch order: builtins, account VOC, system VOC,
   not-found.
+- **CALL binds at runtime — the jBASE catalog model.** Compiled CALLs
+  dispatch through `mvx_call`, which resolves `mvx_sub_<NAME>` from
+  symbols already in the process (multi-source builds still work),
+  then loads cataloged subroutine libraries from the account's `LIB/`,
+  each linked package's `LIB/`, and the system `LIB/` (dlopen,
+  RTLD_GLOBAL, on first miss). `CALL @VAR` takes the name from a
+  variable — dispatch tables, and therefore frameworks, work. CATALOG
+  detects a SUBROUTINE source and catalogs it into `LIB/` as a shared
+  library instead of making a verb; mkpkg.sh does the same for
+  packages. The subroutine ABI is unchanged — this is resolution
+  policy, not calling convention.
+- **The cmd package** (packages/cmd) is the Cobra-shaped command
+  framework: CMD.INIT / CMD.ADD / CMD.RUN over a named COMMON, with
+  generated help and CALL @ handler dispatch. packages/git is the
+  reference consumer.
 - **Packages are account-shaped directories** (`BP/` source, `VOC/`
   verb records, `CATALOG/` executables — built by `scripts/mkpkg.sh`)
   linked into an account by the LINK-PKG / UNLINK-PKG / LIST-PKGS
