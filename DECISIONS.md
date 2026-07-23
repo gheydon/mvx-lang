@@ -28,8 +28,14 @@
   driver handle pointer; handles are context-owned and closed at exit.
   WRITE releases the record lock, WRITEU keeps it — both after a
   successful driver write.
-- **Two-part `OPEN "DICT","F"`** parses but fails (ELSE) until
-  dictionaries exist.
+- **Dictionaries are sibling stores, resolved by naming convention.**
+  `OPEN "DICT","X"` opens `DICT.X` (LMDB named DB) or `X/.DICT`
+  (hidden subdirectory of a directory file — invisible to data SELECTs,
+  which skip dotfiles). Every statement then works on a dict handle
+  unchanged, because a dictionary is just another record store.
+  `CREATEFILE` creates DICT and DATA together, classic style;
+  `DELETEFILE` removes both. Dictionary *semantics* (D-items driving
+  LIST/SELECT and indexing) build on this in later slices.
 - **File creation is explicit.** `OPEN` never creates; a nonexistent
   file takes ELSE, classic style. The driver contract carries handle-
   less `create`/`remove` operations, surfaced in BASIC as

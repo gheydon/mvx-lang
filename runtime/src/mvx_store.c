@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 #ifdef __APPLE__
@@ -180,22 +181,12 @@ static void lock_drop(store_state *st, const char *key) {
 
 /* ----------------------------------------------------------------- API */
 
-int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
-                 mv_value *fvar) {
-    char db[40], sb[64];
-    const char *dp = "";
-    if (dict) mv_val_chars(dict, db, sizeof db, &dp);
-    if (dp[0] != '\0') return 0;        /* DICT opens arrive in Slice 3 */
-
-    const char *sp;
-    int64_t slen = mv_val_chars(spec, sb, sizeof sb, &sp);
-    if (slen == 0 || memchr(sp, '\x01', (size_t)slen)) return 0;
-
-    char *cspec = malloc((size_t)slen + 1);
-    if (!cspec) mvx_fatal("out of memory in OPEN");
-    memcpy(cspec, sp, (size_t)slen);
-    cspec[slen] = '\0';
-
+/* Resolve a spec to its driver, and derive the dictionary spec when
+   asked: DICT.<spec> as a sibling LMDB named DB, <spec>/.DICT as a
+   hidden subdirectory for directory files (data SELECTs skip dotfiles,
+   so the dictionary is invisible to them). */
+static const mvx_driver *resolve(const char *cspec, int want_dict,
+                                 char *outspec, size_t cap) {
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
 
@@ -205,16 +196,42 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
     else
         snprintf(path, sizeof path, "%s/%s", acct, cspec);
 
-    struct stat sb2;
-    const mvx_driver *drv;
-    if (stat(path, &sb2) == 0 && S_ISDIR(sb2.st_mode))
-        drv = driver_load("dir");
-    else
-        drv = driver_load("lmdb");
+    struct stat sb;
+    if (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+        snprintf(outspec, cap, want_dict ? "%s/.DICT" : "%s", cspec);
+        return driver_load("dir");
+    }
+    snprintf(outspec, cap, want_dict ? "DICT.%s" : "%s", cspec);
+    return driver_load("lmdb");
+}
+
+int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
+                 mv_value *fvar) {
+    char db[40], sb[64];
+    const char *dp = "";
+    if (dict) mv_val_chars(dict, db, sizeof db, &dp);
+    int want_dict = 0;
+    if (dp[0] != '\0') {
+        if (strcasecmp(dp, "DICT") == 0)
+            want_dict = 1;
+        else
+            return 0;
+    }
+
+    const char *sp;
+    int64_t slen = mv_val_chars(spec, sb, sizeof sb, &sp);
+    if (slen == 0 || slen > 900 || memchr(sp, '\x01', (size_t)slen))
+        return 0;
+
+    char cspec[1024];
+    memcpy(cspec, sp, (size_t)slen);
+    cspec[slen] = '\0';
+
+    char rspec[1152];
+    const mvx_driver *drv = resolve(cspec, want_dict, rspec, sizeof rspec);
 
     char err[256] = "";
-    mvx_file *f = drv->open(cspec, err, sizeof err);
-    free(cspec);
+    mvx_file *f = drv->open(rspec, err, sizeof err);
     if (!f) return 0;
 
     store_state *st = state(ctx);
@@ -366,7 +383,19 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
 
     const mvx_driver *drv = driver_load(drvname);
     char err[256] = "";
-    return drv->create(cspec, err, sizeof err);
+    if (!drv->create(cspec, err, sizeof err)) return 0;
+
+    /* CREATE-FILE creates DICT and DATA together, classic style. */
+    char dspec[1152];
+    if (strcmp(drvname, "dir") == 0)
+        snprintf(dspec, sizeof dspec, "%s/.DICT", cspec);
+    else
+        snprintf(dspec, sizeof dspec, "DICT.%s", cspec);
+    if (!drv->create(dspec, err, sizeof err)) {
+        drv->remove(cspec, err, sizeof err);
+        return 0;
+    }
+    return 1;
 }
 
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec) {
@@ -374,19 +403,10 @@ int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec) {
     char cspec[1024];
     if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
 
-    const char *acct = getenv("MVXACCOUNT");
-    if (!acct || !acct[0]) acct = ".";
-    char path[4096];
-    if (cspec[0] == '/')
-        snprintf(path, sizeof path, "%s", cspec);
-    else
-        snprintf(path, sizeof path, "%s/%s", acct, cspec);
-
-    struct stat sb;
-    const mvx_driver *drv =
-        (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode))
-            ? driver_load("dir")
-            : driver_load("lmdb");
+    char dspec[1152], rspec[1152];
+    const mvx_driver *drv = resolve(cspec, 1, dspec, sizeof dspec);
     char err[256] = "";
-    return drv->remove(cspec, err, sizeof err);
+    drv->remove(dspec, err, sizeof err);        /* dict first, may be absent */
+    resolve(cspec, 0, rspec, sizeof rspec);
+    return drv->remove(rspec, err, sizeof err);
 }
