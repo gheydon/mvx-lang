@@ -161,6 +161,12 @@ void    mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id);
 void    mvx_select(mvx_ctx *ctx, const mv_value *fvar);
 void    mvx_formlist(mvx_ctx *ctx, const mv_value *ids); /* AM-separated */
 int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id);
+int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *item);      /* -1 fail, else count */
+int64_t mvx_index_drop(mvx_ctx *ctx, const mv_value *fvar,
+                       const mv_value *item);
+int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
+                         const mv_value *item, const mv_value *key);
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);

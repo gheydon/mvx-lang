@@ -43,6 +43,33 @@
   primitives the CREATE-FILE / DELETE-FILE verbs will wrap when TCL
   arrives, since verbs are BASIC programs, not C.
 
+## Indexing (ARCHITECTURE.md 5)
+
+- **Indexes are an optional driver capability** (ABI 3): `write_ix` /
+  `del_ix` apply a record write/delete and its index deltas in ONE
+  transaction — the no-drift guarantee of 5.1 — plus `index_select`
+  (NULL = no such index, distinct from empty) and `index_drop`. LMDB
+  implements them as `<spec>.IDX.<item>` named DBs with MDB_DUPSORT;
+  the directory driver declines the capability, so CREATE-INDEX
+  refuses there.
+- **Metadata is the DICT record `%INDEXES%`** (indexed item names, one
+  per attribute), cached per open file and invalidated by the
+  build/drop entry points. Extraction runs the dictionary attribute
+  number; multivalues emit one entry per value; empty values and keys
+  beyond the backend limit are not indexed.
+- **Maintenance is diff-based** (5.3): the write path reads the old
+  record, extracts old and new values per indexed item, and touches
+  only entries that changed.
+- **Only D-type attribute items are indexable** — the TRANS() rule of
+  5.4 applied to what exists today: a computed item (I-type) may
+  depend on content outside the stored attributes and would go
+  silently stale, so CREATE-INDEX refuses it. Index maintenance stays
+  local to a single record write in a single backend.
+- **Queries use indexes transparently**: LIST/SELECT try
+  INDEXSELECT(file, item, value) for an equality WITH on a D-item when
+  no list is active, falling back to a scan; the result feeds the same
+  select-list machinery either way.
+
 ## Slice 3 — TCL
 
 - **The C shell is dispatch only.** `mvx-tcl` implements the prompt,

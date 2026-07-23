@@ -78,7 +78,19 @@ IF WI # "" THEN
    END
 END
 
-IF SYSTEM(11) = 0 THEN SELECT F
+IF SYSTEM(11) = 0 THEN
+   IXUSED = 0
+   IF WI # "" AND WOP = "=" THEN
+      IF WANO # "" AND WANO # 0 AND WANO # -1 THEN
+         IXUSED = INDEXSELECT(F, WI, WV)
+      END
+   END
+   IF IXUSED THEN
+      WI = ""
+   END ELSE
+      SELECT F
+   END
+END
 IDS = ""
 DONE = 0
 LOOP

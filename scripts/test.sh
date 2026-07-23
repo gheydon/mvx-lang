@@ -204,6 +204,31 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
+# secondary indexes: build, query through them, write-path maintenance
+check tcl-index "$(printf '%s\n' \
+  'CREATE-INDEX PARTS COLOR' \
+  'LIST-INDEXES PARTS' \
+  'LIST PARTS NAME WITH COLOR = blue' \
+  'COPY PARTS W100 TO W950' \
+  'LIST PARTS NAME WITH COLOR = blue' \
+  'DELETE PARTS W950' \
+  'LIST PARTS NAME WITH COLOR = blue' \
+  'ED PARTS G200' \
+  '3' \
+  'R/red/blue' \
+  'FI' \
+  'LIST PARTS NAME WITH COLOR = blue' \
+  'ED PARTS G200' \
+  '3' \
+  'R/blue/red' \
+  'FI' \
+  'LIST PARTS NAME WITH COLOR = red' \
+  'CREATE-INDEX PARTS NAME' \
+  'DELETE-INDEX PARTS COLOR' \
+  'LIST-INDEXES PARTS' \
+  'LIST PARTS NAME WITH COLOR = blue' \
+  'DELETE-INDEX PARTS NAME' | tclrun)"
+
 # select lists crossing EXECUTE into a program
 prog="$TESTROOT/progsel.b"
 cat > "$prog" <<'EOF'

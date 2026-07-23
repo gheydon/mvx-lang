@@ -50,6 +50,7 @@ const std::set<std::string> kStrIntrinsics = {
 const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
+    "INDEXBUILD", "INDEXDROP", "INDEXSELECT",
 };
 
 // String-valued intrinsics (boxed results).
@@ -607,6 +608,21 @@ private:
             if (f == "DELETEFILE" && e.args.size() == 1)
                 return callRt("mvx_deletefile", i64Ty_, {ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0])});
+            if (f == "INDEXBUILD" && e.args.size() == 2)
+                return callRt("mvx_index_build", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1])});
+            if (f == "INDEXDROP" && e.args.size() == 2)
+                return callRt("mvx_index_drop", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1])});
+            if (f == "INDEXSELECT" && e.args.size() == 3)
+                return callRt("mvx_index_select", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1]), evalPtr(*e.args[2])});
             if (f == "COMPILE" && e.args.size() == 3)
                 return callRt("mvx_compile", i64Ty_,
                               {ptrTy_, ptrTy_, ptrTy_, ptrTy_},

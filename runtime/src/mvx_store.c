@@ -90,8 +90,22 @@ typedef struct lock_ent {
     struct lock_ent *next;
 } lock_ent;
 
+#define IX_MAX_ITEMS 16
+#define IX_MAX_VALS 32
+#define IX_KEY_MAX 511
+
+typedef struct ixmeta {
+    int loaded;
+    int n;
+    struct {
+        char item[128];
+        int64_t attr;
+    } it[IX_MAX_ITEMS];
+} ixmeta;
+
 typedef struct open_file {
     mvx_file *f;
+    ixmeta ix;
     struct open_file *next;
 } open_file;
 
@@ -326,6 +340,132 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
     return 1;
 }
 
+/* ------------------------------------------------------------ indexing
+   Metadata: the DICT record %INDEXES% lists indexed item names, one
+   per attribute; each item's dictionary record supplies the attribute
+   number.  Cached per open file; CREATE-INDEX / DELETE-INDEX
+   invalidate through mvx_index_build / mvx_index_drop.  Maintenance
+   is diff-based: only entries whose values actually changed are
+   touched (ARCHITECTURE.md 5.3). */
+
+static open_file *find_open(store_state *st, mvx_file *f) {
+    for (open_file *o = st->files; o; o = o->next)
+        if (o->f == f) return o;
+    return NULL;
+}
+
+static void ix_load(open_file *o) {
+    if (o->ix.loaded) return;
+    o->ix.loaded = 1;
+    o->ix.n = 0;
+    mvx_file_base *b = (mvx_file_base *)o->f;
+    if (!b->driver->write_ix) return;   /* backend has no capability */
+
+    char dspec[1152];
+    snprintf(dspec, sizeof dspec, "DICT.%s", b->spec);
+    char err[256] = "";
+    mvx_file *d = b->driver->open(dspec, err, sizeof err);
+    if (!d) return;
+
+    mv_value xl, item, drec, ano;
+    mv_init(&xl); mv_init(&item); mv_init(&drec); mv_init(&ano);
+    if (b->driver->read(d, "%INDEXES%", 9, &xl)) {
+        char nb[40];
+        const char *p;
+        int64_t len = mv_val_chars(&xl, nb, sizeof nb, &p);
+        int64_t nattr = len ? 1 : 0;
+        for (int64_t i = 0; i < len; i++)
+            if (p[i] == '\xFE') nattr++;
+        for (int64_t a = 1; a <= nattr && o->ix.n < IX_MAX_ITEMS; a++) {
+            mv_extract_fn(&item, &xl, a, 0, 0);
+            char ib[40];
+            const char *ip;
+            int64_t il = mv_val_chars(&item, ib, sizeof ib, &ip);
+            if (il <= 0 || il >= 127) continue;
+            char iname[128];
+            memcpy(iname, ip, (size_t)il);
+            iname[il] = '\0';
+            if (!b->driver->read(d, iname, il, &drec)) continue;
+            mv_extract_fn(&ano, &drec, 2, 0, 0);
+            int64_t attr = mv_get_int(&ano);
+            if (attr < 1) continue;
+            memcpy(o->ix.it[o->ix.n].item, iname, (size_t)il + 1);
+            o->ix.it[o->ix.n].attr = attr;
+            o->ix.n++;
+        }
+    }
+    mv_clear(&xl); mv_clear(&item); mv_clear(&drec); mv_clear(&ano);
+    b->driver->close(d);
+}
+
+/* Values of one attribute, split on value marks; empty values and keys
+   over the backend limit are not indexed. */
+typedef struct ixvals {
+    int n;
+    char v[IX_MAX_VALS][IX_KEY_MAX + 1];
+    int64_t len[IX_MAX_VALS];
+} ixvals;
+
+static void ix_values(const mv_value *rec, int64_t attr, ixvals *out) {
+    out->n = 0;
+    mv_value a;
+    mv_init(&a);
+    mv_extract_fn(&a, rec, attr, 0, 0);
+    char nb[40];
+    const char *p;
+    int64_t len = mv_val_chars(&a, nb, sizeof nb, &p);
+    const char *end = p + len;
+    while (p < end && out->n < IX_MAX_VALS) {
+        const char *vm = memchr(p, '\xFD', (size_t)(end - p));
+        int64_t n = (vm ? vm : end) - p;
+        if (n > 0 && n <= IX_KEY_MAX) {
+            memcpy(out->v[out->n], p, (size_t)n);
+            out->v[out->n][n] = '\0';
+            out->len[out->n] = n;
+            out->n++;
+        }
+        p = vm ? vm + 1 : end;
+    }
+    mv_clear(&a);
+}
+
+static int ixvals_has(const ixvals *vs, const char *p, int64_t n) {
+    for (int i = 0; i < vs->n; i++)
+        if (vs->len[i] == n && memcmp(vs->v[i], p, (size_t)n) == 0)
+            return 1;
+    return 0;
+}
+
+/* Build the delta list for one record transition old -> new. */
+static int ix_diff(open_file *o, const mv_value *oldrec, int hadold,
+                   const mv_value *newrec, mvx_ixop *ops, ixvals *pool) {
+    int nops = 0;
+    for (int k = 0; k < o->ix.n; k++) {
+        ixvals *ov = &pool[k * 2], *nv = &pool[k * 2 + 1];
+        ov->n = 0;
+        if (hadold) ix_values(oldrec, o->ix.it[k].attr, ov);
+        nv->n = 0;
+        if (newrec) ix_values(newrec, o->ix.it[k].attr, nv);
+        for (int i = 0; i < ov->n; i++)
+            if (!ixvals_has(nv, ov->v[i], ov->len[i])) {
+                ops[nops].item = o->ix.it[k].item;
+                ops[nops].key = ov->v[i];
+                ops[nops].klen = ov->len[i];
+                ops[nops].add = 0;
+                nops++;
+            }
+        for (int i = 0; i < nv->n; i++)
+            if (!ixvals_has(ov, nv->v[i], nv->len[i])) {
+                ops[nops].item = o->ix.it[k].item;
+                ops[nops].key = nv->v[i];
+                ops[nops].klen = nv->len[i];
+                ops[nops].add = 1;
+                nops++;
+            }
+    }
+    return nops;
+}
+
 int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
                  const mv_value *id, int64_t lock) {
     mvx_file *f = file_of(fvar, "READ");
@@ -351,14 +491,31 @@ void mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
                const mv_value *id, int64_t keep_lock) {
     mvx_file *f = file_of(fvar, "WRITE");
     mvx_file_base *b = (mvx_file_base *)f;
+    store_state *st = state(ctx);
     char ib[40];
     int64_t idlen;
     const char *ip = id_chars(id, ib, sizeof ib, &idlen);
-    if (!b->driver->write(f, ip, idlen, rec))
+
+    open_file *o = find_open(st, f);
+    int ok;
+    if (o) ix_load(o);
+    if (o && o->ix.n > 0) {
+        mv_value old;
+        mv_init(&old);
+        int had = b->driver->read(f, ip, idlen, &old);
+        mvx_ixop ops[IX_MAX_ITEMS * IX_MAX_VALS * 2];
+        static ixvals pool[IX_MAX_ITEMS * 2];
+        int nops = ix_diff(o, &old, had, rec, ops, pool);
+        ok = b->driver->write_ix(f, ip, idlen, rec, ops, nops);
+        mv_clear(&old);
+    } else {
+        ok = b->driver->write(f, ip, idlen, rec);
+    }
+    if (!ok)
         mvx_fatal("WRITE failed on %s id %.*s", b->spec, (int)idlen, ip);
     if (!keep_lock) {                   /* WRITE releases; WRITEU keeps */
         char *key = lock_key(f, ip, idlen);
-        lock_drop(state(ctx), key);
+        lock_drop(st, key);
         free(key);
     }
 }
@@ -367,14 +524,154 @@ int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *id) {
     mvx_file *f = file_of(fvar, "DELETE");
     mvx_file_base *b = (mvx_file_base *)f;
+    store_state *st = state(ctx);
     char ib[40];
     int64_t idlen;
     const char *ip = id_chars(id, ib, sizeof ib, &idlen);
-    int64_t r = b->driver->del(f, ip, idlen);
+
+    open_file *o = find_open(st, f);
+    int64_t r;
+    if (o) ix_load(o);
+    if (o && o->ix.n > 0) {
+        mv_value old;
+        mv_init(&old);
+        int had = b->driver->read(f, ip, idlen, &old);
+        if (had) {
+            mvx_ixop ops[IX_MAX_ITEMS * IX_MAX_VALS * 2];
+            static ixvals pool[IX_MAX_ITEMS * 2];
+            int nops = ix_diff(o, &old, 1, NULL, ops, pool);
+            r = b->driver->del_ix(f, ip, idlen, ops, nops);
+        } else {
+            r = 0;
+        }
+        mv_clear(&old);
+    } else {
+        r = b->driver->del(f, ip, idlen);
+    }
     char *key = lock_key(f, ip, idlen);
-    lock_drop(state(ctx), key);
+    lock_drop(st, key);
     free(key);
     return r;
+}
+
+/* ------------------------------------------- index verbs' entry points */
+
+int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *item) {
+    mvx_file *f = file_of(fvar, "INDEXBUILD");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->write_ix) return -1;
+    open_file *o = find_open(state(ctx), f);
+    if (!o) return -1;
+
+    o->ix.loaded = 0;                   /* pick up the new %INDEXES% */
+    ix_load(o);
+
+    char nb[40];
+    const char *ip;
+    int64_t il = mv_val_chars(item, nb, sizeof nb, &ip);
+    char iname[128];
+    if (il <= 0 || il >= 127) return -1;
+    memcpy(iname, ip, (size_t)il);
+    iname[il] = '\0';
+    int slot = -1;
+    for (int k = 0; k < o->ix.n; k++)
+        if (strcmp(o->ix.it[k].item, iname) == 0) slot = k;
+    if (slot < 0) return -1;
+
+    b->driver->index_drop(f, iname);    /* rebuild from empty */
+
+    mvx_cursor *c = b->driver->select_begin(f);
+    if (!c) return -1;
+    int64_t count = 0;
+    mv_value rid, rec;
+    mv_init(&rid); mv_init(&rec);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        if (!b->driver->read(f, rp, rl, &rec)) continue;
+        ixvals vs;
+        ix_values(&rec, o->ix.it[slot].attr, &vs);
+        mvx_ixop ops[IX_MAX_VALS];
+        for (int i = 0; i < vs.n; i++) {
+            ops[i].item = iname;
+            ops[i].key = vs.v[i];
+            ops[i].klen = vs.len[i];
+            ops[i].add = 1;
+        }
+        if (!b->driver->write_ix(f, rp, rl, &rec, ops, vs.n)) {
+            b->driver->select_end(c);
+            mv_clear(&rid); mv_clear(&rec);
+            return -1;
+        }
+        count++;
+    }
+    b->driver->select_end(c);
+    mv_clear(&rid); mv_clear(&rec);
+    return count;
+}
+
+int64_t mvx_index_drop(mvx_ctx *ctx, const mv_value *fvar,
+                       const mv_value *item) {
+    mvx_file *f = file_of(fvar, "INDEXDROP");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->index_drop) return 0;
+    char nb[40];
+    const char *ip;
+    int64_t il = mv_val_chars(item, nb, sizeof nb, &ip);
+    char iname[128];
+    if (il <= 0 || il >= 127) return 0;
+    memcpy(iname, ip, (size_t)il);
+    iname[il] = '\0';
+    int64_t r = b->driver->index_drop(f, iname);
+    open_file *o = find_open(state(ctx), f);
+    if (o) o->ix.loaded = 0;            /* metadata changed */
+    return r;
+}
+
+int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
+                         const mv_value *item, const mv_value *key) {
+    mvx_file *f = file_of(fvar, "INDEXSELECT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->index_select) return 0;
+    open_file *o = find_open(state(ctx), f);
+    if (!o) return 0;
+    ix_load(o);
+
+    char nb[40];
+    const char *ip;
+    int64_t il = mv_val_chars(item, nb, sizeof nb, &ip);
+    char iname[128];
+    if (il <= 0 || il >= 127) return 0;
+    memcpy(iname, ip, (size_t)il);
+    iname[il] = '\0';
+    int found = 0;
+    for (int k = 0; k < o->ix.n; k++)
+        if (strcmp(o->ix.it[k].item, iname) == 0) found = 1;
+    if (!found) return 0;               /* not a registered index */
+
+    char kb[40];
+    const char *kp;
+    int64_t kl = mv_val_chars(key, kb, sizeof kb, &kp);
+    mvx_cursor *c = b->driver->index_select(f, iname, kp, kl);
+    if (!c) return 0;
+
+    store_state *st = state(ctx);
+    clear_select(st);
+    st->sel_active = 1;
+    int64_t cap = 0;
+    mv_value rid;
+    mv_init(&rid);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        sel_push(st, &cap, rp, rl);
+    }
+    mv_clear(&rid);
+    b->driver->select_end(c);
+    return 1;
 }
 
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {

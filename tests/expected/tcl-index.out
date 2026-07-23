@@ -1,0 +1,43 @@
+index PARTS.COLOR built, 3 record(s)
+COLOR
+1 index(es)
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+2 record(s) listed
+1 record copied to PARTS W950
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+W950         Widget      
+3 record(s) listed
+1 record(s) deleted
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+2 record(s) listed
+3 line(s)
+000= 003 red
+003= 003 blue
+003= 'G200' filed
+@ID          Name        
+G200         Gadget      
+S300         Sprocket    
+W100         Widget      
+3 record(s) listed
+3 line(s)
+000= 003 blue
+003= 003 red
+003= 'G200' filed
+@ID          Name        
+G200         Gadget      
+1 record(s) listed
+index PARTS.NAME built, 3 record(s)
+index PARTS.COLOR deleted
+NAME
+1 index(es)
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+2 record(s) listed
+index PARTS.NAME deleted

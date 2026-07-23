@@ -233,6 +233,7 @@ static const mvx_driver mvx_driver_dir = {
     dir_select_begin, dir_select_next, dir_select_end,
     dir_create, dir_remove,
     NULL,                               /* names: the store scans dirs */
+    NULL, NULL, NULL, NULL,             /* no native index capability */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

@@ -23,6 +23,15 @@ extern "C" {
 typedef struct mvx_file mvx_file;       /* driver-owned handle */
 typedef struct mvx_cursor mvx_cursor;   /* driver-owned select cursor */
 
+/* One index maintenance operation: add or remove (key -> id) in the
+   index named by item. */
+typedef struct mvx_ixop {
+    const char *item;
+    const char *key;
+    int64_t klen;
+    int add;                            /* 1 = add entry, 0 = remove */
+} mvx_ixop;
+
 typedef struct mvx_driver {
     const char *name;
 
@@ -56,6 +65,21 @@ typedef struct mvx_driver {
        holds for the account, as an @AM-separated list.  Backing for
        the LISTF verb. */
     int (*names)(mv_value *out, char *err, size_t errlen);
+
+    /* Optional indexing capability (ARCHITECTURE.md 5) — all four may
+       be NULL if the backend has no native secondary indexes.  The
+       record write/delete and its index deltas MUST commit atomically
+       (one transaction): that is the no-index-drift guarantee.  Keys
+       arrive already extracted; the driver stores (key -> record id)
+       with duplicate keys allowed. */
+    int (*write_ix)(mvx_file *f, const char *id, int64_t idlen,
+                    const mv_value *rec, const mvx_ixop *ops, int nops);
+    int (*del_ix)(mvx_file *f, const char *id, int64_t idlen,
+                  const mvx_ixop *ops, int nops);
+    /* NULL result = no such index (distinct from an empty cursor). */
+    mvx_cursor *(*index_select)(mvx_file *f, const char *item,
+                                const char *key, int64_t klen);
+    int (*index_drop)(mvx_file *f, const char *item);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
@@ -76,7 +100,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 2
+#define MVX_DRIVER_ABI 3
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 
