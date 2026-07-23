@@ -1,0 +1,23 @@
+@ID          Name              Price Colour  
+S300         Sprocket          $1.25 blue    
+G200         Gadget            $4.50 red     
+W100         Widget            $9.99 blue    
+3 record(s) listed
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+2 record(s) listed
+2 record(s) selected
+2 record(s) counted
+3 record(s) counted
+@ID         
+COLOR       
+NAME        
+PRICE       
+3 record(s) listed
+PRICE
+001 D
+002 2
+003 MD2$
+004 Price
+005 10R

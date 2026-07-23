@@ -25,7 +25,20 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/llvm
 ninja -C build
 ```
 
-Produces `build/bin/mvx` and the runtime in `build/lib/`.
+Produces `build/bin/mvx`, `build/bin/mvx-tcl`, the runtime in
+`build/lib/`, and the system account (standard verbs) in
+`build/system/`.
+
+## Tests
+
+```sh
+ninja -C build check          # or: scripts/test.sh   (-q skips the sieve)
+```
+
+Language tests diff `tests/*.b` output against `tests/expected/`;
+system tests run scripted TCL sessions in a throwaway account. After an
+intentional behaviour change, re-capture with `scripts/test.sh --bless`
+and review the diff.
 
 ## Use
 

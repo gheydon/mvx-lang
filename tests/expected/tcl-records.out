@@ -1,0 +1,13 @@
+1 record copied to PARTS W900
+W900
+001 Widget
+002 999
+003 blue
+1 record(s) deleted
+new record
+000= 001+ 002+ 003+ 002= 002 BETA
+002= 'NOTE1' filed
+NOTE1
+001 alpha
+002 BETA
+1 record(s) deleted

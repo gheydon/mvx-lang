@@ -88,6 +88,13 @@ add_custom_target(system-account ALL
           ${CMAKE_SOURCE_DIR}/system/VOC ${MVX_SYS_DIR}/VOC
   DEPENDS ${MVX_SYS_VERBS})
 
+# --- tests -------------------------------------------------------------
+add_custom_target(check
+  COMMAND ${CMAKE_SOURCE_DIR}/scripts/test.sh
+  DEPENDS mvx mvx-tcl system-account mvxdrv_dir mvxdrv_lmdb mvx_crt
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  USES_TERMINAL)
+
 # Program-entry object, shipped standalone so shared-library builds never
 # pick up a main().  The driver links it explicitly for executables.
 add_custom_command(

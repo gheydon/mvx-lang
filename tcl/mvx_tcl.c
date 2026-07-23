@@ -46,6 +46,26 @@ static const char *system_dir(void) {
     return p && p[0] ? p : MVX_SYSTEM_DIR;
 }
 
+/* Read one line from fd 0 unbuffered.  Verbs share this stdin; stdio
+   readahead here would swallow input meant for them (and theirs would
+   swallow ours — mv_input reads the same way).  Returns 0 on EOF with
+   nothing read. */
+static int read_line_raw(char *buf, size_t cap) {
+    size_t n = 0;
+    for (;;) {
+        char c;
+        ssize_t r = read(0, &c, 1);
+        if (r <= 0) {
+            if (n == 0) return 0;
+            break;
+        }
+        if (c == '\n') break;
+        if (n < cap - 1) buf[n++] = c;
+    }
+    buf[n] = '\0';
+    return 1;
+}
+
 /* Current account identity, refreshed on entry and by LOGTO. */
 static char g_acct_path[4096] = "?";
 static char g_acct_base[256] = "?";
@@ -366,7 +386,7 @@ int main(int argc, char **argv) {
             fflush(stdout);
         }
 #endif
-        if (!fgets(line, sizeof line, stdin)) break;
+        if (!read_line_raw(line, sizeof line)) break;
         command(line);
     }
     if (tty) fputc('\n', stdout);

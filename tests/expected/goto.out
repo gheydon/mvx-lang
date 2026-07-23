@@ -1,0 +1,7 @@
+at 100, X=1
+at 100, X=2
+at 100, X=3
+after gosubs, Y=20
+in 600
+nested back, Y=30
+done

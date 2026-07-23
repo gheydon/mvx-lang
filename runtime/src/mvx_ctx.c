@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
 
 /* Session context.  The parameter exists in every ABI signature so that
    session identity, locks, and the privilege gate can land here later
@@ -180,19 +181,27 @@ void mv_sentence(mvx_ctx *ctx, mv_value *dst) {
 
 /* ---------------------------------------------------------------- input */
 
+/* INPUT reads fd 0 one byte at a time, deliberately unbuffered: a
+   program often shares stdin with the TCL session that spawned it, and
+   buffered readahead would swallow lines meant for the shell.  EOF
+   with nothing pending ends the program — otherwise a piped INPUT
+   loop would spin forever on "". */
 void mv_input(mvx_ctx *ctx, mv_value *dst) {
     (void)ctx;
-    char *line = NULL;
-    size_t cap = 0;
-    ssize_t n = getline(&line, &cap, stdin);
-    if (n < 0) {
-        mv_set_str(dst, "", 0);
-        free(line);
-        return;
+    fflush(stdout);
+    char buf[4096];
+    size_t n = 0;
+    for (;;) {
+        char c;
+        ssize_t r = read(0, &c, 1);
+        if (r <= 0) {
+            if (n == 0) mvx_stop();     /* EOF: end of program input */
+            break;
+        }
+        if (c == '\n') break;
+        if (c != '\r' && n < sizeof buf - 1) buf[n++] = c;
     }
-    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) n--;
-    mv_set_str(dst, line, n);
-    free(line);
+    mv_set_str(dst, buf, (int64_t)n);
 }
 
 /* ------------------------------------------------------------ intrinsics */

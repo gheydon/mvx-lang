@@ -1,0 +1,7 @@
+NAME attr 1 heading Customer Name
+dict has 1 item(s)
+data id C1
+dir dict ok 2
+dir data ids 1
+ghost else ok
+dict gone ok

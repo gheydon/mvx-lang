@@ -1,0 +1,16 @@
+linked @ROOT@/packages/git
+linked @ROOT@/packages/cmd
+git@1.0        ok     @ROOT@/packages/git     requires cmd
+cmd@1.0        ok     @ROOT@/packages/cmd     
+2 package(s) linked
+GIT - work with the account's git repository
+usage: GIT <command>
+commands:
+  status       working tree status
+  log          recent history
+  diff         unstaged changes
+  init         initialise a repository here
+  help         show this help
+cannot unlink cmd: @ROOT@/packages/git depends on it
+unlinked @ROOT@/packages/git
+unlinked @ROOT@/packages/cmd
