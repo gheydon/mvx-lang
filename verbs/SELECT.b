@@ -1,23 +1,40 @@
 * SELECT file {WITH item op value} — form the active select list for
 * the next command (the session carries it across processes).
 S = TRIM(SENTENCE())
+DICTF = 0
 FN = FIELD(S, " ", 2)
+TBASE = 3
+IF FN = "DICT" THEN
+   DICTF = 1
+   FN = FIELD(S, " ", 3)
+   TBASE = 4
+END
 IF FN = "" THEN
-   PRINT "usage: SELECT file {WITH item op value}"
+   PRINT "usage: SELECT {DICT} file {WITH item op value}"
    STOP
 END
-OPEN FN TO F ELSE
-   PRINT "cannot open ":FN
-   STOP
+IF DICTF THEN
+   OPEN "DICT", FN TO F ELSE
+      PRINT "cannot open DICT ":FN
+      STOP
+   END
+END ELSE
+   OPEN FN TO F ELSE
+      PRINT "cannot open ":FN
+      STOP
+   END
 END
-DOPEN = 1
-OPEN "DICT", FN TO DC ELSE DOPEN = 0
+DOPEN = 0
+IF DICTF = 0 THEN
+   DOPEN = 1
+   OPEN "DICT", FN TO DC ELSE DOPEN = 0
+END
 
 WI = ""
 WOP = ""
 WV = ""
 NT = DCOUNT(S, " ")
-I = 3
+I = TBASE
 LOOP
 WHILE I <= NT DO
    T = FIELD(S, " ", I)

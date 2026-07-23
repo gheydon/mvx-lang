@@ -1,14 +1,28 @@
-* CT file id — copy record to terminal, classic numbered format
-S = SENTENCE()
+* CT {DICT} file id — copy record to terminal, classic numbered format
+S = TRIM(SENTENCE())
 NAME = FIELD(S, " ", 2)
-ID = FIELD(S, " ", 3)
+DICTF = 0
+IDPOS = 3
+IF NAME = "DICT" THEN
+   DICTF = 1
+   NAME = FIELD(S, " ", 3)
+   IDPOS = 4
+END
+ID = FIELD(S, " ", IDPOS)
 IF NAME = "" OR ID = "" THEN
-   PRINT "usage: CT filename id"
+   PRINT "usage: CT {DICT} filename id"
    STOP
 END
-OPEN NAME TO F ELSE
-   PRINT "cannot open ":NAME
-   STOP
+IF DICTF THEN
+   OPEN "DICT", NAME TO F ELSE
+      PRINT "cannot open DICT ":NAME
+      STOP
+   END
+END ELSE
+   OPEN NAME TO F ELSE
+      PRINT "cannot open ":NAME
+      STOP
+   END
 END
 READ R FROM F, ID THEN
    PRINT ID

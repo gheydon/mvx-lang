@@ -3,17 +3,36 @@
 *   1 = D, 2 = attribute number, 3 = conversion (OCONV code),
 *   4 = column heading, 5 = format e.g. "12L" / "8R".
 S = TRIM(SENTENCE())
+DICTF = 0
 FN = FIELD(S, " ", 2)
+TBASE = 3
+IF FN = "DICT" THEN
+   DICTF = 1
+   FN = FIELD(S, " ", 3)
+   TBASE = 4
+END
 IF FN = "" THEN
-   PRINT "usage: LIST file {items} {WITH item op value} {BY item}"
+   PRINT "usage: LIST {DICT} file {items} {WITH item op value} {BY item}"
    STOP
 END
-OPEN FN TO F ELSE
-   PRINT "cannot open ":FN
-   STOP
+IF DICTF THEN
+   OPEN "DICT", FN TO F ELSE
+      PRINT "cannot open DICT ":FN
+      STOP
+   END
+END ELSE
+   OPEN FN TO F ELSE
+      PRINT "cannot open ":FN
+      STOP
+   END
 END
-DOPEN = 1
-OPEN "DICT", FN TO DC ELSE DOPEN = 0
+* column definitions come from the file's dictionary; a dictionary
+* listing has no dict-of-dict, so only @ID resolves there
+DOPEN = 0
+IF DICTF = 0 THEN
+   DOPEN = 1
+   OPEN "DICT", FN TO DC ELSE DOPEN = 0
+END
 
 * ---- parse the sentence ------------------------------------------------
 NT = DCOUNT(S, " ")
@@ -22,7 +41,7 @@ WI = ""
 WOP = ""
 WV = ""
 BYI = ""
-I = 3
+I = TBASE
 LOOP
 WHILE I <= NT DO
    T = FIELD(S, " ", I)
