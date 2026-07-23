@@ -152,6 +152,23 @@ void mv_print_tab(mvx_ctx *ctx) {
     }
 }
 
+/* Environment variable, or "" when unset. */
+void mv_env(mv_value *dst, const mv_value *name) {
+    char nb[40];
+    const char *p;
+    int64_t n = mv_val_chars(name, nb, sizeof nb, &p);
+    char key[256];
+    if (n <= 0 || n >= (int64_t)sizeof key) {
+        mv_set_str(dst, "", 0);
+        return;
+    }
+    memcpy(key, p, (size_t)n);
+    key[n] = '\0';
+    const char *v = getenv(key);
+    if (!v) v = "";
+    mv_set_str(dst, v, (int64_t)strlen(v));
+}
+
 /* The TCL command line that invoked this program, set by the shell. */
 void mv_sentence(mvx_ctx *ctx, mv_value *dst) {
     (void)ctx;

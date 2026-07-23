@@ -1,18 +1,16 @@
 * /**
 *  * @file LINK-PKG
-*  * @version 1.0
+*  * @version 2.0
 *  */
-* LINK-PKG path — link a package into this account.  The PACKAGES
-* record in the account directory lists linked packages, one per
-* attribute; TCL adds their VOCs to verb resolution.
+* LINK-PKG path — link a package and its dependency closure.
+* The PKG manifest (attr 1 name, 2 version, 3 description, 4..
+* dependency names) drives resolution: a dependency is satisfied by an
+* already-linked package of that name, or found beside the requiring
+* package, or on $MVXPKGPATH — and is linked automatically.
 S = TRIM(SENTENCE())
 P = FIELD(S, " ", 2)
 IF P = "" THEN
    PRINT "usage: LINK-PKG /path/to/package"
-   STOP
-END
-OPEN P:"/VOC" TO PV ELSE
-   PRINT P:" is not a package (no VOC directory)"
    STOP
 END
 OPEN "." TO ACC ELSE
@@ -20,10 +18,114 @@ OPEN "." TO ACC ELSE
    STOP
 END
 READ PKGS FROM ACC, "PACKAGES" ELSE PKGS = ""
-LOCATE(P, PKGS; POS) THEN
+
+* names of already-linked packages
+LNAMES = ""
+NP = DCOUNT(PKGS, @AM)
+FOR LI = 1 TO NP
+   CUR = PKGS<LI>
+   GOSUB 9000
+   LNAMES<LI> = PNAME
+NEXT LI
+
+QUEUE = ""
+QUEUE<1> = P
+ADDED = ""
+LOOP
+UNTIL QUEUE = "" DO
+   CUR = QUEUE<1>
+   QUEUE = DELETE(QUEUE, 1, 0, 0)
+   SKIP = 0
+   LOCATE(CUR, PKGS; POS) THEN SKIP = 1
+   IF SKIP = 0 THEN
+      OPEN CUR:"/VOC" TO PV ELSE
+         PRINT CUR:" is not a package (no VOC directory)"
+         STOP
+      END
+      GOSUB 9000
+      LOCATE(PNAME, LNAMES; POS) THEN SKIP = 1
+   END
+   IF SKIP = 0 THEN
+      PKGS<-1> = CUR
+      LNAMES<-1> = PNAME
+      ADDED<-1> = CUR
+      DEPLIST = PDEPS
+      ND = DCOUNT(DEPLIST, @AM)
+      FOR DI = 1 TO ND
+         D = DEPLIST<DI>
+         LOCATE(D, LNAMES; POS) THEN
+            X = 0
+         END ELSE
+            GOSUB 9200
+            IF RPATH = "" THEN
+               PRINT "cannot resolve dependency '":D:"' of ":CUR
+               PRINT "searched: linked packages, ":CUR:"/../, $MVXPKGPATH"
+               STOP
+            END
+            QUEUE<-1> = RPATH
+         END
+      NEXT DI
+   END
+REPEAT
+IF ADDED = "" THEN
    PRINT P:" is already linked"
    STOP
 END
-PKGS<-1> = P
 WRITE PKGS ON ACC, "PACKAGES"
-PRINT "linked ":P
+NA = DCOUNT(ADDED, @AM)
+FOR LI = 1 TO NA
+   PRINT "linked ":ADDED<LI>
+NEXT LI
+STOP
+
+* ---- 9000: manifest of CUR -> PNAME, PVER, PDEPS -----------------------
+9000
+PNAME = ""
+PVER = ""
+PDEPS = ""
+OPEN CUR TO MPD THEN
+   READ MF FROM MPD, "PKG" THEN
+      PNAME = MF<1>
+      PVER = MF<2>
+      MN = DCOUNT(MF, @AM)
+      FOR MI = 4 TO MN
+         IF MF<MI> # "" THEN
+            PDEPS<-1> = MF<MI>
+         END
+      NEXT MI
+   END
+END
+IF PNAME = "" THEN
+   LS = 0
+   FOR MI = 1 TO LEN(CUR)
+      IF CUR[MI, 1] = "/" THEN LS = MI
+   NEXT MI
+   PNAME = CUR[LS + 1, LEN(CUR)]
+END
+RETURN
+
+* ---- 9200: resolve dependency name D near CUR -> RPATH -----------------
+9200
+RPATH = ""
+LS = 0
+FOR MI = 1 TO LEN(CUR)
+   IF CUR[MI, 1] = "/" THEN LS = MI
+NEXT MI
+CAND = CUR[1, LS]:D
+OPEN CAND:"/VOC" TO TV THEN
+   RPATH = CAND
+   RETURN
+END
+PP = ENV("MVXPKGPATH")
+NSEG = DCOUNT(PP, ":")
+FOR MI = 1 TO NSEG
+   SEG = FIELD(PP, ":", MI)
+   IF SEG # "" THEN
+      CAND = SEG:"/":D
+      OPEN CAND:"/VOC" TO TV THEN
+         RPATH = CAND
+         RETURN
+      END
+   END
+NEXT MI
+RETURN

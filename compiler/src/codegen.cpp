@@ -821,6 +821,9 @@ private:
         if (f == "TRIM") { need(1);
             call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
             return; }
+        if (f == "ENV") { need(1);
+            call2("mv_env", dest, evalPtr(*e.args[0]));
+            return; }
         if (f == "SENTENCE") { need(0);
             callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
