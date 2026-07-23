@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -238,9 +239,36 @@ int64_t mv_date_fn(void) {
     return era * 146097 + doe - 719468 + 732;
 }
 
+/* Live terminal size: ioctl first (tracks window resizes), then the
+   COLUMNS/LINES environment, then the classic 80x24. */
+static void term_size(int64_t *w, int64_t *h) {
+    struct winsize ws;
+    for (int fd = 1; fd >= 0; fd--) {
+        if (isatty(fd) && ioctl(fd, TIOCGWINSZ, &ws) == 0 &&
+            ws.ws_col > 0) {
+            *w = ws.ws_col;
+            *h = ws.ws_row;
+            return;
+        }
+    }
+    const char *c = getenv("COLUMNS");
+    const char *l = getenv("LINES");
+    *w = (c && atoi(c) > 0) ? atoi(c) : 80;
+    *h = (l && atoi(l) > 0) ? atoi(l) : 24;
+}
+
 void mv_system_fn(mvx_ctx *ctx, mv_value *dst, const mv_value *code) {
     int64_t s, ms;
+    int64_t tw, th;
     switch (mv_get_int(code)) {
+    case 2:                        /* terminal width, classic */
+        term_size(&tw, &th);
+        mv_set_int(dst, tw);
+        return;
+    case 3:                        /* terminal depth, classic */
+        term_size(&tw, &th);
+        mv_set_int(dst, th);
+        return;
     case 11:                       /* select list active? */
         mv_set_int(dst, mvx_list_active(ctx));
         return;
