@@ -101,6 +101,10 @@ mv_array *mvx_common_arr(mvx_ctx *ctx, const char *block, int64_t idx,
 
 /* --- input / output ---------------------------------------------------- */
 void mv_input(mvx_ctx *ctx, mv_value *dst);         /* read line from stdin */
+void mv_keyin(mvx_ctx *ctx, mv_value *dst,
+              int64_t timeout_ms);                  /* decoded keystroke */
+void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b);
+void mv_echo(mvx_ctx *ctx, int64_t on);
 void mv_sentence(mvx_ctx *ctx, mv_value *dst);      /* invoking TCL sentence */
 void mv_env(mv_value *dst, const mv_value *name);   /* getenv, "" if unset */
 void mv_print(mvx_ctx *ctx, const mv_value *v);     /* no newline */

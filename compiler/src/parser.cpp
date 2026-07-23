@@ -201,6 +201,21 @@ private:
             thenElse(*s);
             break;
         }
+        case Tok::KwEcho: {
+            advance();
+            s = mk(Stmt::K::Echo);
+            if (at(Tok::KwOn)) {
+                advance();
+                s->name = "ON";
+            } else {
+                Token t = expect(Tok::Ident, "ON or OFF after ECHO");
+                if (t.text != "OFF" && t.text != "ON")
+                    err("expected ON or OFF after ECHO");
+                s->name = t.text;
+            }
+            endStatementSoft();
+            break;
+        }
         case Tok::KwFormlist:
             advance();
             s = mk(Stmt::K::Formlist);

@@ -91,6 +91,17 @@ lang dynarr
 lang conv
 lang strfns world
 
+# KEYIN decoding from piped bytes (printable, specials, escape
+# sequences, ESC pushback)
+out="$TESTROOT/keyin"
+if "$MVX" "$ROOT/tests/keyin.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  actual="$(printf 'a\r\t\177\033[A\033[3~\033OP\033[24~\001\033q' | \
+            "$out" 2>&1)"
+  check keyin "$actual"
+else
+  check keyin "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # CALL across separately compiled sources
 out="$TESTROOT/callmain"
 "$MVX" "$ROOT/tests/callmain.b" "$ROOT/tests/adder.b" -o "$out" \

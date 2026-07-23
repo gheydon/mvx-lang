@@ -3,14 +3,30 @@
   "name": "MVX BASIC",
   "scopeName": "source.mvx-basic",
   "patterns": [
-    { "include": "#comment" },
-    { "include": "#label" },
-    { "include": "#string" },
-    { "include": "#number" },
-    { "include": "#sysvar" },
-    { "include": "#keyword" },
-    { "include": "#intrinsic" },
-    { "include": "#operator" }
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#label"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#sysvar"
+    },
+    {
+      "include": "#keyword"
+    },
+    {
+      "include": "#intrinsic"
+    },
+    {
+      "include": "#operator"
+    }
   ],
   "repository": {
     "comment": {
@@ -89,7 +105,7 @@
         },
         {
           "name": "keyword.other.statement.mvx-basic",
-          "match": "\\b(CALL|SUBROUTINE|COMMON|COM|DIM|MAT|PRINT|CRT|INPUT|EXECUTE|PERFORM|CAPTURING|RETURNING|FORMLIST|LOCATE|OPEN|READU|READNEXT|READ|WRITEU|WRITE|DELETE|RELEASE|SELECT|FROM|ON)\\b"
+          "match": "\\b(CALL|SUBROUTINE|COMMON|COM|DIM|MAT|PRINT|CRT|INPUT|EXECUTE|PERFORM|CAPTURING|RETURNING|FORMLIST|ECHO|LOCATE|OPEN|READU|READNEXT|READ|WRITEU|WRITE|DELETE|RELEASE|SELECT|FROM|ON)\\b"
         },
         {
           "name": "keyword.operator.word.mvx-basic",
@@ -99,7 +115,7 @@
     },
     "intrinsic": {
       "name": "support.function.mvx-basic",
-      "match": "\\b(LEN|COUNT|DCOUNT|SEQ|INDEX|NUM|STATUS|CHAR|STR|SPACE|TRIM|FIELD|OCONV|ICONV|FMT|ENV|SENTENCE|TIME|DATE|SYSTEM|INT|SQRT|ABS|MOD|CREATEFILE|DELETEFILE|COMPILE|FILELIST|INDEXBUILD|INDEXDROP|INDEXSELECT|EXTRACT|REPLACE|INSERT|DOCTAG)(?=\\s*\\()"
+      "match": "\\b(LEN|COUNT|DCOUNT|SEQ|INDEX|NUM|STATUS|CHAR|STR|SPACE|TRIM|FIELD|OCONV|ICONV|FMT|ENV|SENTENCE|TIME|DATE|SYSTEM|INT|SQRT|ABS|MOD|CREATEFILE|DELETEFILE|COMPILE|FILELIST|INDEXBUILD|INDEXDROP|INDEXSELECT|EXTRACT|REPLACE|INSERT|DOCTAG|KEYIN)(?=\\s*\\()"
     },
     "operator": {
       "name": "keyword.operator.mvx-basic",

@@ -846,6 +846,26 @@ private:
             callRt("mvx_filelist", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
             return; }
+        if (f == "@") {
+            if (e.args.size() != 1 && e.args.size() != 2)
+                err(e.line, "@() takes 1 or 2 arguments");
+            Value *a = numIndex(*e.args[0]);
+            Value *b = e.args.size() == 2 ? numIndex(*e.args[1])
+                                          : ConstantInt::get(i64Ty_, 0);
+            callRt("mv_at_fn", voidTy_, {ptrTy_, i64Ty_, i64Ty_, i64Ty_},
+                   {dest, a, b,
+                    ConstantInt::get(i64Ty_, e.args.size() == 2 ? 1 : 0)});
+            return;
+        }
+        if (f == "KEYIN") {
+            if (e.args.size() > 1)
+                err(e.line, "KEYIN() takes at most one argument");
+            Value *t = e.args.empty() ? ConstantInt::get(i64Ty_, -1)
+                                      : numIndex(*e.args[0]);
+            callRt("mv_keyin", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
+                   {ctxArg_, dest, t});
+            return;
+        }
         if (f == "SENTENCE") { need(0);
             callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
@@ -1050,6 +1070,11 @@ private:
             break;
         case Stmt::K::Common:
             break;          // bound at function entry
+        case Stmt::K::Echo:
+            callRt("mv_echo", voidTy_, {ptrTy_, i64Ty_},
+                   {ctxArg_,
+                    ConstantInt::get(i64Ty_, s.name == "ON" ? 1 : 0)});
+            break;
         case Stmt::K::Open:     emitOpen(s);     break;
         case Stmt::K::ReadF:    emitReadF(s);    break;
         case Stmt::K::WriteF:   emitWriteF(s);   break;

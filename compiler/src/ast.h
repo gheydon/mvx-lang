@@ -57,6 +57,7 @@ struct Stmt {
         Input,      // target: Var or array element read from stdin
         Mat,        // MAT name = value  |  MAT name = MAT name2
         Common,     // args: Var/Paren items; name2: block name ("" unnamed)
+        Echo,       // name: "ON" or "OFF"
         Open,       // args: [dict,] spec; name: file var; THEN/ELSE
         ReadF,      // target: record var; args: file, id; name: "U" locks
         WriteF,     // value: record; args: file, id; name: "U" keeps lock
