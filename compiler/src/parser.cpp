@@ -1,0 +1,522 @@
+#include "parser.h"
+#include "lexer.h"
+
+#include <filesystem>
+
+namespace mvx {
+
+namespace {
+
+class Parser {
+public:
+    Parser(std::vector<Token> toks, std::string item)
+        : toks_(std::move(toks)), item_(std::move(item)) {}
+
+    Program run(const std::string &sourcePath) {
+        Program prog;
+        prog.sourcePath = sourcePath;
+        skipEols();
+
+        if (at(Tok::KwSubroutine)) {
+            advance();
+            prog.isSubroutine = true;
+            prog.name = expect(Tok::Ident, "subroutine name").text;
+            if (at(Tok::LParen)) {
+                advance();
+                if (!at(Tok::RParen)) {
+                    for (;;) {
+                        prog.params.push_back(
+                            expect(Tok::Ident, "parameter name").text);
+                        if (!at(Tok::Comma)) break;
+                        advance();
+                    }
+                }
+                expect(Tok::RParen, "')'");
+            }
+            endStatement();
+        }
+
+        while (!at(Tok::Eof)) {
+            skipEols();
+            if (at(Tok::Eof)) break;
+            if (at(Tok::KwEnd)) {          // top-level END: end of program
+                advance();
+                skipEols();
+                if (!at(Tok::Eof))
+                    err("statements after top-level END");
+                break;
+            }
+            prog.body.push_back(statement());
+        }
+        return prog;
+    }
+
+private:
+    std::vector<Token> toks_;
+    std::string item_;
+    size_t pos_ = 0;
+
+    const Token &cur() const { return toks_[pos_]; }
+    const Token &peek(size_t k = 1) const {
+        size_t p = pos_ + k;
+        return toks_[p < toks_.size() ? p : toks_.size() - 1];
+    }
+    bool at(Tok k) const { return cur().kind == k; }
+    Token advance() { return toks_[pos_++]; }
+
+    [[noreturn]] void err(const std::string &msg) const {
+        throw CompileError(item_, cur().line, msg);
+    }
+    Token expect(Tok k, const char *what) {
+        if (!at(k)) err(std::string("expected ") + what);
+        return advance();
+    }
+    void skipEols() { while (at(Tok::Eol) || at(Tok::Semi)) advance(); }
+    void endStatement() {
+        if (at(Tok::Eol) || at(Tok::Semi)) { advance(); return; }
+        if (at(Tok::Eof)) return;
+        err("unexpected token at end of statement");
+    }
+
+    // ------------------------------------------------------------ statements
+
+    // Statements up to (not consuming) one of the given terminators.
+    // Terminators are only recognised at statement start.
+    std::vector<StmtP> block(std::initializer_list<Tok> terms) {
+        std::vector<StmtP> out;
+        for (;;) {
+            skipEols();
+            if (at(Tok::Eof)) err("unexpected end of file inside block");
+            bool done = false;
+            for (Tok t : terms)
+                if (at(t)) { done = true; break; }
+            if (done) return out;
+            out.push_back(statement());
+        }
+    }
+
+    // Statements on the current line, for single-line IF bodies.
+    // Stops at EOL or ELSE.
+    std::vector<StmtP> lineStmts() {
+        std::vector<StmtP> out;
+        for (;;) {
+            if (at(Tok::Eol) || at(Tok::Eof) || at(Tok::KwElse)) return out;
+            out.push_back(statement());
+            if (at(Tok::Semi)) advance();
+        }
+    }
+
+    StmtP statement() {
+        int line = cur().line;
+        StmtP s;
+        switch (cur().kind) {
+        case Tok::KwDim:      s = dimStmt();   break;
+        case Tok::KwIf:       s = ifStmt();    break;
+        case Tok::KwFor:      s = forStmt();   break;
+        case Tok::KwLoop:     s = loopStmt();  break;
+        case Tok::KwPrint:
+        case Tok::KwCrt:      s = printStmt(); break;
+        case Tok::KwCall:     s = callStmt();  break;
+        case Tok::KwReturn:
+            advance();
+            s = mk(Stmt::K::Return);
+            endStatementSoft();
+            break;
+        case Tok::KwStop:
+            advance();
+            s = mk(Stmt::K::Stop);
+            endStatementSoft();
+            break;
+        case Tok::Ident:      s = assignStmt(); break;
+        default:
+            err("expected statement");
+        }
+        s->line = line;
+        return s;
+    }
+
+    StmtP mk(Stmt::K k) {
+        auto s = std::make_unique<Stmt>();
+        s->kind = k;
+        s->line = cur().line;
+        return s;
+    }
+
+    // Statement terminator inside single-line IF bodies: ELSE and EOL are
+    // left for the caller; ';' is consumed by the caller loop.
+    void endStatementSoft() {
+        if (at(Tok::Eol) || at(Tok::Semi) || at(Tok::Eof) || at(Tok::KwElse))
+            return;
+        err("unexpected token at end of statement");
+    }
+
+    StmtP assignStmt() {
+        auto s = mk(Stmt::K::Assign);
+        s->target = primaryRef();
+        expect(Tok::Eq, "'=' in assignment");
+        s->value = expression();
+        endStatementSoft();
+        return s;
+    }
+
+    // A variable or name(subscripts) reference for assignment targets.
+    ExprP primaryRef() {
+        Token name = expect(Tok::Ident, "variable name");
+        auto e = std::make_unique<Expr>();
+        e->line = name.line;
+        e->sval = name.text;
+        if (at(Tok::LParen)) {
+            e->kind = Expr::K::Paren;
+            advance();
+            for (;;) {
+                e->args.push_back(expression());
+                if (!at(Tok::Comma)) break;
+                advance();
+            }
+            expect(Tok::RParen, "')'");
+        } else {
+            e->kind = Expr::K::Var;
+        }
+        return e;
+    }
+
+    StmtP dimStmt() {
+        advance();
+        auto s = mk(Stmt::K::Dim);
+        s->name = expect(Tok::Ident, "array name").text;
+        expect(Tok::LParen, "'(' after DIM name");
+        s->args.push_back(expression());
+        if (at(Tok::Comma)) {
+            advance();
+            s->args.push_back(expression());
+        }
+        expect(Tok::RParen, "')'");
+        endStatementSoft();
+        return s;
+    }
+
+    StmtP ifStmt() {
+        advance();
+        auto s = mk(Stmt::K::If);
+        s->cond = expression();
+
+        bool hadThen = false;
+        if (at(Tok::KwThen)) { advance(); hadThen = true; }
+
+        if (hadThen && (at(Tok::Eol) || at(Tok::Semi))) {
+            // Block THEN, jBASE style:  IF c THEN ... END [ELSE ... END]
+            advance();
+            s->body = block({Tok::KwEnd});
+            advance();                              // END
+            if (at(Tok::KwElse)) {
+                advance();
+                if (at(Tok::Eol) || at(Tok::Semi)) {
+                    advance();
+                    s->elseBody = block({Tok::KwEnd});
+                    advance();                      // END
+                } else {
+                    s->elseBody = lineStmts();
+                }
+            }
+            endStatementSoft();
+            return s;
+        }
+
+        if (hadThen) {
+            s->body = lineStmts();
+            if (at(Tok::KwElse)) {
+                advance();
+                if (at(Tok::Eol) || at(Tok::Semi)) {
+                    advance();
+                    s->elseBody = block({Tok::KwEnd});
+                    advance();                      // END
+                } else {
+                    s->elseBody = lineStmts();
+                }
+            }
+            endStatementSoft();
+            return s;
+        }
+
+        // IF cond ELSE ...   (no THEN clause)
+        if (!at(Tok::KwElse)) err("expected THEN or ELSE after IF condition");
+        advance();
+        if (at(Tok::Eol) || at(Tok::Semi)) {
+            advance();
+            s->elseBody = block({Tok::KwEnd});
+            advance();                              // END
+        } else {
+            s->elseBody = lineStmts();
+        }
+        endStatementSoft();
+        return s;
+    }
+
+    StmtP forStmt() {
+        advance();
+        auto s = mk(Stmt::K::For);
+        s->name = expect(Tok::Ident, "FOR variable").text;
+        expect(Tok::Eq, "'=' in FOR");
+        s->from = expression();
+        expect(Tok::KwTo, "TO");
+        s->to = expression();
+        if (at(Tok::KwStep)) {
+            advance();
+            s->step = expression();
+        }
+        endStatement();
+        s->body = block({Tok::KwNext});
+        advance();                                  // NEXT
+        if (at(Tok::Ident)) {
+            Token v = advance();
+            if (v.text != s->name)
+                throw CompileError(item_, v.line,
+                    "NEXT " + v.text + " does not match FOR " + s->name);
+        }
+        endStatementSoft();
+        return s;
+    }
+
+    StmtP loopStmt() {
+        advance();
+        auto s = mk(Stmt::K::Loop);
+        endStatement();
+        s->pre = block({Tok::KwWhile, Tok::KwUntil, Tok::KwRepeat});
+        if (at(Tok::KwWhile) || at(Tok::KwUntil)) {
+            s->loopCond = at(Tok::KwWhile) ? Stmt::LoopCond::While
+                                           : Stmt::LoopCond::Until;
+            advance();
+            s->cond = expression();
+            if (at(Tok::KwDo)) advance();
+            endStatement();
+            s->post = block({Tok::KwRepeat});
+        }
+        advance();                                  // REPEAT
+        endStatementSoft();
+        return s;
+    }
+
+    StmtP printStmt() {
+        advance();
+        auto s = mk(Stmt::K::Print);
+        if (at(Tok::Eol) || at(Tok::Semi) || at(Tok::Eof)) {
+            endStatementSoft();
+            return s;                               // bare PRINT: newline
+        }
+        bool tab = false;
+        for (;;) {
+            s->args.push_back(expression());
+            s->printTabs.push_back(tab);
+            if (at(Tok::Comma)) { advance(); tab = true; continue; }
+            if (at(Tok::Colon) &&
+                (peek().kind == Tok::Eol || peek().kind == Tok::Semi ||
+                 peek().kind == Tok::Eof || peek().kind == Tok::KwElse)) {
+                advance();
+                s->noNewline = true;
+            }
+            break;
+        }
+        endStatementSoft();
+        return s;
+    }
+
+    StmtP callStmt() {
+        advance();
+        auto s = mk(Stmt::K::Call);
+        s->name = expect(Tok::Ident, "subroutine name").text;
+        if (at(Tok::LParen)) {
+            advance();
+            if (!at(Tok::RParen)) {
+                for (;;) {
+                    s->args.push_back(expression());
+                    if (!at(Tok::Comma)) break;
+                    advance();
+                }
+            }
+            expect(Tok::RParen, "')'");
+        }
+        endStatementSoft();
+        return s;
+    }
+
+    // ----------------------------------------------------------- expressions
+    // Precedence, loosest to tightest:
+    //   OR < AND < relational < concat(:) < add < mul < power < unary < primary
+
+    ExprP expression() { return orExpr(); }
+
+    ExprP bin(BinOp op, ExprP l, ExprP r, int line) {
+        auto e = std::make_unique<Expr>();
+        e->kind = Expr::K::Bin;
+        e->op = op;
+        e->lhs = std::move(l);
+        e->rhs = std::move(r);
+        e->line = line;
+        return e;
+    }
+
+    ExprP orExpr() {
+        ExprP l = andExpr();
+        while (at(Tok::KwOr)) {
+            int line = advance().line;
+            l = bin(BinOp::Or, std::move(l), andExpr(), line);
+        }
+        return l;
+    }
+
+    ExprP andExpr() {
+        ExprP l = relExpr();
+        while (at(Tok::KwAnd)) {
+            int line = advance().line;
+            l = bin(BinOp::And, std::move(l), relExpr(), line);
+        }
+        return l;
+    }
+
+    ExprP relExpr() {
+        ExprP l = catExpr();
+        for (;;) {
+            BinOp op;
+            switch (cur().kind) {
+            case Tok::Eq: op = BinOp::Eq; break;
+            case Tok::Ne: op = BinOp::Ne; break;
+            case Tok::Lt: op = BinOp::Lt; break;
+            case Tok::Le: op = BinOp::Le; break;
+            case Tok::Gt: op = BinOp::Gt; break;
+            case Tok::Ge: op = BinOp::Ge; break;
+            default: return l;
+            }
+            int line = advance().line;
+            l = bin(op, std::move(l), catExpr(), line);
+        }
+    }
+
+    bool startsOperand(const Token &t) const {
+        switch (t.kind) {
+        case Tok::Ident: case Tok::IntLit: case Tok::FltLit: case Tok::StrLit:
+        case Tok::LParen: case Tok::Minus: case Tok::Plus: case Tok::KwNot:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    ExprP catExpr() {
+        ExprP l = addExpr();
+        // ':' is concatenation only when an operand follows; otherwise it
+        // belongs to the statement (PRINT trailing colon).
+        while (at(Tok::Colon) && startsOperand(peek())) {
+            int line = advance().line;
+            l = bin(BinOp::Cat, std::move(l), addExpr(), line);
+        }
+        return l;
+    }
+
+    ExprP addExpr() {
+        ExprP l = mulExpr();
+        for (;;) {
+            if (at(Tok::Plus)) {
+                int line = advance().line;
+                l = bin(BinOp::Add, std::move(l), mulExpr(), line);
+            } else if (at(Tok::Minus)) {
+                int line = advance().line;
+                l = bin(BinOp::Sub, std::move(l), mulExpr(), line);
+            } else return l;
+        }
+    }
+
+    ExprP mulExpr() {
+        ExprP l = powExpr();
+        for (;;) {
+            if (at(Tok::Star)) {
+                int line = advance().line;
+                l = bin(BinOp::Mul, std::move(l), powExpr(), line);
+            } else if (at(Tok::Slash)) {
+                int line = advance().line;
+                l = bin(BinOp::Div, std::move(l), powExpr(), line);
+            } else return l;
+        }
+    }
+
+    ExprP powExpr() {
+        ExprP l = unaryExpr();
+        if (at(Tok::Caret)) {                       // right-associative
+            int line = advance().line;
+            l = bin(BinOp::Pow, std::move(l), powExpr(), line);
+        }
+        return l;
+    }
+
+    ExprP unaryExpr() {
+        if (at(Tok::Minus)) {
+            int line = advance().line;
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::Neg;
+            e->lhs = unaryExpr();
+            e->line = line;
+            return e;
+        }
+        if (at(Tok::Plus)) { advance(); return unaryExpr(); }
+        if (at(Tok::KwNot)) {
+            int line = advance().line;
+            expect(Tok::LParen, "'(' after NOT");
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::Not;
+            e->lhs = expression();
+            e->line = line;
+            expect(Tok::RParen, "')'");
+            return e;
+        }
+        return primary();
+    }
+
+    ExprP primary() {
+        int line = cur().line;
+        switch (cur().kind) {
+        case Tok::IntLit: {
+            Token t = advance();
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::IntLit;
+            e->ival = t.ival;
+            e->line = line;
+            return e;
+        }
+        case Tok::FltLit: {
+            Token t = advance();
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::FltLit;
+            e->fval = t.fval;
+            e->line = line;
+            return e;
+        }
+        case Tok::StrLit: {
+            Token t = advance();
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::StrLit;
+            e->sval = t.text;
+            e->line = line;
+            return e;
+        }
+        case Tok::LParen: {
+            advance();
+            ExprP e = expression();
+            expect(Tok::RParen, "')'");
+            return e;
+        }
+        case Tok::Ident:
+            return primaryRef();
+        default:
+            err("expected expression");
+        }
+    }
+};
+
+} // namespace
+
+Program parse(const std::string &src, const std::string &sourcePath) {
+    std::string item = std::filesystem::path(sourcePath).filename().string();
+    Parser p(lex(src, item), item);
+    return p.run(sourcePath);
+}
+
+} // namespace mvx
