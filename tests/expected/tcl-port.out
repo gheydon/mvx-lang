@@ -1,0 +1,12 @@
+BP CPORT ported to BP CPORT.PORTED (9 lines)
+CPORT.PORTED
+001 * @file CPORT
+002 *
+003 * setup
+004 * five
+005 A = 5  + 1
+006 B = "keep /* this */"    ; * trailing
+007 * block
+008 * spans lines
+009 PRINT A:" ":B
+[241] CPORT.PORTED compiled

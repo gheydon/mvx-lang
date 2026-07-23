@@ -204,6 +204,21 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
+# PORT-SOURCE: C-style comments to classic, output must compile
+cat > "$ACCT/BP/CPORT" <<'EOF'
+/**
+ * @file CPORT
+ */
+// setup
+A = 5 /* five */ + 1
+B = "keep /* this */"   // trailing
+/* block
+   spans lines */
+PRINT A:" ":B
+EOF
+check tcl-port "$(printf 'PORT-SOURCE BP CPORT\nCT BP CPORT.PORTED\n' | tclrun; \
+  printf 'BASIC BP CPORT.PORTED\n' | MVXPRIV=developer "$TCL" -a "$ACCT" 2>&1)"
+
 # secondary indexes: build, query through them, write-path maintenance
 check tcl-index "$(printf '%s\n' \
   'CREATE-INDEX PARTS COLOR' \
