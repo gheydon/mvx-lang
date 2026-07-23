@@ -1,0 +1,7 @@
+linked @ROOT@/packages/git
+linked @ROOT@/packages/cmd
+initialised git repository
+2 record(s) exported to CUST.EXP
+CUST.EXP staged
+committed HASH
+HASH initial export

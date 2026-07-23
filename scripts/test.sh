@@ -215,6 +215,24 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
+# native git (libgit2, no shell, restricted tier): init, export, add,
+# commit, log - the injection-proof structured path
+GACCT="$TESTROOT/gitacct"
+mkdir -p "$GACCT/CATALOG"
+"$TCL" -a "$GACCT" -c "CREATE-FILE CUST" >/dev/null 2>&1
+gseed="$TESTROOT/gseed.b"
+cat > "$gseed" <<'GSEOF'
+OPEN "CUST" TO F ELSE STOP
+WRITE "Ada":@AM:"London" ON F, "C1"
+WRITE "Bob":@AM:"Paris" ON F, "C2"
+GSEOF
+"$MVX" "$gseed" -o "$TESTROOT/gseedbin" 2>/dev/null
+(cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gseedbin")
+printf 'mvxdata.lmdb/\nCATALOG/\nPACKAGES\n' > "$GACCT/.gitignore"
+check tcl-gitnative "$( \
+  printf "LINK-PKG $ROOT/packages/git\nGIT INIT\nGIT EXPORT CUST\nGIT COMMIT initial export\nGIT LOG\n" | \
+    "$TCL" -a "$GACCT" 2>&1 | sed -E 's/[0-9a-f]{7,40}/HASH/g' | normalise)"
+
 # PORT-SOURCE: C-style comments to classic, output must compile
 cat > "$ACCT/BP/CPORT" <<'EOF'
 /**

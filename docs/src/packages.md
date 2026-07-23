@@ -57,6 +57,18 @@ no-argument, and unknown-command cases. `packages/git` is the
 reference consumer — a `GIT` verb with subcommands in ~10 lines plus
 one small handler subroutine each.
 
+## Native subroutines
+
+A package can ship subroutines written in C, not just BASIC: a C
+function matching the subroutine ABI
+(`void mvx_sub_NAME(mvx_ctx *, int32_t argc, mv_value **argv)`) is
+CALLed exactly like a BASIC subroutine. Put the sources in the
+package and build them into `LIB/` with a `build-native.sh` script
+(mkpkg runs it); link any native dependency into that library alone.
+The git package does this — its git operations are libgit2-backed
+native subroutines, so libgit2 burdens neither the runtime nor
+programs that never use git.
+
 ## Subroutine libraries
 
 `CATALOG BP MYSUB` for a `SUBROUTINE` source builds `LIB/MYSUB` in

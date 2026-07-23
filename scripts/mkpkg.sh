@@ -23,6 +23,12 @@ PKGNAME="$(head -1 "$PKG/PKG" 2>/dev/null)"
 # become verb executables in CATALOG/.
 mkdir -p "$PKG/CATALOG"
 rm -rf "$PKG/LIB"
+
+# native subroutine libraries (C using the subroutine ABI): a package
+# with build-native.sh builds them into LIB/ before the BASIC subs.
+if [ -x "$PKG/build-native.sh" ]; then
+  "$PKG/build-native.sh"
+fi
 SUBS=""
 for src in "$PKG"/BP/*; do
   [ -f "$src" ] || continue

@@ -1,6 +1,6 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-git@1.1        ok     @ROOT@/packages/git     requires cmd
+git@2.0        ok     @ROOT@/packages/git     requires cmd
 cmd@1.0        ok     @ROOT@/packages/cmd     
 2 package(s) linked
 GIT - work with the account's git repository

@@ -23,7 +23,10 @@ changed, or removed record files is reflected exactly.
 ## The git package
 
 Linking `packages/git` adds a `GIT` verb whose subcommands wrap the
-workflow (they spawn git, so they need the unrestricted tier):
+workflow. Git operations run through **libgit2** as native cataloged
+subroutines (in the package's `LIB/`), not by spawning the `git` CLI —
+so they need no external binary, work at any privilege tier, and take
+structured arguments (a commit message cannot inject into a shell):
 
 ```
 > GIT INIT                   git init in the account
@@ -32,6 +35,10 @@ workflow (they spawn git, so they need the unrestricted tier):
 > GIT STATUS / LOG / DIFF    the usual
 > GIT IMPORT CUST            after a pull/checkout, mirror back
 ```
+
+Local plumbing (init, add, commit, status, log, diff) is native.
+Network operations (clone, push, pull) still need credential handling
+and are a later addition.
 
 A change to a record produces a one-line git diff in
 `CUST.EXP/<id>`, so history is legible and merges behave. The typical
