@@ -85,6 +85,8 @@ int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ);
 int64_t mv_num_fn(const mv_value *v);
 void    mv_substr(mv_value *dst, const mv_value *src, int64_t start,
                   int64_t len);
+void    mv_change_fn(mv_value *dst, const mv_value *src,
+                     const mv_value *oldv, const mv_value *newv);
 
 /* --- conversions and formatting ---------------------------------------- */
 void    mv_oconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
@@ -190,6 +192,13 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
                     const mv_value *src, const mv_value *out); /* developer */
 int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
                     mv_value *capture, mv_value *rc);   /* any tier */
+int64_t mvx_editfile(mvx_ctx *ctx, const mv_value *path); /* unrestricted */
+void    mvx_tmpnam(mv_value *dst);
+
+/* --- OS file access (see mvx_os.c) ------------------------------------- */
+void    mv_osread(mvx_ctx *ctx, mv_value *dst, const mv_value *path);
+int64_t mv_oswrite(mvx_ctx *ctx, const mv_value *data, const mv_value *path);
+int64_t mv_osdelete(mvx_ctx *ctx, const mv_value *path);
 void   *mvx_ctx_store_get(mvx_ctx *ctx);
 void    mvx_ctx_store_set(mvx_ctx *ctx, void *p);
 

@@ -22,7 +22,8 @@ add_library(mvxrt STATIC
   runtime/src/mvx_store.c
   runtime/src/mvx_exec.c
   runtime/src/mvx_call.c
-  runtime/src/mvx_term.c)
+  runtime/src/mvx_term.c
+  runtime/src/mvx_os.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
 target_compile_definitions(mvxrt PRIVATE
   MVX_DRIVER_DIR="${CMAKE_BINARY_DIR}/lib"

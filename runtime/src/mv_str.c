@@ -134,6 +134,48 @@ int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ) {
     return 0;
 }
 
+/* CHANGE(s, old, new): replace every non-overlapping occurrence of old
+   with new (classic MV; empty old returns s unchanged). */
+void mv_change_fn(mv_value *dst, const mv_value *src, const mv_value *oldv,
+                  const mv_value *newv) {
+    char sb[40], ob[40], nb[40];
+    span s = val_span(src, sb, sizeof sb);
+    span o = val_span(oldv, ob, sizeof ob);
+    span n = val_span(newv, nb, sizeof nb);
+    if (o.len == 0 || s.len < o.len) {
+        mv_set_str(dst, s.p, s.len);
+        return;
+    }
+    char *buf = NULL;
+    int64_t len = 0, cap = 0;
+    const char *p = s.p, *end = s.p + s.len;
+    while (p < end) {
+        const char *m = (p + o.len <= end)
+            ? memmem(p, (size_t)(end - p), o.p, (size_t)o.len)
+            : NULL;
+        int64_t chunk = m ? (m - p) : (end - p);
+        int64_t add = chunk + (m ? n.len : 0);
+        if (len + add > cap) {
+            cap = cap ? cap * 2 : 64;
+            while (cap < len + add) cap *= 2;
+            char *nbuf = realloc(buf, (size_t)cap);
+            if (!nbuf) mvx_fatal("out of memory in CHANGE");
+            buf = nbuf;
+        }
+        memcpy(buf + len, p, (size_t)chunk);
+        len += chunk;
+        if (m) {
+            memcpy(buf + len, n.p, (size_t)n.len);
+            len += n.len;
+            p = m + o.len;
+        } else {
+            p = end;
+        }
+    }
+    mv_set_str(dst, buf ? buf : "", len);
+    free(buf);
+}
+
 /* X[start,len] — MV semantics: 1-based; start past the end yields "";
    len clipped to what remains; start < 1 clamps to 1. */
 void mv_substr(mv_value *dst, const mv_value *src, int64_t start,

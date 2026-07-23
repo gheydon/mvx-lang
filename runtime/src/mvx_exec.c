@@ -110,6 +110,53 @@ int64_t mvx_unix_cmd(mvx_ctx *ctx, const char *cmd) {
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
 
+/* --- editor spawn (the VI verb) — unrestricted --------------------------
+   Runs the configured interactive editor ($MVXEDITOR, then $VISUAL,
+   then $EDITOR, then vi) on one file, argv-style.  It is a general
+   exec (an editor's own shell escapes make it one), so it needs the
+   unrestricted tier — the built-in ED remains the tier-safe editor. */
+int64_t mvx_editfile(mvx_ctx *ctx, const mv_value *path) {
+    (void)ctx;
+    if (priv_tier() < TIER_UNRESTRICTED) {
+        fprintf(stderr,
+                "not allowed: external editing requires unrestricted "
+                "privilege (use ED instead)\n");
+        return -1;
+    }
+    const char *ed = getenv("MVXEDITOR");
+    if (!ed || !ed[0]) ed = getenv("VISUAL");
+    if (!ed || !ed[0]) ed = getenv("EDITOR");
+    if (!ed || !ed[0]) ed = "vi";
+
+    char nb[40];
+    const char *pp;
+    int64_t pl = mv_val_chars(path, nb, sizeof nb, &pp);
+    char pathbuf[4096];
+    snprintf(pathbuf, sizeof pathbuf, "%.*s", (int)pl, pp);
+
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        char *argv[] = {(char *)ed, pathbuf, NULL};
+        execvp(ed, argv);
+        _exit(127);
+    }
+    int st;
+    waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+/* TMPNAM() -> a unique temp path (the file is not created). */
+void mvx_tmpnam(mv_value *dst) {
+    const char *dir = getenv("TMPDIR");
+    if (!dir || !dir[0]) dir = "/tmp";
+    char tmpl[4096];
+    snprintf(tmpl, sizeof tmpl, "%s/mvxedit.XXXXXX", dir);
+    int fd = mkstemp(tmpl);
+    if (fd >= 0) close(fd);             /* claim the name, keep the path */
+    mv_set_str(dst, tmpl, (int64_t)strlen(tmpl));
+}
+
 /* --- compile — the narrow primitive (developer+) -----------------------
    Takes structured arguments and builds the argv itself: there is
    nothing to inject (8.2). mode: "c" object, "exe" executable,

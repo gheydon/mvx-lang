@@ -255,6 +255,26 @@ check tcl-index "$(printf '%s\n' \
   'LIST PARTS NAME WITH COLOR = blue' \
   'DELETE-INDEX PARTS NAME' | tclrun)"
 
+# VI: export a record to a file, "edit" it with a scripted editor,
+# import it back — the hash-file <-> text-file round trip
+fakeed="$TESTROOT/fakeed.sh"
+cat > "$fakeed" <<'FEEOF'
+#!/bin/sh
+awk 'NR==2{print toupper($0);next}{print}' "$1" > "$1.t" && mv "$1.t" "$1"
+FEEOF
+chmod +x "$fakeed"
+check tcl-vi "$( \
+  printf 'CREATE-FILE NOTES\n' | tclrun; \
+  (cd "$ACCT" && MVXACCOUNT=. "$MVX" /dev/stdin -o "$TESTROOT/ns" <<'NSEOF' >/dev/null 2>&1
+OPEN "NOTES" TO F ELSE STOP
+WRITE "line one":@AM:"line two":@AM:"line three" ON F, "N1"
+NSEOF
+   cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/ns"); \
+  printf 'VI NOTES N1\n' | tclrun; \
+  MVXPRIV=unrestricted MVXEDITOR="$fakeed" "$TCL" -a "$ACCT" -c "VI NOTES N1" 2>&1; \
+  printf 'CT NOTES N1\n' | tclrun; \
+  MVXPRIV=unrestricted MVXEDITOR=true "$TCL" -a "$ACCT" -c "VI NOTES N1" 2>&1)"
+
 # select lists crossing EXECUTE into a program
 prog="$TESTROOT/progsel.b"
 cat > "$prog" <<'EOF'

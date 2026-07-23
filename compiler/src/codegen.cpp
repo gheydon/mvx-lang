@@ -51,6 +51,7 @@ const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND",
+    "OSWRITE", "OSDELETE", "EDITFILE",
 };
 
 // String-valued intrinsics (boxed results).
@@ -599,6 +600,16 @@ private:
             if (f == "RND" && e.args.size() == 1)
                 return callRt("mv_rnd_fn", i64Ty_, {i64Ty_},
                               {numIndex(*e.args[0])});
+            if (f == "OSWRITE" && e.args.size() == 2)
+                return callRt("mv_oswrite", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1])});
+            if (f == "OSDELETE" && e.args.size() == 1)
+                return callRt("mv_osdelete", i64Ty_, {ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0])});
+            if (f == "EDITFILE" && e.args.size() == 1)
+                return callRt("mvx_editfile", i64Ty_, {ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0])});
             if (f == "CREATEFILE" &&
                 (e.args.size() == 1 || e.args.size() == 2)) {
                 Value *type = e.args.size() == 2
@@ -882,6 +893,19 @@ private:
         if (f == "SENTENCE") { need(0);
             callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
+            return; }
+        if (f == "OSREAD") { need(1);
+            callRt("mv_osread", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0])});
+            return; }
+        if (f == "TMPNAM") { need(0);
+            callRt("mvx_tmpnam", voidTy_, {ptrTy_}, {dest});
+            return; }
+        if (f == "CHANGE") { need(3);
+            callRt("mv_change_fn", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    evalPtr(*e.args[2])});
             return; }
         if (f == "OCONV" || f == "ICONV") { need(2);
             callRt(f == "OCONV" ? "mv_oconv" : "mv_iconv", voidTy_,

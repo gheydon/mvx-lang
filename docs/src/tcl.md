@@ -39,7 +39,8 @@ standard verbs.
 | `CT {DICT} file id` | show a record, numbered attributes |
 | `COPY file id TO {file2} id2` | copy a record |
 | `DELETE file id {id...}` | delete records |
-| `ED file id` | the line editor (see below) |
+| `ED file id` | the built-in line editor (any tier) |
+| `VI file id` | edit a record in an external editor (unrestricted) |
 | `BASIC file item` | compile to an object (developer) |
 | `CATALOG file item` | compile, link and publish (developer) |
 | `PORT-SOURCE file item {TO file2} {item2}` | rewrite C-style comments as classic |

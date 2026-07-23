@@ -15,6 +15,7 @@
 | `DCOUNT(s, delim)` | delimited-field count |
 | `NUM(x)` | 1 if x is numeric ("" counts) |
 | `s[start, len]` | substring (operator) |
+| `CHANGE(s, old, new)` | replace every occurrence of old with new |
 | `FMT(x, mask)` | format: `L`/`R` justify, fill `#` space `*` star `%` zero, width — `FMT(N, "R%8")` |
 
 ### Dynamic arrays
@@ -72,6 +73,26 @@ masked decimal (`OCONV(1234567,"MD2,$")` → `$12,345.67`), `MCU`,
 | `@(col, row)` | cursor positioning string |
 | `@(-1..-18)` | screen codes — see the terminal chapter |
 | `COLOR(fg {, bg})` | colour codes — see the terminal chapter |
+
+### OS files
+
+For moving records to and from the outside world (editors, git, diff).
+
+| | |
+|---|---|
+| `OSREAD(path)` | whole OS file as a string; `STATUS()` 1 on failure |
+| `OSWRITE(data, path)` | write; returns 1/0 |
+| `OSDELETE(path)` | remove; returns 1/0 |
+| `TMPNAM()` | a fresh temp path |
+| `EDITFILE(path)` | run the external editor (unrestricted tier) |
+
+Export a record as attribute-per-line text and back:
+
+```
+LF = CHAR(10)
+X = OSWRITE(CHANGE(REC, @AM, LF), PATH)     record -> text file
+REC = CHANGE(OSREAD(PATH), LF, @AM)          text file -> record
+```
 
 ### Files, indexes, system
 
