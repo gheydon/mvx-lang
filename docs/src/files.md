@@ -11,6 +11,12 @@ within it a file is either:
 - an **LMDB file** — a named database inside the account's
   `mvxdata.lmdb` environment (or the daemon's — see deployment).
 
+An account directory carries a `.mvx` descriptor (`name`, `version`)
+that marks it as an MVX account and names it — the reliable marker
+because the VOC may live inside the LMDB environment or on a daemon,
+not as a file. It is written when the account is created and used for
+the session prompt.
+
 `OPEN` decides by looking: a directory of that name means the
 directory driver, otherwise LMDB (local, or daemon-backed if the file
 is bound — see Deployment). Creation is explicit — `OPEN` of a

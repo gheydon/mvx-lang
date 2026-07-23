@@ -70,8 +70,16 @@ static int read_line_raw(char *buf, size_t cap) {
 static char g_acct_path[4096] = "?";
 static char g_acct_base[256] = "?";
 
-/* Does the current directory already look like an MVX account? */
-static int is_account(void) {
+/* The .mvx descriptor is the authoritative account marker: the VOC may
+   be a named DB inside the LMDB env (or on a daemon), so there is no
+   guaranteed physical file otherwise.  These older markers still count,
+   so pre-.mvx accounts are recognised and upgraded. */
+static int has_descriptor(void) {
+    struct stat sb;
+    return stat(".mvx", &sb) == 0;
+}
+
+static int has_markers(void) {
     static const char *markers[] = {
         "mvxdata.lmdb", "VOC", "CATALOG", "BP", "PACKAGES", "BINDINGS",
         NULL
@@ -82,12 +90,53 @@ static int is_account(void) {
     return 0;
 }
 
+static int is_account(void) { return has_descriptor() || has_markers(); }
+
+/* Read the account name from .mvx (name = value), else "". */
+static void descriptor_name(char *out, size_t cap) {
+    out[0] = '\0';
+    FILE *fp = fopen(".mvx", "r");
+    if (!fp) return;
+    char ln[512];
+    while (fgets(ln, sizeof ln, fp)) {
+        char *p = ln;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "name", 4) != 0) continue;
+        char *eq = strchr(p, '=');
+        if (!eq) continue;
+        eq++;
+        while (*eq == ' ' || *eq == '\t') eq++;
+        size_t n = strlen(eq);
+        while (n && (eq[n - 1] == '\n' || eq[n - 1] == '\r' ||
+                     eq[n - 1] == ' '))
+            eq[--n] = '\0';
+        snprintf(out, cap, "%s", eq);
+        break;
+    }
+    fclose(fp);
+}
+
+/* Write .mvx for the current account (idempotent). */
+static void write_descriptor(const char *name) {
+    FILE *fp = fopen(".mvx", "w");
+    if (!fp) return;
+    fprintf(fp, "# MVX account descriptor\nname = %s\nversion = 1\n",
+            name);
+    fclose(fp);
+}
+
+static void descriptor_name(char *out, size_t cap);
+
 static void account_refresh(void) {
     if (!getcwd(g_acct_path, sizeof g_acct_path))
         snprintf(g_acct_path, sizeof g_acct_path, "?");
     const char *b = strrchr(g_acct_path, '/');
     snprintf(g_acct_base, sizeof g_acct_base, "%s",
              b && b[1] ? b + 1 : g_acct_path);
+    /* a name in .mvx overrides the directory basename */
+    char nm[256];
+    descriptor_name(nm, sizeof nm);
+    if (nm[0]) snprintf(g_acct_base, sizeof g_acct_base, "%s", nm);
     setenv("MVXACCTPATH", g_acct_path, 1);
 }
 
@@ -347,6 +396,10 @@ int main(int argc, char **argv) {
     g_ctx = mvx_ctx_create();
     account_refresh();
 
+    /* upgrade a pre-.mvx account so the descriptor becomes canonical */
+    if (!has_descriptor() && has_markers())
+        write_descriptor(g_acct_base);
+
     if (one_cmd) {                      /* ssh/cron style: -c and out */
         char *dup = strdup(one_cmd);
         command(dup);
@@ -378,9 +431,10 @@ int main(int argc, char **argv) {
         mv_value voc;
         mv_init(&voc);
         mv_set_str(&voc, "VOC", 3);
-        if (mvx_createfile(g_ctx, &voc, NULL))
+        if (mvx_createfile(g_ctx, &voc, NULL)) {
+            write_descriptor(g_acct_base);
             printf("Created MVX account in %s\n", g_acct_path);
-        else
+        } else
             printf("could not create the account\n");
         mv_clear(&voc);
     }

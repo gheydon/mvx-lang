@@ -56,7 +56,10 @@ Created MVX account in /path/myaccount
 ```
 
 Answer `n` and nothing is created. `scripts/mkaccount.sh myaccount`
-still creates an account non-interactively. The prompt shows the
+still creates an account non-interactively. Either way a `.mvx`
+descriptor file marks the directory as an account — the authoritative
+marker, since the VOC itself may be a named database inside the LMDB
+environment or on a daemon rather than a file on disk. The prompt shows the
 account name. Standard verbs come from the
 system account; try:
 

@@ -9,5 +9,7 @@ ACCT="${1:?usage: mkaccount.sh <account-directory>}"
 
 mkdir -p "$ACCT"
 "$ROOT/build/bin/mvx-tcl" -a "$ACCT" -c "CREATE-FILE VOC" >/dev/null
+printf '# MVX account descriptor\nname = %s\nversion = 1\n' \
+  "$(basename "$ACCT")" > "$ACCT/.mvx"
 
 echo "account ready: $ACCT"

@@ -15,6 +15,16 @@
 * Run it in a freshly cloned directory: mvx-tcl -a . -c BUILD (developer
 * privilege, for cataloging).
 JUNK = CREATEFILE("VOC")
+* the .mvx descriptor marks this as an account (the VOC is not a
+* physical file when it lives in LMDB or on a daemon)
+IF OSREAD(".mvx") = "" THEN
+   AP = ENV("MVXACCTPATH")
+   ANM = AP
+   FOR AK = 1 TO LEN(AP)
+      IF AP[AK, 1] = "/" THEN ANM = AP[AK + 1, LEN(AP)]
+   NEXT AK
+   Y = OSWRITE("# MVX account descriptor":CHAR(10):"name = ":ANM:CHAR(10):"version = 1":CHAR(10), ".mvx")
+END
 OPEN "." TO ACC ELSE
    PRINT "cannot open the account directory"
    STOP
