@@ -70,6 +70,18 @@ static int read_line_raw(char *buf, size_t cap) {
 static char g_acct_path[4096] = "?";
 static char g_acct_base[256] = "?";
 
+/* Does the current directory already look like an MVX account? */
+static int is_account(void) {
+    static const char *markers[] = {
+        "mvxdata.lmdb", "VOC", "CATALOG", "BP", "PACKAGES", "BINDINGS",
+        NULL
+    };
+    struct stat sb;
+    for (int i = 0; markers[i]; i++)
+        if (stat(markers[i], &sb) == 0) return 1;
+    return 0;
+}
+
 static void account_refresh(void) {
     if (!getcwd(g_acct_path, sizeof g_acct_path))
         snprintf(g_acct_path, sizeof g_acct_path, "?");
@@ -347,6 +359,32 @@ int main(int argc, char **argv) {
     account_refresh();
 
     int tty = isatty(0);
+
+    /* UniData-style: don't silently turn a fresh directory into an
+       account.  On an interactive session in a directory that has no
+       account markers yet, ask before creating one. */
+    if (tty && !is_account()) {
+        printf("Directory %s is not an MVX account.\n", g_acct_path);
+        printf("Create one here? (y/N) ");
+        fflush(stdout);
+        char ans[64];
+        if (!read_line_raw(ans, sizeof ans) ||
+            (ans[0] != 'y' && ans[0] != 'Y')) {
+            printf("No account created.\n");
+            mvx_ctx_destroy(g_ctx);
+            if (sesspath[0]) unlink(sesspath);
+            return 0;
+        }
+        mv_value voc;
+        mv_init(&voc);
+        mv_set_str(&voc, "VOC", 3);
+        if (mvx_createfile(g_ctx, &voc, NULL))
+            printf("Created MVX account in %s\n", g_acct_path);
+        else
+            printf("could not create the account\n");
+        mv_clear(&voc);
+    }
+
     if (tty) {
         printf("MVX TCL — account %s (%s)\n", g_acct_base, g_acct_path);
         fflush(stdout);

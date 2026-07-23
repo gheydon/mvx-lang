@@ -40,14 +40,24 @@ works out of the box: `lldb ./hello`, then `b hello.b:5`, `run`.
 
 ## Your first account
 
-An account is a directory holding MV files. Create one and log on:
+An account is a directory holding MV files. Log on to a directory:
 
 ```sh
-scripts/mkaccount.sh myaccount
 build/bin/mvx-tcl -a myaccount
 ```
 
-The prompt shows the account name. Standard verbs come from the
+If the directory is not yet an MVX account, an interactive session
+asks before creating one (UniData-style):
+
+```
+Directory /path/myaccount is not an MVX account.
+Create one here? (y/N) y
+Created MVX account in /path/myaccount
+```
+
+Answer `n` and nothing is created. `scripts/mkaccount.sh myaccount`
+still creates an account non-interactively. The prompt shows the
+account name. Standard verbs come from the
 system account; try:
 
 ```
