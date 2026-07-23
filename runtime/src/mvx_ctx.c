@@ -225,6 +225,17 @@ void mv_time(mv_value *dst) {
     mv_set_int(dst, s);
 }
 
+/* RND(n): 0 .. n-1, classic. */
+int64_t mv_rnd_fn(int64_t n) {
+    static int seeded;
+    if (!seeded) {
+        srandom((unsigned)(time(NULL) ^ getpid()));
+        seeded = 1;
+    }
+    if (n <= 0) return 0;
+    return (int64_t)(random() % n);
+}
+
 /* DATE(): internal date, day 0 = 31 DEC 1967, local time. */
 int64_t mv_date_fn(void) {
     time_t t = time(NULL);

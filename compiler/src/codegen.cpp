@@ -50,7 +50,7 @@ const std::set<std::string> kStrIntrinsics = {
 const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
-    "INDEXBUILD", "INDEXDROP", "INDEXSELECT",
+    "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND",
 };
 
 // String-valued intrinsics (boxed results).
@@ -596,6 +596,9 @@ private:
                 return callRt("mvx_status", i64Ty_, {ptrTy_}, {ctxArg_});
             if (f == "DATE" && e.args.empty())
                 return callRt("mv_date_fn", i64Ty_, {}, {});
+            if (f == "RND" && e.args.size() == 1)
+                return callRt("mv_rnd_fn", i64Ty_, {i64Ty_},
+                              {numIndex(*e.args[0])});
             if (f == "CREATEFILE" &&
                 (e.args.size() == 1 || e.args.size() == 2)) {
                 Value *type = e.args.size() == 2

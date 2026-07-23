@@ -115,6 +115,7 @@ void mv_print_tab(mvx_ctx *ctx);                    /* comma zones (18 cols) */
 /* --- intrinsics -------------------------------------------------------- */
 void mv_time(mv_value *dst);                        /* secs since midnight */
 int64_t mv_date_fn(void);                           /* internal date */
+int64_t mv_rnd_fn(int64_t n);                       /* 0 .. n-1 */
 void mvx_filelist(mvx_ctx *ctx, mv_value *dst);     /* name @VM type, @AM */
 void mv_system_fn(mvx_ctx *ctx, mv_value *dst, const mv_value *code);
 void mv_int_fn(mv_value *dst, const mv_value *a);
