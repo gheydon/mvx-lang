@@ -71,6 +71,7 @@ END
 * means the record id itself.
 CN = DCOUNT(COLS, @AM)
 ANOS = ""
+ISPECS = ""
 CONVS = ""
 HEADS = ""
 MASKS = ""
@@ -78,6 +79,7 @@ BAD = ""
 FOR C = 1 TO CN
    NM = COLS<C>
    ANO = ""
+   ISP = ""
    CV = ""
    HD = NM
    MK = "L#10"
@@ -87,7 +89,12 @@ FOR C = 1 TO CN
       GOT = 0
       IF DOPEN THEN
          READ DI FROM DC, NM THEN
-            ANO = DI<2>
+            IF DI<1>[1, 1] = "I" THEN
+               ANO = -1
+               ISP = DI<2>
+            END ELSE
+               ANO = DI<2>
+            END
             CV = DI<3>
             IF DI<4> # "" THEN
                HD = DI<4>
@@ -110,6 +117,7 @@ FOR C = 1 TO CN
       END
    END
    ANOS<C> = ANO
+   ISPECS<C> = ISP
    CONVS<C> = CV
    HEADS<C> = HD
    MASKS<C> = MK
@@ -121,6 +129,7 @@ END
 
 * WITH item resolution
 WANO = ""
+WSPEC = ""
 IF WI # "" THEN
    IF WI = "@ID" THEN
       WANO = 0
@@ -128,7 +137,12 @@ IF WI # "" THEN
       GOT = 0
       IF DOPEN THEN
          READ DI FROM DC, WI THEN
-            WANO = DI<2>
+            IF DI<1>[1, 1] = "I" THEN
+               WANO = -1
+               WSPEC = DI<2>
+            END ELSE
+               WANO = DI<2>
+            END
             GOT = 1
          END
       END
@@ -142,6 +156,7 @@ END
 * BY item resolution; the dict item's justification decides the sort
 * order — R-formatted fields sort right-justified (numeric).
 BANO = ""
+BSPEC = ""
 BORD = "AL"
 IF BYI # "" THEN
    IF BYI = "@ID" THEN
@@ -150,7 +165,12 @@ IF BYI # "" THEN
       GOT = 0
       IF DOPEN THEN
          READ DI FROM DC, BYI THEN
-            BANO = DI<2>
+            IF DI<1>[1, 1] = "I" THEN
+               BANO = -1
+               BSPEC = DI<2>
+            END ELSE
+               BANO = DI<2>
+            END
             FM = DI<5>
             IF FM # "" THEN
                IF FM[LEN(FM), 1] = "R" THEN
@@ -179,11 +199,16 @@ UNTIL DONE DO
    READ R FROM F, ID ELSE R = ""
    OK = 1
    IF WI # "" THEN
-      IF WANO = 0 THEN
+      BEGIN CASE
+      CASE WANO = 0
          RV = ID
-      END ELSE
+      CASE WANO = -1
+         ISPEC = WSPEC
+         GOSUB 9000
+         RV = IV
+      CASE 1
          RV = R<WANO>
-      END
+      END CASE
       OK = 0
       BEGIN CASE
       CASE WOP = "="
@@ -202,11 +227,16 @@ UNTIL DONE DO
    END
    IF OK THEN
       IF BYI # "" THEN
-         IF BANO = 0 THEN
+         BEGIN CASE
+         CASE BANO = 0
             K = ID
-         END ELSE
+         CASE BANO = -1
+            ISPEC = BSPEC
+            GOSUB 9000
+            K = IV
+         CASE 1
             K = R<BANO>
-         END
+         END CASE
          LOCATE(K, KEYS; POS; BORD) THEN
             KEYS = INSERT(KEYS, POS, 0, 0, K)
             IDS = INSERT(IDS, POS, 0, 0, ID)
@@ -232,11 +262,16 @@ FOR K = 1 TO N
    READ R FROM F, ID ELSE R = ""
    ROW = FMT(ID, "L#12")
    FOR C = 1 TO CN
-      IF ANOS<C> = 0 THEN
+      BEGIN CASE
+      CASE ANOS<C> = 0
          V = ID
-      END ELSE
+      CASE ANOS<C> = -1
+         ISPEC = ISPECS<C>
+         GOSUB 9000
+         V = IV
+      CASE 1
          V = R<ANOS<C>>
-      END
+      END CASE
       IF CONVS<C> # "" THEN
          V = OCONV(V, CONVS<C>)
       END
@@ -245,3 +280,31 @@ FOR K = 1 TO N
    PRINT ROW
 NEXT K
 PRINT N:" record(s) listed"
+STOP
+
+* ---- I-descriptor evaluation -------------------------------------------
+* Spec in ISPEC, current record in R; result in IV.
+* Supported: DOCTAG(tag) — scan comment lines (* or !) for the docblock
+* annotation "@tag value" and return the value.
+9000 IV = ""
+IF ISPEC[1, 7] = "DOCTAG(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
+   TAG = ISPEC[8, LEN(ISPEC) - 8]
+   IF LEN(TAG) >= 2 THEN
+      TQ = TAG[1, 1]
+      IF TQ = "'" OR TQ = '"' THEN
+         TAG = TAG[2, LEN(TAG) - 2]
+      END
+   END
+   NA = DCOUNT(R, @AM)
+   FOR IL = 1 TO NA
+      LN = TRIM(R<IL>)
+      IF LN[1, 1] = "*" OR LN[1, 1] = "!" THEN
+         IP = INDEX(LN, "@":TAG:" ", 1)
+         IF IP > 0 THEN
+            IV = TRIM(LN[IP + LEN(TAG) + 2, LEN(LN)])
+            GOTO 9090
+         END
+      END
+   NEXT IL
+END
+9090 RETURN

@@ -54,6 +54,7 @@ IF LEN(WV) >= 2 THEN
 END
 
 WANO = ""
+WSPEC = ""
 IF WI # "" THEN
    IF WI = "@ID" THEN
       WANO = 0
@@ -61,7 +62,12 @@ IF WI # "" THEN
       GOT = 0
       IF DOPEN THEN
          READ DI FROM DC, WI THEN
-            WANO = DI<2>
+            IF DI<1>[1, 1] = "I" THEN
+               WANO = -1
+               WSPEC = DI<2>
+            END ELSE
+               WANO = DI<2>
+            END
             GOT = 1
          END
       END
@@ -81,11 +87,16 @@ UNTIL DONE DO
    OK = 1
    IF WI # "" THEN
       READ R FROM F, ID ELSE R = ""
-      IF WANO = 0 THEN
+      BEGIN CASE
+      CASE WANO = 0
          RV = ID
-      END ELSE
+      CASE WANO = -1
+         ISPEC = WSPEC
+         GOSUB 9000
+         RV = IV
+      CASE 1
          RV = R<WANO>
-      END
+      END CASE
       OK = 0
       BEGIN CASE
       CASE WOP = "="
@@ -108,3 +119,28 @@ UNTIL DONE DO
 REPEAT
 FORMLIST IDS
 PRINT DCOUNT(IDS, @AM):" record(s) selected"
+STOP
+
+* ---- I-descriptor evaluation (see LIST) --------------------------------
+9000 IV = ""
+IF ISPEC[1, 7] = "DOCTAG(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
+   TAG = ISPEC[8, LEN(ISPEC) - 8]
+   IF LEN(TAG) >= 2 THEN
+      TQ = TAG[1, 1]
+      IF TQ = "'" OR TQ = '"' THEN
+         TAG = TAG[2, LEN(TAG) - 2]
+      END
+   END
+   NA = DCOUNT(R, @AM)
+   FOR IL = 1 TO NA
+      LN = TRIM(R<IL>)
+      IF LN[1, 1] = "*" OR LN[1, 1] = "!" THEN
+         IP = INDEX(LN, "@":TAG:" ", 1)
+         IF IP > 0 THEN
+            IV = TRIM(LN[IP + LEN(TAG) + 2, LEN(LN)])
+            GOTO 9090
+         END
+      END
+   NEXT IL
+END
+9090 RETURN
