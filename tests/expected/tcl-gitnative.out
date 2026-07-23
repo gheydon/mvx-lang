@@ -1,9 +1,18 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-saved 2 record(s), HASH
-HASH first
-1 record(s) deleted
+initialised empty git repository
+staged 2 record(s)
+A  CUST/C1
+A  CUST/C2
+[HASH] initial
+HASH initial
+ M CUST/C2
+diff CUST/C2
+ Bob
+-Paris
++Berlin
 restored 2 record(s), 0 removed
-C1
-001 Ada
-002 London
+nothing to commit, working tree clean
+C2
+001 Bob
+002 Paris

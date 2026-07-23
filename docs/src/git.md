@@ -1,68 +1,68 @@
 # Version Control
 
-Hash-file records can be versioned with git **directly** — a record's
-bytes become a git blob in memory, and a blob's bytes are written
-straight back to the record. No copy to an intermediate file: the hash
-file is git's source of truth. Attribute marks map to newlines in the
-blob, so git diffs are legible and line-oriented, and back on restore.
+`GIT` versions hash-file records and is modelled on real git — the
+same verbs (`add`, `status`, `commit`, `log`, `diff`, `restore`, `rm`,
+`show`), the same porcelain. The only difference is the unit: a "path"
+is an MVX **file plus record id**. The **working tree** is the live
+records; the **index** is a persistent staging area; commits are
+commits, in a bare repo (`.recgit`) in the account.
 
-## The git package
-
-Linking `packages/git` adds a `GIT` verb. Git runs through **libgit2**
-as native cataloged subroutines (no `git` binary, any privilege tier,
-no shell — a commit message cannot inject), and git objects live in a
-small bare repo (`.recgit`) in the account.
+Git runs through **libgit2** as native subroutines — no `git` binary,
+any privilege tier, no shell (a commit message cannot inject).
 
 ```
-> GIT SAVE CUST added customers    commit CUST's records directly
-> GIT LOG                          history
-> GIT RESTORE CUST                 write the records back from git,
-                                   deleting any absent from the commit
+> GIT INIT                       create the record repository
+> GIT ADD CUST                   stage every record of CUST
+> GIT ADD CUST C1                stage one record
+> GIT STATUS
+A  CUST/C1                       staged (added)
+A  CUST/C2
+> GIT COMMIT -m "initial customers"
+[32f57ce] initial customers
+> GIT LOG
+32f57ce initial customers
 ```
 
-`GIT SAVE file {message}` reads each record, makes a blob, and commits
-them under `file/<id>` — a change to one record is a one-line diff in
-`file/<id>`. `GIT RESTORE file` mirrors the latest commit back into the
-hash file: every recorded blob is written, and records absent from the
-commit are deleted, so a revert or a checkout of an older commit
-restores the file exactly.
+After changing records in the hash file, status and diff behave like
+git — the records are the working tree:
 
-Because the blobs are line-oriented text, ordinary git tooling works
-on the record history:
+```
+> GIT STATUS
+ M CUST/C2                       modified, not staged
+?? CUST/C3                       untracked (new record)
+> GIT DIFF CUST
+diff CUST/C2
+ Bob
+-Paris
++Berlin
+> GIT RESTORE CUST               revert records to HEAD (drops C3)
+> GIT SHOW CUST C1               committed content of a record
+```
+
+Status codes match git: `A` staged-added, `M` modified, `D` deleted,
+`??` untracked, with the staged column first. `GIT RM file record`
+unstages a record.
+
+Because record blobs are line-oriented text (attribute marks become
+newlines), ordinary git tooling reads the same history:
 
 ```
 git --git-dir=.recgit log --oneline
-git --git-dir=.recgit diff HEAD~1 HEAD --stat
 git --git-dir=.recgit show HEAD:CUST/C1
 ```
 
 ## EXPORT / IMPORT (materialised mirror)
 
-When you want the records as real files on disk — to browse, to feed a
-non-git tool, or to track BP source that is already a directory file —
-`EXPORT` and `IMPORT` copy between a hash file and a **directory file**
-(git-native: one record per Unix file, attributes as lines):
-
-```
-> EXPORT CUST                copies CUST's records into CUST.EXP
-> IMPORT CUST                mirrors CUST.EXP back (full sync)
-```
-
-The difference: `GIT SAVE` versions records with no on-disk copy;
-`EXPORT` produces a browsable directory file. Both round-trip records
-faithfully.
+A separate tool: `EXPORT file` copies records into a **directory
+file** (`file.EXP`) — real files on disk to browse or feed to
+non-git tools — and `IMPORT file` mirrors them back. Use `GIT` to
+version records in place; use `EXPORT` when you want the records as
+files.
 
 ## What to track
-
-Per ARCHITECTURE.md 9:
 
 | artifact | source of truth | approach |
 |---|---|---|
 | BP / source | the directory | git tracks the directory file natively |
-| VOC / dictionaries | the hash file | `GIT SAVE` / `GIT RESTORE`, or `EXPORT`/`IMPORT` |
+| VOC / dictionaries | the hash file | `GIT ADD` / `COMMIT` / `RESTORE` |
 | data files | the backend store | usually not tracked |
-
-Operational data is versioned by an explicit `GIT SAVE`, not synced
-live, because a checkout must never rewrite verb dispatch underneath a
-running session — the movement between store and history is a
-deliberate command.

@@ -1,14 +1,20 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-git@3.0        ok     @ROOT@/packages/git     requires cmd
+git@4.0        ok     @ROOT@/packages/git     requires cmd
 cmd@1.0        ok     @ROOT@/packages/cmd     
 2 package(s) linked
-GIT - version hash-file records with git
+GIT - version-control hash-file records
 usage: GIT <command>
 commands:
-  save         commit a file's records
-  restore      restore a file's records from git
-  log          recent history
+  init         create the record repository
+  add          stage records (file {id})
+  rm           unstage a record (file id)
+  status       show staged / changed records
+  commit       commit staged records (-m msg)
+  log          commit history
+  diff         unstaged record changes {file}
+  show         committed content of a record (file id)
+  restore      restore records from HEAD (file)
   help         show this help
 cannot unlink cmd: @ROOT@/packages/git depends on it
 unlinked @ROOT@/packages/git

@@ -229,10 +229,15 @@ GSEOF
 "$MVX" "$gseed" -o "$TESTROOT/gseedbin" 2>/dev/null
 (cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gseedbin")
 check tcl-gitnative "$( \
-  printf "LINK-PKG $ROOT/packages/git\nGIT SAVE CUST first\nGIT LOG\n" | \
+  printf "LINK-PKG $ROOT/packages/git\nGIT INIT\nGIT ADD CUST\nGIT STATUS\nGIT COMMIT -m initial\nGIT LOG\n" | \
     "$TCL" -a "$GACCT" 2>&1 | sed -E 's/[0-9a-f]{7,40}/HASH/g' | normalise; \
-  printf 'DELETE CUST C1\n' | "$TCL" -a "$GACCT" 2>&1; \
-  printf 'GIT RESTORE CUST\nCT CUST C1\n' | "$TCL" -a "$GACCT" 2>&1)"
+  printf 'DELETE CUST C1\nWRITE-C2\n' > /dev/null; \
+  (cd "$GACCT" && MVXACCOUNT=. "$MVX" /dev/stdin -o "$TESTROOT/gmod" <<'GMEOF' >/dev/null 2>&1
+OPEN "CUST" TO F ELSE STOP
+WRITE "Bob":@AM:"Berlin" ON F, "C2"
+GMEOF
+   cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gmod"); \
+  printf 'GIT STATUS\nGIT DIFF CUST\nGIT RESTORE CUST\nGIT STATUS\nCT CUST C2\n' | "$TCL" -a "$GACCT" 2>&1)"
 
 # PORT-SOURCE: C-style comments to classic, output must compile
 cat > "$ACCT/BP/CPORT" <<'EOF'
