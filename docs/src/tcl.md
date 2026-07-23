@@ -29,7 +29,7 @@ standard verbs.
 
 | verb | |
 |---|---|
-| `CREATE-FILE name {DIR\|REMOTE {addr}}` | create a file — local, directory, or daemon-backed |
+| `CREATE-FILE name {DIR\|USING driver {conn}}` | create a file — local, directory, or on another backend |
 | `DELETE-FILE name` | delete a file |
 | `CLEAR-FILE name` | delete every record |
 | `LISTF` | the account's files |

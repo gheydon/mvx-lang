@@ -15,7 +15,7 @@ within it a file is either:
 directory driver, otherwise LMDB (local, or daemon-backed if the file
 is bound — see Deployment). Creation is explicit — `OPEN` of a
 nonexistent file takes the ELSE branch; `CREATE-FILE name {DIR |
-REMOTE {addr}}` chooses the type once, and makes the dictionary at the
+USING driver {conn}}` chooses the backend once, and makes the dictionary at the
 same time.
 
 ## Dictionaries

@@ -314,7 +314,7 @@ READ B FROM R, "R1" THEN PRINT "remote read: ":B
 MIXEOF
 "$MVX" "$mixprog" -o "$TESTROOT/mixbin" 2>/dev/null
 check tcl-mixed "$( \
-  printf "CREATE-FILE LOCALF\nCREATE-FILE SHARED REMOTE $DSOCK\nLISTF\n" | \
+  printf "CREATE-FILE LOCALF\nCREATE-FILE SHARED USING lmdbnet $DSOCK\nLISTF\n" | \
     "$TCL" -a "$MACCT" 2>&1 | sed "s#$DSOCK#@DSOCK@#g"; \
   (cd "$MACCT" && MVXACCOUNT=. "$TESTROOT/mixbin"); \
   printf 'LISTF\n' | "$TCL" -a "$MACCT" 2>&1)"

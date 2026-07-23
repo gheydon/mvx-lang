@@ -13,10 +13,10 @@ FOR I = 1 TO N
    BEGIN CASE
    CASE TY = "D"
       TYX = "directory"
-   CASE TY = "N"
-      TYX = "remote"
-   CASE 1
+   CASE TY = "L"
       TYX = "lmdb"
+   CASE 1
+      TYX = TY
    END CASE
    PRINT FMT(NM, "L#24"):" ":TYX
 NEXT I

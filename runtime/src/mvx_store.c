@@ -279,25 +279,32 @@ static void lock_drop(store_state *st, const char *key) {
 
 /* ----------------------------------------------------------------- API */
 
-/* Is this file bound to a daemon?  Consult the account's REMOTE
-   record; fall back to whole-account $MVXDAEMON when there is none.
-   Fills addr and returns 1 when remote. */
-static int remote_addr_for(const char *cspec, char *addr, size_t cap) {
+/* Does this file have a backend binding?  Consult the account's
+   BINDINGS record, whose lines are "SPEC driver {params...}" (an exact
+   spec, or "*" for every LMDB file); driver names a storage driver
+   (lmdbnet, and later postgres, mongo, ...) and params is its
+   connection string, opaque to the runtime.  With no BINDINGS record,
+   bare $MVXDAEMON binds the whole account to lmdbnet.  Returns 1 when
+   bound, filling driver and params. */
+static int binding_for(const char *cspec, char *driver, size_t dcap,
+                       char *params, size_t pcap) {
     const char *envd = getenv("MVXDAEMON");
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
     char path[4096];
-    snprintf(path, sizeof path, "%s/REMOTE", acct);
+    snprintf(path, sizeof path, "%s/BINDINGS", acct);
     FILE *fp = fopen(path, "r");
     if (!fp) {
         if (envd && envd[0]) {
-            snprintf(addr, cap, "%s", envd);
+            snprintf(driver, dcap, "lmdbnet");
+            snprintf(params, pcap, "%s", envd);
             return 1;
         }
         return 0;
     }
     int star = 0, exact = 0;
-    char staraddr[512] = "", exactaddr[512] = "";
+    char stardrv[64] = "", starparm[512] = "";
+    char exactdrv[64] = "", exactparm[512] = "";
     char ln[1152];
     while (fgets(ln, sizeof ln, fp)) {
         char *p = ln;
@@ -307,31 +314,43 @@ static int remote_addr_for(const char *cspec, char *addr, size_t cap) {
                *sp != '\r')
             sp++;
         size_t nl = (size_t)(sp - p);
-        if (nl == 0) continue;
-        char *ap = sp;
-        while (*ap == ' ' || *ap == '\t') ap++;
-        char *ae = ap;
-        while (*ae && *ae != '\n' && *ae != '\r' && *ae != ' ' &&
-               *ae != '\t')
-            ae++;
+        if (nl == 0 || *p == '#') continue;
+        char *dp = sp;                  /* driver field */
+        while (*dp == ' ' || *dp == '\t') dp++;
+        char *de = dp;
+        while (*de && *de != ' ' && *de != '\t' && *de != '\n' &&
+               *de != '\r')
+            de++;
+        char *pp = de;                  /* params: rest of the line */
+        while (*pp == ' ' || *pp == '\t') pp++;
+        char *pe = pp;
+        while (*pe && *pe != '\n' && *pe != '\r') pe++;
+        char *drvbuf, *parmbuf;
+        size_t dl, pl;
         if (nl == 1 && p[0] == '*') {
-            star = 1;
-            snprintf(staraddr, sizeof staraddr, "%.*s", (int)(ae - ap),
-                     ap);
+            star = 1; drvbuf = stardrv; parmbuf = starparm;
+            dl = sizeof stardrv; pl = sizeof starparm;
         } else if (strlen(cspec) == nl && memcmp(p, cspec, nl) == 0) {
-            exact = 1;
-            snprintf(exactaddr, sizeof exactaddr, "%.*s", (int)(ae - ap),
-                     ap);
+            exact = 1; drvbuf = exactdrv; parmbuf = exactparm;
+            dl = sizeof exactdrv; pl = sizeof exactparm;
+        } else {
+            continue;
         }
+        snprintf(drvbuf, dl, "%.*s", (int)(de - dp), dp);
+        snprintf(parmbuf, pl, "%.*s", (int)(pe - pp), pp);
     }
     fclose(fp);
     if (!exact && !star) return 0;
-    const char *use = exact ? exactaddr : staraddr;
-    if (!use[0]) use = envd && envd[0] ? envd : "";
-    if (!use[0])
-        mvx_fatal("file %s is bound remote but no daemon address is "
-                  "configured (REMOTE line or $MVXDAEMON)", cspec);
-    snprintf(addr, cap, "%s", use);
+    const char *ud = exact ? exactdrv : stardrv;
+    const char *up = exact ? exactparm : starparm;
+    if (!ud[0]) ud = "lmdbnet";         /* default backend */
+    if (!up[0] && strcmp(ud, "lmdbnet") == 0)
+        up = envd && envd[0] ? envd : "";
+    if (strcmp(ud, "lmdbnet") == 0 && !up[0])
+        mvx_fatal("file %s is bound to lmdbnet but no daemon address "
+                  "is configured (BINDINGS line or $MVXDAEMON)", cspec);
+    snprintf(driver, dcap, "%s", ud);
+    snprintf(params, pcap, "%s", up);
     return 1;
 }
 
@@ -356,16 +375,15 @@ static const mvx_driver *resolve(const char *cspec, int want_dict,
         return driver_load("dir");
     }
     /* Per-file backend binding (ARCHITECTURE.md 4.4: migration is per
-       file).  The account's REMOTE record lists daemon-bound files,
-       one per line: "SPEC {addr}" ("*" matches all; an exact entry
-       wins; the addr defaults to $MVXDAEMON).  With no REMOTE record,
-       $MVXDAEMON alone binds the whole account - the simple full-
-       remote deployment. */
-    char addr[512];
-    if (remote_addr_for(cspec, addr, sizeof addr)) {
+       file).  A file may be bound to a networked or foreign backend by
+       the account's BINDINGS record; unbound LMDB files are local.
+       The connection params ride in the driver-level spec as
+       "params\nspec" - opaque to the runtime, parsed by the driver. */
+    char driver[64], params[512];
+    if (binding_for(cspec, driver, sizeof driver, params, sizeof params)) {
         snprintf(outspec, cap, want_dict ? "%s\nDICT.%s" : "%s\n%s",
-                 addr, cspec);
-        return driver_load("lmdbnet");
+                 params, cspec);
+        return driver_load(driver);
     }
     snprintf(outspec, cap, want_dict ? "DICT.%s" : "%s", cspec);
     return driver_load("lmdb");
@@ -922,18 +940,18 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
         }
         mv_clear(&names);
     }
-    /* Remote files.  With a REMOTE record, its entries are the remote
-       files (exactly); otherwise bare $MVXDAEMON means whole-account
-       remote and the default daemon is enumerated. */
-    int listed_remote = 0;
+    /* Bound files: the BINDINGS record names them (exactly).  Their
+       type is the driver name, so LISTF distinguishes lmdbnet from
+       postgres and the like.  A "*" entry is a policy, not a file. */
+    int listed_bound = 0;
     {
         const char *acct2 = getenv("MVXACCOUNT");
         if (!acct2 || !acct2[0]) acct2 = ".";
         char rpath[4096];
-        snprintf(rpath, sizeof rpath, "%s/REMOTE", acct2);
+        snprintf(rpath, sizeof rpath, "%s/BINDINGS", acct2);
         FILE *rf = fopen(rpath, "r");
         if (rf) {
-            listed_remote = 1;
+            listed_bound = 1;
             char ln[1152];
             while (fgets(ln, sizeof ln, rf)) {
                 char *p = ln;
@@ -943,14 +961,40 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
                        *sp2 != '\n' && *sp2 != '\r')
                     sp2++;
                 size_t n = (size_t)(sp2 - p);
-                if (n > 0 && !(n == 1 && p[0] == '*'))
-                    FL_PUT(p, n, 'N');
+                if (n == 0 || *p == '#' || (n == 1 && p[0] == '*'))
+                    continue;
+                char *dp = sp2;
+                while (*dp == ' ' || *dp == '\t') dp++;
+                char *de = dp;
+                while (*de && *de != ' ' && *de != '\t' &&
+                       *de != '\n' && *de != '\r')
+                    de++;
+                /* emit "name @VM driver" with an explicit driver type */
+                if (len) buf[len++] = (char)0xFE;
+                if (len + n > cap) { cap = cap ? cap*2 : 256;
+                    while (cap < len + n) cap *= 2;
+                    char *nb = realloc(buf, cap);
+                    if (!nb) mvx_fatal("out of memory in FILELIST");
+                    buf = nb; }
+                memcpy(buf + len, p, n); len += n;
+                if (len + 1 > cap) { cap *= 2;
+                    char *nb = realloc(buf, cap);
+                    if (!nb) mvx_fatal("out of memory in FILELIST");
+                    buf = nb; }
+                buf[len++] = (char)0xFD;
+                size_t dl = (size_t)(de - dp);
+                if (len + dl > cap) { cap = cap ? cap*2 : 256;
+                    while (cap < len + dl) cap *= 2;
+                    char *nb = realloc(buf, cap);
+                    if (!nb) mvx_fatal("out of memory in FILELIST");
+                    buf = nb; }
+                memcpy(buf + len, dp, dl); len += dl;
             }
             fclose(rf);
         }
     }
     const char *dmn = getenv("MVXDAEMON");
-    if (!listed_remote && dmn && dmn[0]) {
+    if (!listed_bound && dmn && dmn[0]) {
         const mvx_driver *net = driver_load("lmdbnet");
         if (net->names) {
             mv_value names;
@@ -994,21 +1038,15 @@ static int spec_cstr(const mv_value *spec, char *out, size_t cap) {
     return 1;
 }
 
-/* Maintain the REMOTE binding record (CREATE-FILE writes it,
-   DELETE-FILE cleans it). */
-static void remote_bind_add(const char *cspec, const char *addr) {
-    char dummy[512];
-    if (remote_addr_for(cspec, dummy, sizeof dummy)) {
-        /* already bound (exact or via *): leave as is */
-        const char *acct0 = getenv("MVXACCOUNT");
-        (void)acct0;
-    }
+/* Maintain the BINDINGS record (CREATE-FILE writes it, DELETE-FILE
+   cleans it): one "SPEC driver {params}" line per bound file. */
+static void binding_add(const char *cspec, const char *driver,
+                        const char *params) {
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
     char path[4096];
-    snprintf(path, sizeof path, "%s/REMOTE", acct);
-    /* skip when an exact entry already exists */
-    FILE *rp = fopen(path, "r");
+    snprintf(path, sizeof path, "%s/BINDINGS", acct);
+    FILE *rp = fopen(path, "r");    /* skip if an exact entry exists */
     if (rp) {
         char ln[1152];
         size_t cl = strlen(cspec);
@@ -1028,16 +1066,18 @@ static void remote_bind_add(const char *cspec, const char *addr) {
     }
     FILE *fp = fopen(path, "a");
     if (!fp) return;
-    if (addr && addr[0]) fprintf(fp, "%s %s\n", cspec, addr);
-    else fprintf(fp, "%s\n", cspec);
+    if (params && params[0])
+        fprintf(fp, "%s %s %s\n", cspec, driver, params);
+    else
+        fprintf(fp, "%s %s\n", cspec, driver);
     fclose(fp);
 }
 
-static void remote_bind_remove(const char *cspec) {
+static void binding_remove(const char *cspec) {
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
     char path[4096];
-    snprintf(path, sizeof path, "%s/REMOTE", acct);
+    snprintf(path, sizeof path, "%s/BINDINGS", acct);
     FILE *fp = fopen(path, "r");
     if (!fp) return;
     char out[16384];
@@ -1085,31 +1125,44 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
     if (type) mv_val_chars(type, tb, sizeof tb, &tp);
     char err[256] = "";
 
-    /* CREATE-FILE name REMOTE {addr}: bind at creation and create on
-       the daemon.  The binding is recorded in the REMOTE record so
-       every later OPEN resolves there. */
-    if (strncasecmp(tp, "REMOTE", 6) == 0) {
-        const char *ap = tp + 6;
+    /* CREATE-FILE name USING <driver> {params}: bind at creation and
+       create through that driver.  The binding is recorded in BINDINGS
+       so every later OPEN resolves there. */
+    if (strncasecmp(tp, "USING ", 6) == 0 ||
+        strcasecmp(tp, "USING") == 0) {
+        const char *dp2 = tp + 5;
+        while (*dp2 == ' ' || *dp2 == '\t') dp2++;
+        char drvname[64];
+        const char *de = dp2;
+        while (*de && *de != ' ' && *de != '\t') de++;
+        snprintf(drvname, sizeof drvname, "%.*s", (int)(de - dp2), dp2);
+        const char *ap = de;
         while (*ap == ' ' || *ap == '\t') ap++;
-        const char *envd = getenv("MVXDAEMON");
-        if (!ap[0] && (!envd || !envd[0])) {
-            fprintf(stderr, "CREATE-FILE REMOTE: no daemon address "
-                            "(give one, or set $MVXDAEMON)\n");
+        if (!drvname[0]) {
+            fprintf(stderr, "CREATE-FILE USING: name a driver "
+                            "(e.g. lmdbnet)\n");
             return 0;
         }
-        remote_bind_add(cspec, ap);
+        const char *envd = getenv("MVXDAEMON");
+        if (strcmp(drvname, "lmdbnet") == 0 && !ap[0] &&
+            (!envd || !envd[0])) {
+            fprintf(stderr, "CREATE-FILE USING lmdbnet: no daemon "
+                            "address (give one, or set $MVXDAEMON)\n");
+            return 0;
+        }
+        binding_add(cspec, drvname, ap);
         char dataspec[1720], dictspec[1720];
         const mvx_driver *drv =
             resolve(cspec, 0, dataspec, sizeof dataspec);
         if (!drv->create(dataspec, err, sizeof err)) {
             if (err[0]) fprintf(stderr, "CREATE-FILE: %s\n", err);
-            remote_bind_remove(cspec);
+            binding_remove(cspec);
             return 0;
         }
         resolve(cspec, 1, dictspec, sizeof dictspec);
         if (!drv->create(dictspec, err, sizeof err)) {
             drv->remove(dataspec, err, sizeof err);
-            remote_bind_remove(cspec);
+            binding_remove(cspec);
             return 0;
         }
         return 1;
@@ -1151,6 +1204,6 @@ int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec) {
     drv->remove(dspec, err, sizeof err);        /* dict first, may be absent */
     resolve(cspec, 0, rspec, sizeof rspec);
     int64_t r = drv->remove(rspec, err, sizeof err);
-    if (r) remote_bind_remove(cspec);           /* binding dies with it */
+    if (r) binding_remove(cspec);           /* binding dies with it */
     return r;
 }

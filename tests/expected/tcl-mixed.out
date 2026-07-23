@@ -3,12 +3,12 @@
 File                     Type
 LOCALF                   lmdb
 VOC                      lmdb
-SHARED                   remote
+SHARED                   lmdbnet
 3 file(s)
 local read: local data
 remote read: remote data
 File                     Type
 LOCALF                   lmdb
 VOC                      lmdb
-SHARED                   remote
+SHARED                   lmdbnet
 3 file(s)

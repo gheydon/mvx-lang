@@ -28,29 +28,33 @@ dictionaries, indexes, the VOC — lives in the daemon; directory files
 (BP source) stay local. No application change, no relink: the
 `lmdbnet` driver presents the identical contract over the wire.
 
-## Mixing local and remote per file
+## Choosing a backend per file
 
-Migration is per file, and a file's type is chosen at creation:
+A file's backend is named at creation:
 
 ```
-> CREATE-FILE ORDERS                     local LMDB
-> CREATE-FILE ARCHIVE DIR                directory (git-native source)
-> CREATE-FILE SHARED REMOTE /run/mvxd.sock   on that daemon
-> CREATE-FILE HOT REMOTE                 on the default $MVXDAEMON
+> CREATE-FILE ORDERS                          local LMDB (default)
+> CREATE-FILE ARCHIVE DIR                      directory (git-native source)
+> CREATE-FILE SHARED USING lmdbnet /run/mvxd.sock   networked LMDB
+> CREATE-FILE HOT USING lmdbnet               networked, default $MVXDAEMON
 ```
 
-`CREATE-FILE ... REMOTE` records the binding in the account's `REMOTE`
-file and creates the file on the daemon; `DELETE-FILE` removes both
-the file and its binding; `LISTF` shows each file's type (lmdb /
-directory / remote). Different files may name different daemons, so
-one account can mix local LMDB, several daemons, and directory files —
-and one program reads them all through ordinary `OPEN`/`READ`/`WRITE`.
+`USING <driver> {connection}` binds the file to a storage driver —
+`lmdbnet` today, and `postgres`/`mongo` as they arrive — recording it
+in the account's `BINDINGS` record and creating the file through that
+driver. `DELETE-FILE` removes the file and its binding; `LISTF` shows
+each file's backend by name (`lmdb`, `directory`, `lmdbnet`, ...).
+Different files may use different drivers and connections, so one
+account can mix local LMDB, networked files on several daemons,
+directory files, and (later) SQL or document stores — and one program
+reads them all through ordinary `OPEN`/`READ`/`WRITE`.
 
-The binding is a plain record you can edit directly: `SPEC {address}`
-per line, `*` for every LMDB file, an address defaulting to
-`$MVXDAEMON`. With no `REMOTE` file, bare `$MVXDAEMON` binds the whole
-account (the simple all-remote deployment). Binding is resolution
-only — existing data does not move when it changes.
+The binding is a plain, hand-editable record: `SPEC driver {params}`
+per line (`*` as the spec binds every LMDB file; `params` is the
+driver's connection string, defaulting to `$MVXDAEMON` for lmdbnet).
+With no `BINDINGS` record, bare `$MVXDAEMON` binds the whole account
+to `lmdbnet` — the simple all-networked deployment. Binding is
+resolution only; existing data does not move when it changes.
 
 What the daemon guarantees:
 
