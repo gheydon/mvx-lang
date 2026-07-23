@@ -216,12 +216,17 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    char cwd[4096] = "?";
+    getcwd(cwd, sizeof cwd);
+    const char *base = strrchr(cwd, '/');
+    base = base && base[1] ? base + 1 : cwd;
+
     int tty = isatty(0);
-    if (tty) printf("MVX TCL\n");
+    if (tty) printf("MVX TCL — account %s (%s)\n", base, cwd);
     char line[4096];
     for (;;) {
         if (tty) {
-            fputs("> ", stdout);
+            printf("%s> ", base);
             fflush(stdout);
         }
         if (!fgets(line, sizeof line, stdin)) break;
