@@ -15,19 +15,39 @@ READ SRC FROM F, IT ELSE
    STOP
 END
 * A SUBROUTINE source catalogs into LIB/ as a shared library the
-* runtime CALL resolver loads; only main programs become verbs.
+* runtime CALL resolver loads; only main programs become verbs.  Skip
+* comments in every style (* ! REM // and /* */ blocks) when finding
+* the first real statement.
 FIRST = ""
+INBLK = 0
 NA = DCOUNT(SRC, @AM)
 FOR I = 1 TO NA
    LN = TRIM(SRC<I>)
-   IF LN # "" THEN
-      IF LN[1, 1] # "*" AND LN[1, 1] # "!" THEN
-         FIRST = LN
-         GOTO 100
+   IF INBLK THEN
+      P = INDEX(LN, "*/", 1)
+      IF P > 0 THEN
+         INBLK = 0
+         LN = TRIM(LN[P + 2, LEN(LN)])
+      END ELSE
+         LN = ""
       END
    END
+   IF LN # "" THEN
+      C2 = LN[1, 2]
+      BEGIN CASE
+      CASE C2 = "/*"
+         IF INDEX(LN, "*/", 1) = 0 THEN INBLK = 1
+      CASE LN[1, 1] = "*" OR LN[1, 1] = "!" OR C2 = "//"
+         X = 0
+      CASE OCONV(FIELD(LN, " ", 1), "MCU") = "REM"
+         X = 0
+      CASE 1
+         FIRST = LN
+         I = NA
+      END CASE
+   END
 NEXT I
-100 IF FIRST[1, 11] = "SUBROUTINE " OR FIRST = "SUBROUTINE" THEN
+IF FIRST[1, 11] = "SUBROUTINE " OR FIRST = "SUBROUTINE" THEN
    X = CREATEFILE("LIB", "DIR")
    RC = COMPILE("shared", FN:"/":IT, "LIB/":IT)
    IF RC = 0 THEN

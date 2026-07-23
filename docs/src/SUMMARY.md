@@ -9,6 +9,7 @@
 - [TCL and Verbs](tcl.md)
 - [Files, Dictionaries and Indexes](files.md)
 - [Full-Screen Terminal Programming](terminal.md)
+- [Version Control](git.md)
 - [Packages](packages.md)
 - [Deployment and the Daemon](deployment.md)
 - [Tooling](tooling.md)

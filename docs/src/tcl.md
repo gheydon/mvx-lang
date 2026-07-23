@@ -47,7 +47,9 @@ standard verbs.
 | `CREATE-INDEX file item` / `DELETE-INDEX` / `LIST-INDEXES` | secondary indexes |
 | `LINK-PKG path` / `UNLINK-PKG path` / `LIST-PKGS` | packages |
 | `WHO` `TIME` `DATE` | session information |
-| `GIT ...` | from the git package: status, log, diff, init |
+| `EXPORT file {dir}` | copy records to a git-native directory file |
+| `IMPORT file {dir}` | mirror a directory file back (full sync) |
+| `GIT ...` | git package: status, log, diff, init, export, import, commit |
 
 ## Select lists between commands
 

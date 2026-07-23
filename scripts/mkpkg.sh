@@ -27,7 +27,18 @@ SUBS=""
 for src in "$PKG"/BP/*; do
   [ -f "$src" ] || continue
   name="$(basename "$src")"
-  first="$(awk 'NF && $1 !~ /^[*!]/ { print $1; exit }' "$src")"
+  # first real statement token, skipping *,!,REM,// line comments and
+  # /* */ block comments (so docblocks in either style are ignored)
+  first="$(awk '
+    { line = $0 }
+    inblk { if (line ~ /\*\//) { sub(/.*\*\//, "", line); inblk = 0 } else next }
+    { sub(/^[ \t]+/, "", line) }
+    line ~ /^\/\*/ { if (line !~ /\*\//) { inblk = 1 }; next }
+    line ~ /^(\*|!|\/\/)/ { next }
+    line ~ /^[Rr][Ee][Mm]([ \t]|$)/ { next }
+    line ~ /^[ \t]*$/ { next }
+    { n = split(line, a, /[ \t]/); print a[1]; exit }
+  ' "$src")"
   if [ "$first" = "SUBROUTINE" ]; then
     SUBS="$SUBS $src"
     echo "  bundling $name"

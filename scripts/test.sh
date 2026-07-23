@@ -255,6 +255,24 @@ check tcl-index "$(printf '%s\n' \
   'LIST PARTS NAME WITH COLOR = blue' \
   'DELETE-INDEX PARTS NAME' | tclrun)"
 
+# EXPORT/IMPORT: a hash file round-trips through a git-native
+# directory file; an external edit and a delete both mirror back
+exacct_prog="$TESTROOT/exseed.b"
+cat > "$exacct_prog" <<'EXEOF'
+OPEN "CUST" TO F ELSE STOP
+WRITE "Ada":@AM:"London" ON F, "C1"
+WRITE "Bob":@AM:"Paris" ON F, "C2"
+WRITE "Cy":@AM:"Berlin" ON F, "C3"
+EXEOF
+"$MVX" "$exacct_prog" -o "$TESTROOT/exseed" 2>/dev/null
+check tcl-export "$( \
+  printf 'CREATE-FILE CUST\n' | tclrun; \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/exseed"); \
+  printf 'EXPORT CUST\n' | tclrun; \
+  printf 'Ada\nLONDON\n' > "$ACCT/CUST.EXP/C1"; \
+  rm -f "$ACCT/CUST.EXP/C2"; \
+  printf 'IMPORT CUST\nLIST CUST\nCT CUST C1\n' | tclrun)"
+
 # VI: export a record to a file, "edit" it with a scripted editor,
 # import it back — the hash-file <-> text-file round trip
 fakeed="$TESTROOT/fakeed.sh"
