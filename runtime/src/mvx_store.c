@@ -279,6 +279,62 @@ static void lock_drop(store_state *st, const char *key) {
 
 /* ----------------------------------------------------------------- API */
 
+/* Is this file bound to a daemon?  Consult the account's REMOTE
+   record; fall back to whole-account $MVXDAEMON when there is none.
+   Fills addr and returns 1 when remote. */
+static int remote_addr_for(const char *cspec, char *addr, size_t cap) {
+    const char *envd = getenv("MVXDAEMON");
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    char path[4096];
+    snprintf(path, sizeof path, "%s/REMOTE", acct);
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        if (envd && envd[0]) {
+            snprintf(addr, cap, "%s", envd);
+            return 1;
+        }
+        return 0;
+    }
+    int star = 0, exact = 0;
+    char staraddr[512] = "", exactaddr[512] = "";
+    char ln[1152];
+    while (fgets(ln, sizeof ln, fp)) {
+        char *p = ln;
+        while (*p == ' ' || *p == '\t') p++;
+        char *sp = p;
+        while (*sp && *sp != ' ' && *sp != '\t' && *sp != '\n' &&
+               *sp != '\r')
+            sp++;
+        size_t nl = (size_t)(sp - p);
+        if (nl == 0) continue;
+        char *ap = sp;
+        while (*ap == ' ' || *ap == '\t') ap++;
+        char *ae = ap;
+        while (*ae && *ae != '\n' && *ae != '\r' && *ae != ' ' &&
+               *ae != '\t')
+            ae++;
+        if (nl == 1 && p[0] == '*') {
+            star = 1;
+            snprintf(staraddr, sizeof staraddr, "%.*s", (int)(ae - ap),
+                     ap);
+        } else if (strlen(cspec) == nl && memcmp(p, cspec, nl) == 0) {
+            exact = 1;
+            snprintf(exactaddr, sizeof exactaddr, "%.*s", (int)(ae - ap),
+                     ap);
+        }
+    }
+    fclose(fp);
+    if (!exact && !star) return 0;
+    const char *use = exact ? exactaddr : staraddr;
+    if (!use[0]) use = envd && envd[0] ? envd : "";
+    if (!use[0])
+        mvx_fatal("file %s is bound remote but no daemon address is "
+                  "configured (REMOTE line or $MVXDAEMON)", cspec);
+    snprintf(addr, cap, "%s", use);
+    return 1;
+}
+
 /* Resolve a spec to its driver, and derive the dictionary spec when
    asked: DICT.<spec> as a sibling LMDB named DB, <spec>/.DICT as a
    hidden subdirectory for directory files (data SELECTs skip dotfiles,
@@ -299,12 +355,19 @@ static const mvx_driver *resolve(const char *cspec, int want_dict,
         snprintf(outspec, cap, want_dict ? "%s/.DICT" : "%s", cspec);
         return driver_load("dir");
     }
+    /* Per-file backend binding (ARCHITECTURE.md 4.4: migration is per
+       file).  The account's REMOTE record lists daemon-bound files,
+       one per line: "SPEC {addr}" ("*" matches all; an exact entry
+       wins; the addr defaults to $MVXDAEMON).  With no REMOTE record,
+       $MVXDAEMON alone binds the whole account - the simple full-
+       remote deployment. */
+    char addr[512];
+    if (remote_addr_for(cspec, addr, sizeof addr)) {
+        snprintf(outspec, cap, want_dict ? "%s\nDICT.%s" : "%s\n%s",
+                 addr, cspec);
+        return driver_load("lmdbnet");
+    }
     snprintf(outspec, cap, want_dict ? "DICT.%s" : "%s", cspec);
-    /* The config swap of ARCHITECTURE.md 4.3/4.4: with $MVXDAEMON set,
-       LMDB-backed files go through the daemon; directory files stay
-       local.  Same contract, different transport. */
-    const char *dmn = getenv("MVXDAEMON");
-    if (dmn && dmn[0]) return driver_load("lmdbnet");
     return driver_load("lmdb");
 }
 
@@ -339,7 +402,7 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
         /* A plain missing file is the normal ELSE path and stays
            silent; an infrastructure failure must say why. */
         if (err[0])
-            fprintf(stderr, "OPEN %s: %s\n", rspec, err);
+            fprintf(stderr, "OPEN %s: %s\n", cspec, err);
         return 0;
     }
 
@@ -377,8 +440,13 @@ static void ix_load(open_file *o) {
     mvx_file_base *b = (mvx_file_base *)o->f;
     if (!b->driver->write_ix) return;   /* backend has no capability */
 
-    char dspec[1152];
-    snprintf(dspec, sizeof dspec, "DICT.%s", b->spec);
+    char dspec[1720];
+    const char *nl = strchr(b->spec, '\n');
+    if (nl)
+        snprintf(dspec, sizeof dspec, "%.*s\nDICT.%s",
+                 (int)(nl - b->spec), b->spec, nl + 1);
+    else
+        snprintf(dspec, sizeof dspec, "DICT.%s", b->spec);
     char err[256] = "";
     mvx_file *d = b->driver->open(dspec, err, sizeof err);
     if (!d) return;
@@ -835,9 +903,7 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
         closedir(d);
     }
 
-    const char *dmn = getenv("MVXDAEMON");
-    const mvx_driver *lmdb =
-        driver_load(dmn && dmn[0] ? "lmdbnet" : "lmdb");
+    const mvx_driver *lmdb = driver_load("lmdb");
     if (lmdb->names) {
         mv_value names;
         mv_init(&names);
@@ -855,6 +921,34 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
             }
         }
         mv_clear(&names);
+    }
+    /* Files on the default daemon, marked remote.  (Files bound to
+       other daemons by explicit REMOTE addresses are not enumerated
+       here.) */
+    const char *dmn = getenv("MVXDAEMON");
+    if (dmn && dmn[0]) {
+        const mvx_driver *net = driver_load("lmdbnet");
+        if (net->names) {
+            mv_value names;
+            mv_init(&names);
+            char err[256] = "";
+            if (net->names(&names, err, sizeof err) &&
+                names.tag == MV_STR && names.s->len > 0) {
+                const char *p = names.s->data;
+                const char *end = p + names.s->len;
+                while (p < end) {
+                    const char *am = memchr(p, '\xFE',
+                                            (size_t)(end - p));
+                    size_t n = (am ? am : end) - p;
+                    int internal =
+                        (n > 5 && memcmp(p, "DICT.", 5) == 0) ||
+                        memmem(p, n, ".IDX.", 5) != NULL;
+                    if (n > 0 && !internal) FL_PUT(p, n, 'N');
+                    p = am ? am + 1 : end;
+                }
+            }
+            mv_clear(&names);
+        }
     }
 #undef FL_PUT
 
@@ -882,26 +976,31 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
     char cspec[1024];
     if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
 
-    const char *drvname = "lmdb";
-    const char *dmn = getenv("MVXDAEMON");
-    if (dmn && dmn[0]) drvname = "lmdbnet";
     char tb[40];
     const char *tp = "";
     if (type) mv_val_chars(type, tb, sizeof tb, &tp);
-    if (tp[0] == 'D' || tp[0] == 'd') drvname = "dir";
-
-    const mvx_driver *drv = driver_load(drvname);
     char err[256] = "";
-    if (!drv->create(cspec, err, sizeof err)) return 0;
 
-    /* CREATE-FILE creates DICT and DATA together, classic style. */
-    char dspec[1152];
-    if (strcmp(drvname, "dir") == 0)
+    if (tp[0] == 'D' || tp[0] == 'd') {
+        const mvx_driver *drv = driver_load("dir");
+        if (!drv->create(cspec, err, sizeof err)) return 0;
+        char dspec[1152];
         snprintf(dspec, sizeof dspec, "%s/.DICT", cspec);
-    else
-        snprintf(dspec, sizeof dspec, "DICT.%s", cspec);
-    if (!drv->create(dspec, err, sizeof err)) {
-        drv->remove(cspec, err, sizeof err);
+        if (!drv->create(dspec, err, sizeof err)) {
+            drv->remove(cspec, err, sizeof err);
+            return 0;
+        }
+        return 1;
+    }
+
+    /* LMDB-backed: honour the file's local/remote binding.  DICT and
+       DATA are created together, classic style. */
+    char dataspec[1720], dictspec[1720];
+    const mvx_driver *drv = resolve(cspec, 0, dataspec, sizeof dataspec);
+    if (!drv->create(dataspec, err, sizeof err)) return 0;
+    resolve(cspec, 1, dictspec, sizeof dictspec);
+    if (!drv->create(dictspec, err, sizeof err)) {
+        drv->remove(dataspec, err, sizeof err);
         return 0;
     }
     return 1;

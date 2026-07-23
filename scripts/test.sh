@@ -297,6 +297,28 @@ check tcl-daemon "$( \
   (cd "$DACCT" && MVXACCOUNT=. MVXDAEMON="$DSOCK" "$TESTROOT/dlockbin"); \
   (cd "$DACCT" && MVXACCOUNT=. MVXDAEMON="$DSOCK" "$TESTROOT/dlockbin"); \
   unset MVXDAEMON)"
+# mixed local/remote: per-file REMOTE binding with an explicit daemon
+# address and NO $MVXDAEMON - locals stay local, the bound file goes
+# through the daemon, one program reads both
+MACCT="$TESTROOT/mixacct"
+mkdir -p "$MACCT"
+"$TCL" -a "$MACCT" -c "CREATE-FILE VOC" >/dev/null 2>&1
+mixprog="$TESTROOT/mix.b"
+cat > "$mixprog" <<'MIXEOF'
+OPEN "LOCALF" TO L ELSE STOP
+WRITE "local data" ON L, "L1"
+OPEN "SHARED" TO R ELSE STOP
+WRITE "remote data" ON R, "R1"
+READ A FROM L, "L1" THEN PRINT "local read: ":A
+READ B FROM R, "R1" THEN PRINT "remote read: ":B
+MIXEOF
+"$MVX" "$mixprog" -o "$TESTROOT/mixbin" 2>/dev/null
+check tcl-mixed "$( \
+  printf "CREATE-FILE LOCALF\nREMOTE-FILE SHARED $DSOCK\nCREATE-FILE SHARED\nLIST-REMOTE\n" | \
+    "$TCL" -a "$MACCT" 2>&1 | sed "s#$DSOCK#@DSOCK@#g"; \
+  (cd "$MACCT" && MVXACCOUNT=. "$TESTROOT/mixbin"); \
+  printf 'LISTF\n' | "$TCL" -a "$MACCT" 2>&1)"
+
 kill $DPID 2>/dev/null
 rm -f "$DSOCK"
 

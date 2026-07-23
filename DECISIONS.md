@@ -76,11 +76,16 @@
   access over unix-socket or TCP; a file is either embedded-access or
   daemon-owned, never both. The daemon speaks raw record bytes — MV
   semantics stay in the client runtime — and links only liblmdb.
-- **Deployment is the promised config swap**: `$MVXDAEMON` (socket
-  path or host:port) routes LMDB-backed files through the `lmdbnet`
-  driver — identical contract, different transport. Directory files
-  stay local, so BP source and daemon data mix per file. CREATE-FILE,
-  DELETE-FILE, and LISTF follow the same routing.
+- **Deployment is the promised config swap, and migration is per
+  file** (4.4): the account's `REMOTE` record binds individual files
+  to daemons ("SPEC {addr}" lines, `*` for all, exact entry wins,
+  `$MVXDAEMON` the default address; managed by REMOTE-FILE /
+  LOCAL-FILE / LIST-REMOTE). Bare `$MVXDAEMON` with no REMOTE record
+  binds the whole account. The daemon address travels inside the
+  driver-level spec ("addr\nspec"), so lock keys and index metadata
+  stay distinct across daemons, and `lmdbnet` keeps one connection
+  per daemon. Directory files always stay local. Binding is
+  resolution only — existing data does not move.
 - **The daemon is the single lock authority** for its files: the
   driver contract gains an optional lock capability (ABI 4); when
   present, READU acquires from the backend (blocking with retry,

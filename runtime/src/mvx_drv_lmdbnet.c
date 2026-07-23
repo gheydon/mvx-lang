@@ -1,10 +1,12 @@
 /* lmdbnet driver — the networked transport for LMDB-backed files.
  *
  * Presents the identical storage contract as the embedded driver, but
- * every operation travels to an mvxd daemon over one connection per
- * process.  $MVXDAEMON names the daemon: a path means a unix socket,
- * host:port means TCP.  Locks are held by the daemon against this
- * connection — process exit releases them (the lease).
+ * every operation travels to an mvxd daemon.  A file's spec may carry
+ * its daemon address ("addr\nspec" — placed by the store from the
+ * account's REMOTE bindings); $MVXDAEMON is the default.  One
+ * connection per daemon, shared by all its files.  A path means a
+ * unix socket, host:port means TCP.  Locks are held by the daemon
+ * against the connection — process exit releases them (the lease).
  */
 #include "../include/mvx_driver.h"
 #include "../include/mvxd_proto.h"
@@ -23,6 +25,8 @@
 
 typedef struct {
     mvx_file_base base;
+    int fd;                             /* connection to this file's daemon */
+    const char *rspec;                  /* spec without the address prefix */
 } net_file;
 
 struct mvx_cursor {
@@ -30,7 +34,30 @@ struct mvx_cursor {
     int64_t n, pos;
 };
 
-static int g_sock = -1;
+/* One connection per daemon address, shared by every file bound to
+   that daemon.  The driver-level spec may carry its daemon address as
+   "addr\nspec"; without a prefix, $MVXDAEMON is the default. */
+#define MAX_DAEMONS 8
+static struct {
+    char addr[512];
+    int fd;
+} g_conns[MAX_DAEMONS];
+static int g_nconns;
+
+/* Split an addr-prefixed spec; returns the bare spec, fills addr. */
+static const char *split_addr(const char *spec, char *addr, size_t cap) {
+    const char *nl = strchr(spec, '\n');
+    if (nl) {
+        size_t n = (size_t)(nl - spec);
+        if (n >= cap) n = cap - 1;
+        memcpy(addr, spec, n);
+        addr[n] = '\0';
+        return nl + 1;
+    }
+    const char *e = getenv("MVXDAEMON");
+    snprintf(addr, cap, "%s", e ? e : "");
+    return spec;
+}
 
 static int send_all(int fd, const void *buf, size_t n) {
     const char *p = buf;
@@ -54,12 +81,17 @@ static int recv_all(int fd, void *buf, size_t n) {
     return 1;
 }
 
-static int daemon_connect(char *err, size_t errlen) {
-    if (g_sock >= 0) return 1;
-    const char *spec = getenv("MVXDAEMON");
-    if (!spec || !spec[0]) {
-        snprintf(err, errlen, "lmdbnet: $MVXDAEMON is not set");
-        return 0;
+static int daemon_connect(const char *spec, char *err, size_t errlen) {
+    for (int i = 0; i < g_nconns; i++)
+        if (strcmp(g_conns[i].addr, spec) == 0) return g_conns[i].fd;
+    if (!spec[0]) {
+        snprintf(err, errlen,
+                 "lmdbnet: no daemon address (REMOTE line or $MVXDAEMON)");
+        return -1;
+    }
+    if (g_nconns >= MAX_DAEMONS) {
+        snprintf(err, errlen, "lmdbnet: too many daemons");
+        return -1;
     }
     signal(SIGPIPE, SIG_IGN);
     int fd;
@@ -72,7 +104,7 @@ static int daemon_connect(char *err, size_t errlen) {
             close(fd);
             snprintf(err, errlen, "lmdbnet: cannot reach daemon at %s",
                      spec);
-            return 0;
+            return -1;
         }
     } else {                            /* host:port */
         char host[256] = "127.0.0.1";
@@ -93,7 +125,7 @@ static int daemon_connect(char *err, size_t errlen) {
         snprintf(ports, sizeof ports, "%d", port);
         if (getaddrinfo(host, ports, &hints, &res) != 0 || !res) {
             snprintf(err, errlen, "lmdbnet: cannot resolve %s", spec);
-            return 0;
+            return -1;
         }
         fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (connect(fd, res->ai_addr, res->ai_addrlen) != 0) {
@@ -101,12 +133,14 @@ static int daemon_connect(char *err, size_t errlen) {
             freeaddrinfo(res);
             snprintf(err, errlen, "lmdbnet: cannot reach daemon at %s",
                      spec);
-            return 0;
+            return -1;
         }
         freeaddrinfo(res);
     }
-    g_sock = fd;
-    return 1;
+    snprintf(g_conns[g_nconns].addr, sizeof g_conns[0].addr, "%s", spec);
+    g_conns[g_nconns].fd = fd;
+    g_nconns++;
+    return fd;
 }
 
 /* ------------------------------------------------------- request builder */
@@ -135,28 +169,24 @@ static void rstr16(reqbuf *b, const char *p, size_t n) {
     rput(b, p, n);
 }
 
-/* Round trip: returns status, fills *resp/*rlen (caller frees). */
-static int roundtrip(uint8_t op, reqbuf *b, char **resp, uint32_t *rlen) {
+/* Round trip on a connection: returns status, fills *resp/*rlen. */
+static int roundtrip(int fd, uint8_t op, reqbuf *b, char **resp,
+                     uint32_t *rlen) {
     *resp = NULL;
     *rlen = 0;
-    if (g_sock < 0) {
-        char err[128];
-        if (!daemon_connect(err, sizeof err))
-            mvx_fatal("%s", err);
-    }
     uint32_t plen = (uint32_t)(1 + b->len);
-    if (!send_all(g_sock, &plen, 4) || !send_all(g_sock, &op, 1) ||
-        (b->len && !send_all(g_sock, b->d, b->len)))
+    if (!send_all(fd, &plen, 4) || !send_all(fd, &op, 1) ||
+        (b->len && !send_all(fd, b->d, b->len)))
         mvx_fatal("lmdbnet: daemon connection lost");
     uint32_t alen;
     uint8_t status;
-    if (!recv_all(g_sock, &alen, 4) || alen < 1 ||
-        !recv_all(g_sock, &status, 1))
+    if (!recv_all(fd, &alen, 4) || alen < 1 ||
+        !recv_all(fd, &status, 1))
         mvx_fatal("lmdbnet: daemon connection lost");
     if (alen > 1) {
         *resp = malloc(alen - 1);
         if (!*resp) mvx_fatal("out of memory in lmdbnet");
-        if (!recv_all(g_sock, *resp, alen - 1))
+        if (!recv_all(fd, *resp, alen - 1))
             mvx_fatal("lmdbnet: daemon connection lost");
         *rlen = alen - 1;
     }
@@ -171,18 +201,23 @@ static int roundtrip(uint8_t op, reqbuf *b, char **resp, uint32_t *rlen) {
 static const mvx_driver mvx_driver_lmdbnet;
 
 static mvx_file *net_open(const char *spec, char *err, size_t errlen) {
-    if (!daemon_connect(err, errlen)) return NULL;
+    char addr[512];
+    const char *rspec = split_addr(spec, addr, sizeof addr);
+    int fd = daemon_connect(addr, err, errlen);
+    if (fd < 0) return NULL;
     reqbuf b = {0, 0, 0};
-    rstr16(&b, spec, strlen(spec));
+    rstr16(&b, rspec, strlen(rspec));
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_OPEN, &b, &resp, &rlen);
+    int st = roundtrip(fd, MVXD_OP_OPEN, &b, &resp, &rlen);
     free(resp);
     if (st != MVXD_ST_OK) return NULL;
     net_file *f = calloc(1, sizeof(net_file));
     if (!f) mvx_fatal("out of memory opening %s", spec);
     f->base.driver = &mvx_driver_lmdbnet;
     f->base.spec = strdup(spec);
+    f->fd = fd;
+    f->rspec = f->base.spec + (rspec - spec);
     return (mvx_file *)f;
 }
 
@@ -194,10 +229,12 @@ static void net_close(mvx_file *fh) {
 
 static reqbuf spec_req(mvx_file *fh) {
     reqbuf b = {0, 0, 0};
-    mvx_file_base *base = (mvx_file_base *)fh;
-    rstr16(&b, base->spec, strlen(base->spec));
+    net_file *f = (net_file *)fh;
+    rstr16(&b, f->rspec, strlen(f->rspec));
     return b;
 }
+
+#define NETFD(fh) (((net_file *)(fh))->fd)
 
 static int net_read(mvx_file *fh, const char *id, int64_t idlen,
                     mv_value *rec) {
@@ -205,7 +242,7 @@ static int net_read(mvx_file *fh, const char *id, int64_t idlen,
     rstr16(&b, id, (size_t)idlen);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_READ, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_READ, &b, &resp, &rlen);
     if (st == MVXD_ST_OK && rlen >= 4) {
         uint32_t dl;
         memcpy(&dl, resp, 4);
@@ -226,7 +263,7 @@ static int net_write(mvx_file *fh, const char *id, int64_t idlen,
     rput(&b, rp, (size_t)rl);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_WRITE, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_WRITE, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
@@ -236,7 +273,7 @@ static int net_del(mvx_file *fh, const char *id, int64_t idlen) {
     rstr16(&b, id, (size_t)idlen);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_DEL, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_DEL, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
@@ -268,7 +305,7 @@ static mvx_cursor *net_select_begin(mvx_file *fh) {
     reqbuf b = spec_req(fh);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_SELECT, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_SELECT, &b, &resp, &rlen);
     mvx_cursor *c = st == MVXD_ST_OK ? ids_cursor(resp, rlen)
                                      : calloc(1, sizeof(mvx_cursor));
     free(resp);
@@ -289,33 +326,42 @@ static void net_select_end(mvx_cursor *c) {
 }
 
 static int net_create(const char *spec, char *err, size_t errlen) {
-    if (!daemon_connect(err, errlen)) return 0;
+    char addr[512];
+    const char *rspec = split_addr(spec, addr, sizeof addr);
+    int fd = daemon_connect(addr, err, errlen);
+    if (fd < 0) return 0;
     reqbuf b = {0, 0, 0};
-    rstr16(&b, spec, strlen(spec));
+    rstr16(&b, rspec, strlen(rspec));
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_CREATE, &b, &resp, &rlen);
+    int st = roundtrip(fd, MVXD_OP_CREATE, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
 
 static int net_remove(const char *spec, char *err, size_t errlen) {
-    if (!daemon_connect(err, errlen)) return 0;
+    char addr[512];
+    const char *rspec = split_addr(spec, addr, sizeof addr);
+    int fd = daemon_connect(addr, err, errlen);
+    if (fd < 0) return 0;
     reqbuf b = {0, 0, 0};
-    rstr16(&b, spec, strlen(spec));
+    rstr16(&b, rspec, strlen(rspec));
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_REMOVE, &b, &resp, &rlen);
+    int st = roundtrip(fd, MVXD_OP_REMOVE, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
 
 static int net_names(mv_value *out, char *err, size_t errlen) {
-    if (!daemon_connect(err, errlen)) return 0;
+    char addr[512];
+    split_addr("", addr, sizeof addr);  /* default daemon */
+    int fd = daemon_connect(addr, err, errlen);
+    if (fd < 0) return 0;
     reqbuf b = {0, 0, 0};
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_NAMES, &b, &resp, &rlen);
+    int st = roundtrip(fd, MVXD_OP_NAMES, &b, &resp, &rlen);
     if (st != MVXD_ST_OK || !resp || rlen < 4) {
         free(resp);
         return 0;
@@ -366,7 +412,7 @@ static int net_write_ix(mvx_file *fh, const char *id, int64_t idlen,
     }
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_WRITE_IX, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_WRITE_IX, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
@@ -384,7 +430,7 @@ static int net_del_ix(mvx_file *fh, const char *id, int64_t idlen,
     }
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_DEL_IX, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_DEL_IX, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
@@ -396,7 +442,7 @@ static mvx_cursor *net_index_select(mvx_file *fh, const char *item,
     rstr16(&b, key, (size_t)klen);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_IDX_SELECT, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_IDX_SELECT, &b, &resp, &rlen);
     if (st != MVXD_ST_OK) {             /* no such index */
         free(resp);
         return NULL;
@@ -411,7 +457,7 @@ static int net_index_drop(mvx_file *fh, const char *item) {
     rstr16(&b, item, strlen(item));
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_IDX_DROP, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_IDX_DROP, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
@@ -421,7 +467,7 @@ static int net_lock(mvx_file *fh, const char *id, int64_t idlen) {
     rstr16(&b, id, (size_t)idlen);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_LOCK, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_LOCK, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }
@@ -431,7 +477,7 @@ static int net_unlock(mvx_file *fh, const char *id, int64_t idlen) {
     rstr16(&b, id, (size_t)idlen);
     char *resp;
     uint32_t rlen;
-    int st = roundtrip(MVXD_OP_UNLOCK, &b, &resp, &rlen);
+    int st = roundtrip(NETFD(fh), MVXD_OP_UNLOCK, &b, &resp, &rlen);
     free(resp);
     return st == MVXD_ST_OK;
 }

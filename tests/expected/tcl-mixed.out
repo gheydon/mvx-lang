@@ -1,0 +1,12 @@
+[417] file LOCALF created
+SHARED bound remote (@DSOCK@)
+note: existing local data does not move automatically
+[417] file SHARED created
+SHARED               @DSOCK@
+1 binding(s)
+local read: local data
+remote read: remote data
+File                     Type
+LOCALF                   lmdb
+VOC                      lmdb
+2 file(s)
