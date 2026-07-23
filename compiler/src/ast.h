@@ -63,6 +63,7 @@ struct Stmt {
         Release,    // args: [file, id] — bare releases all
         Select,     // args: file
         Readnext,   // name: id var; THEN/ELSE
+        Execute,    // value: sentence; name: CAPTURING var; name2: RETURNING
     };
     enum class LoopCond { None, While, Until };
 

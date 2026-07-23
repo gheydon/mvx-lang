@@ -49,7 +49,7 @@ const std::set<std::string> kStrIntrinsics = {
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
-    "CREATEFILE", "DELETEFILE",
+    "CREATEFILE", "DELETEFILE", "COMPILE",
 };
 
 // String-valued intrinsics (boxed results).
@@ -284,6 +284,10 @@ private:
                     joinVar(s.target->sval, NK::NotNum, changed);
                 else
                     joinArr(s.target->sval, NK::NotNum, changed);
+                break;
+            case Stmt::K::Execute:
+                if (!s.name.empty()) joinVar(s.name, NK::NotNum, changed);
+                if (!s.name2.empty()) joinVar(s.name2, NK::NotNum, changed);
                 break;
             default:
                 break;
@@ -600,6 +604,11 @@ private:
             if (f == "DELETEFILE" && e.args.size() == 1)
                 return callRt("mvx_deletefile", i64Ty_, {ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0])});
+            if (f == "COMPILE" && e.args.size() == 3)
+                return callRt("mvx_compile", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1]), evalPtr(*e.args[2])});
             if (kIntIntrinsics.count(f))
                 err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")
@@ -1032,6 +1041,18 @@ private:
             Value *found = callRt("mvx_readnext", i64Ty_, {ptrTy_, ptrTy_},
                                   {ctxArg_, getScalar(s.name, s.line)});
             emitThenElse(found, s, "rn");
+            break;
+        }
+        case Stmt::K::Execute: {
+            Value *cap = s.name.empty()
+                             ? (Value *)ConstantPointerNull::get(ptrTy_)
+                             : getScalar(s.name, s.line);
+            Value *ret = s.name2.empty()
+                             ? (Value *)ConstantPointerNull::get(ptrTy_)
+                             : getScalar(s.name2, s.line);
+            callRt("mvx_execute", i64Ty_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, evalPtr(*s.value), cap, ret});
             break;
         }
 

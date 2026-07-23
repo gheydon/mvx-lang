@@ -97,9 +97,8 @@ static void command(char *line) {
         line[--len] = '\0';
     if (len == 0) return;
 
-    if (line[0] == '!') {               /* raw Unix passthrough */
-        int rc = system(line + 1);
-        (void)rc;
+    if (line[0] == '!') {               /* raw Unix — runtime-gated */
+        mvx_unix_cmd(g_ctx, line + 1);
         return;
     }
 
@@ -113,6 +112,12 @@ static void command(char *line) {
     if (strcmp(verb, "OFF") == 0 || strcmp(verb, "QUIT") == 0 ||
         strcmp(verb, "BYE") == 0)
         exit(0);
+
+    if (strcmp(verb, "SH") == 0) {      /* interactive shell — gated */
+        const char *sh = getenv("SHELL");
+        mvx_unix_cmd(g_ctx, sh && sh[0] ? sh : "/bin/sh");
+        return;
+    }
 
     char path[1024];
     int r = voc_lookup(verb, path, sizeof path);

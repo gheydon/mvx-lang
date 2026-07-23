@@ -158,6 +158,13 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);
 void    mvx_store_shutdown(mvx_ctx *ctx);           /* ctx destroy hook */
+
+/* --- spawning, behind the privilege gate (see mvx_exec.c) -------------- */
+int64_t mvx_unix_cmd(mvx_ctx *ctx, const char *cmd);    /* unrestricted */
+int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
+                    const mv_value *src, const mv_value *out); /* developer */
+int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
+                    mv_value *capture, mv_value *rc);   /* any tier */
 void   *mvx_ctx_store_get(mvx_ctx *ctx);
 void    mvx_ctx_store_set(mvx_ctx *ctx, void *p);
 

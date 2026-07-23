@@ -201,6 +201,22 @@ private:
             thenElse(*s);
             break;
         }
+        case Tok::KwExecute: {
+            advance();
+            s = mk(Stmt::K::Execute);
+            s->value = expression();
+            for (;;) {
+                if (at(Tok::KwCapturing)) {
+                    advance();
+                    s->name = expect(Tok::Ident, "CAPTURING variable").text;
+                } else if (at(Tok::KwReturning)) {
+                    advance();
+                    s->name2 = expect(Tok::Ident, "RETURNING variable").text;
+                } else break;
+            }
+            endStatementSoft();
+            break;
+        }
         case Tok::KwCommon: {
             advance();
             s = mk(Stmt::K::Common);

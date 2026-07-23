@@ -53,10 +53,25 @@
 - **The sentence crosses via the environment**: TCL sets
   `$MVX_SENTENCE`; the `SENTENCE()` intrinsic reads it. Verbs parse
   their own arguments with FIELD().
-- **`!` is currently ungated.** The privilege gate belongs in the
-  runtime exec primitive when EXECUTE lands (ARCHITECTURE.md 8.1); a
-  check that lived only in the shell would be decorative, so none is
-  pretended here.
+- **The privilege gate lives in `mvx_exec.c`, in the runtime.** One
+  gate covers every spawn path: TCL's `!`/SH builtins, EXECUTE, and the
+  compiler. Tiers per 8.2 (restricted < developer < unrestricted,
+  default deny) come from `$MVXPRIV` — the development stand-in for
+  system config outside the account; the property that matters is that
+  account data cannot write it. Spawning cataloged verbs is allowed at
+  every tier; raw Unix needs unrestricted; compiling needs developer.
+  All spawns are argv-style (`execv`), never through a shell, except
+  the explicitly-unrestricted raw passthrough.
+- **EXECUTE spawns `mvx-tcl -c`** so there is exactly one dispatcher in
+  the system. CAPTURING collects stdout as a dynamic array (line ↔
+  attribute); RETURNING receives the exit status (deviation from
+  classic error-number lists, documented). Select-list passing across
+  EXECUTE is deferred until session-state classification (6.6) exists.
+- **`COMPILE(mode, src, out)`** is the narrow developer-tier primitive
+  behind the BASIC and CATALOG verbs: structured arguments, argv built
+  by the runtime, nothing to inject. BASIC compiles `FN ITEM` to
+  `FN.O/ITEM.o`; CATALOG links to `CATALOG/ITEM` and writes the VOC
+  entry — compile and publish stay separate verbs, classic style.
 - **Account = parameter, not mode**: `-a` flag, then `$MVXACCOUNT`,
   then cwd; the shell chdirs to the account and children resolve
   relative to it. `-c` runs one sentence for ssh/cron use.
