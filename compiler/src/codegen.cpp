@@ -41,6 +41,24 @@ const std::set<std::string> kIntrinsics = {
     "TIME", "SYSTEM", "INT", "SQRT", "ABS", "MOD",
 };
 
+// String-valued dynamic-array intrinsics (boxed path only).
+const std::set<std::string> kStrIntrinsics = {
+    "EXTRACT", "REPLACE", "INSERT", "DELETE",
+};
+
+// Integer-valued intrinsics whose arguments are strings.
+const std::set<std::string> kIntIntrinsics = {
+    "LEN", "COUNT", "DCOUNT",
+};
+
+// System mark constants: @AM/@FM, @VM, @SM/@SVM.
+inline int sysConstChar(const std::string &n) {
+    if (n == "@AM" || n == "@FM") return 0xFE;
+    if (n == "@VM") return 0xFD;
+    if (n == "@SM" || n == "@SVM") return 0xFC;
+    return -1;
+}
+
 // --------------------------------------------------------------------------
 // Numeric specialisation analysis (ARCHITECTURE.md 3.3, option 3).
 //
@@ -82,6 +100,7 @@ public:
 
     NK varKind(const std::string &n) const {
         if (arrays_.count(n)) return NK::NotNum;
+        if (!n.empty() && n[0] == '@') return NK::NotNum;  // system vars
         auto it = varK_.find(n);
         return it == varK_.end() ? NK::Int : it->second;
     }
@@ -113,6 +132,7 @@ public:
         case Expr::K::Neg:    return kindOf(*e.lhs);
         case Expr::K::Not:
             return numericExpr(*e.lhs) ? NK::Int : NK::NotNum;
+        case Expr::K::Extract: return NK::NotNum;
         case Expr::K::Paren: {
             if (arrays_.count(e.sval))
                 switch (arrClass(e.sval)) {
@@ -121,6 +141,7 @@ public:
                 case ArrClass::F64: return NK::Dbl;
                 default:            return NK::NotNum;
                 }
+            if (kIntIntrinsics.count(e.sval)) return NK::Int;
             if (!kIntrinsics.count(e.sval)) return NK::NotNum;
             for (const auto &a : e.args)
                 if (!numericExpr(*a)) return NK::NotNum;
@@ -200,6 +221,13 @@ private:
                 if (t.kind == Expr::K::Var) joinVar(t.sval, k, changed);
                 if (t.kind == Expr::K::Paren && arrays_.count(t.sval))
                     joinArr(t.sval, k, changed);
+                if (t.kind == Expr::K::Extract) {
+                    // Dynamic-array replace stores marks into the base.
+                    if (t.lhs->kind == Expr::K::Var)
+                        joinVar(t.lhs->sval, NK::NotNum, changed);
+                    if (t.lhs->kind == Expr::K::Paren)
+                        joinArr(t.lhs->sval, NK::NotNum, changed);
+                }
                 break;
             }
             case Stmt::K::For: {
@@ -487,6 +515,17 @@ private:
                 return v;
             }
             const std::string &f = e.sval;
+            if (f == "LEN" && e.args.size() == 1)
+                return callRt("mv_len_fn", i64Ty_, {ptrTy_},
+                              {evalPtr(*e.args[0])});
+            if (f == "COUNT" && e.args.size() == 2)
+                return callRt("mv_count_fn", i64Ty_, {ptrTy_, ptrTy_},
+                              {evalPtr(*e.args[0]), evalPtr(*e.args[1])});
+            if (f == "DCOUNT" && e.args.size() == 2)
+                return callRt("mv_dcount_fn", i64Ty_, {ptrTy_, ptrTy_},
+                              {evalPtr(*e.args[0]), evalPtr(*e.args[1])});
+            if (kIntIntrinsics.count(f))
+                err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")
                 return dblToI64(callRt("mvx_num_time", dblTy_, {}, {}));
             if (f == "SYSTEM")
@@ -587,7 +626,7 @@ private:
             boxNum(e, t);
             return t;
         }
-        if (e.kind == Expr::K::Var)
+        if (e.kind == Expr::K::Var && sysConstChar(e.sval) < 0)
             return getScalar(e.sval, e.line);
         if (e.kind == Expr::K::Paren && arrayNames_.count(e.sval))
             return arrayElemPtr(e);
@@ -615,12 +654,27 @@ private:
                    {dest, stringConst(e.sval),
                     ConstantInt::get(i64Ty_, (int64_t)e.sval.size())});
             return;
-        case Expr::K::Var:
+        case Expr::K::Var: {
+            int mc = sysConstChar(e.sval);
+            if (mc >= 0) {
+                callRt("mv_set_str", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
+                       {dest, stringConst(std::string(1, (char)mc)),
+                        ConstantInt::get(i64Ty_, 1)});
+                return;
+            }
             call2("mv_copy", dest, getScalar(e.sval, e.line));
             return;
+        }
         case Expr::K::Paren:
             evalParenInto(e, dest);
             return;
+        case Expr::K::Extract: {
+            Value *base = evalPtr(*e.lhs);
+            callRt("mv_extract_fn", voidTy_,
+                   {ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_},
+                   {dest, base, subIdx(e, 0), subIdx(e, 1), subIdx(e, 2)});
+            return;
+        }
         case Expr::K::Neg:
             call2("mv_neg", dest, evalPtr(*e.lhs));
             return;
@@ -636,12 +690,22 @@ private:
         }
     }
 
+    // Subscript k of an Extract-shaped node (0 when absent).
+    Value *subIdx(const Expr &e, size_t k) {
+        if (k >= e.args.size()) return ConstantInt::get(i64Ty_, 0);
+        return numIndex(*e.args[k]);
+    }
+
     void evalParenInto(const Expr &e, Value *dest) {
         if (arrayNames_.count(e.sval)) {
             call2("mv_copy", dest, arrayElemPtr(e));
             return;
         }
         const std::string &f = e.sval;
+        if (kStrIntrinsics.count(f)) {
+            evalStrIntrinsic(e, dest);
+            return;
+        }
         auto need = [&](size_t n) {
             if (e.args.size() != n)
                 err(e.line, f + "() takes " + std::to_string(n) +
@@ -660,6 +724,37 @@ private:
             call3("mv_mod_fn", dest, evalPtr(*e.args[0]),
                   evalPtr(*e.args[1])); return; }
         err(e.line, f + " is not an intrinsic function or DIM'd array");
+    }
+
+    // EXTRACT(A,a[,v[,s]]) / DELETE(A,a[,v[,s]]) /
+    // REPLACE(A,a[,v[,s]],X) / INSERT(A,a[,v[,s]],X)
+    void evalStrIntrinsic(const Expr &e, Value *dest) {
+        const std::string &f = e.sval;
+        bool hasVal = (f == "REPLACE" || f == "INSERT");
+        size_t nIdx = e.args.size() - 1 - (hasVal ? 1 : 0);
+        if (e.args.size() < (hasVal ? 3u : 2u) || nIdx > 3)
+            err(e.line, f + "() given " + std::to_string(e.args.size()) +
+                            " argument(s)");
+        Value *base = evalPtr(*e.args[0]);
+        Value *idx[3];
+        for (size_t k = 0; k < 3; k++)
+            idx[k] = k < nIdx ? numIndex(*e.args[k + 1])
+                              : ConstantInt::get(i64Ty_, 0);
+        if (f == "EXTRACT") {
+            callRt("mv_extract_fn", voidTy_,
+                   {ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_},
+                   {dest, base, idx[0], idx[1], idx[2]});
+        } else if (f == "DELETE") {
+            callRt("mv_delete_fn", voidTy_,
+                   {ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_},
+                   {dest, base, idx[0], idx[1], idx[2]});
+        } else {
+            Value *val = evalPtr(*e.args.back());
+            callRt(f == "REPLACE" ? "mv_replace_fn" : "mv_insert_fn",
+                   voidTy_,
+                   {ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_, ptrTy_},
+                   {dest, base, idx[0], idx[1], idx[2], val});
+        }
     }
 
     void evalBinInto(const Expr &e, Value *dest) {
@@ -785,6 +880,9 @@ private:
         case Stmt::K::Gosub:
             emitGosub(s);
             break;
+        case Stmt::K::Locate:
+            emitLocate(s);
+            break;
         case Stmt::K::Return:
             // With GOSUBs present, RETURN pops the return stack; with an
             // empty stack it ends the program / returns to the caller.
@@ -802,6 +900,45 @@ private:
             b_.SetInsertPoint(newBB("dead"));
             break;
         }
+    }
+
+    void emitLocate(const Stmt &s) {
+        Value *item = evalPtr(*s.args[0]);
+        Value *dyn = evalPtr(*s.args[1]);
+        Value *zero = ConstantInt::get(i64Ty_, 0);
+        Value *a = s.args.size() > 2 ? numIndex(*s.args[2]) : zero;
+        Value *v = s.args.size() > 3 ? numIndex(*s.args[3]) : zero;
+        Value *order = s.value ? evalPtr(*s.value)
+                               : (Value *)ConstantPointerNull::get(ptrTy_);
+        Value *posSlot = eb_.CreateAlloca(i64Ty_, nullptr, "locate.pos");
+        Value *found = callRt(
+            "mv_locate_fn", i64Ty_,
+            {ptrTy_, ptrTy_, i64Ty_, i64Ty_, ptrTy_, ptrTy_},
+            {item, dyn, a, v, order, posSlot});
+        Value *pos = b_.CreateLoad(i64Ty_, posSlot);
+
+        if (num_.numericVar(s.name)) {
+            Value *pv = intVar(s.name)
+                            ? pos
+                            : b_.CreateSIToFP(pos, dblTy_);
+            b_.CreateStore(pv, numVarSlot(s.name));
+        } else {
+            callRt("mv_set_int", voidTy_, {ptrTy_, i64Ty_},
+                   {getScalar(s.name, s.line), pos});
+        }
+
+        Value *c = b_.CreateICmpNE(found, ConstantInt::get(i64Ty_, 0));
+        BasicBlock *thenBB = newBB("loc.then");
+        BasicBlock *elseBB = newBB("loc.else");
+        BasicBlock *doneBB = newBB("loc.done");
+        b_.CreateCondBr(c, thenBB, elseBB);
+        b_.SetInsertPoint(thenBB);
+        emitBlock(s.body);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(elseBB);
+        emitBlock(s.elseBody);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(doneBB);
     }
 
     // ------------------------------------------------------ GOSUB support
@@ -884,7 +1021,29 @@ private:
 
     void emitAssign(const Stmt &s) {
         const Expr &t = *s.target;
+        if (t.kind == Expr::K::Extract) {
+            const Expr &base = *t.lhs;
+            Value *bp;
+            if (base.kind == Expr::K::Var && sysConstChar(base.sval) < 0 &&
+                !arrayNames_.count(base.sval))
+                bp = getScalar(base.sval, base.line);
+            else if (base.kind == Expr::K::Paren &&
+                     arrayNames_.count(base.sval) &&
+                     !num_.numericArray(base.sval))
+                bp = arrayElemPtr(base);
+            else
+                err(t.line, "dynamic-array assignment target must be a "
+                            "variable or array element");
+            Value *val = evalPtr(*s.value);
+            callRt("mv_replace_fn", voidTy_,
+                   {ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_, ptrTy_},
+                   {bp, bp, subIdx(t, 0), subIdx(t, 1), subIdx(t, 2), val});
+            return;
+        }
         if (t.kind == Expr::K::Var) {
+            if (sysConstChar(t.sval) >= 0 ||
+                (!t.sval.empty() && t.sval[0] == '@'))
+                err(t.line, "cannot assign to system variable " + t.sval);
             if (num_.numericVar(t.sval)) {
                 Value *v = intVar(t.sval) ? evalNum(*s.value)
                                           : asDbl(*s.value);

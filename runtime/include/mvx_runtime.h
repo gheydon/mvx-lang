@@ -83,6 +83,24 @@ void mv_sqrt_fn(mv_value *dst, const mv_value *a);
 void mv_abs_fn(mv_value *dst, const mv_value *a);
 void mv_mod_fn(mv_value *dst, const mv_value *a, const mv_value *b);
 
+/* --- dynamic arrays ----------------------------------------------------
+   Marks: attribute 0xFE, value 0xFD, subvalue 0xFC.  Subscript 0 means
+   "not specified"; negative means append at that level.  dst may alias
+   src.                                                                  */
+void mv_extract_fn(mv_value *dst, const mv_value *src, int64_t a,
+                   int64_t v, int64_t s);
+void mv_replace_fn(mv_value *dst, const mv_value *src, int64_t a,
+                   int64_t v, int64_t s, const mv_value *val);
+void mv_insert_fn(mv_value *dst, const mv_value *src, int64_t a,
+                  int64_t v, int64_t s, const mv_value *val);
+void mv_delete_fn(mv_value *dst, const mv_value *src, int64_t a,
+                  int64_t v, int64_t s);
+int64_t mv_locate_fn(const mv_value *item, const mv_value *src, int64_t a,
+                     int64_t v, const mv_value *order, int64_t *pos);
+int64_t mv_len_fn(const mv_value *v);
+int64_t mv_count_fn(const mv_value *src, const mv_value *what);
+int64_t mv_dcount_fn(const mv_value *src, const mv_value *delim);
+
 /* --- numeric-specialised support (compiler fast path) ------------------ */
 void   *mvx_buf_create(int64_t nbytes);             /* zeroed */
 void    mvx_buf_destroy(void *p);

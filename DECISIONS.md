@@ -114,6 +114,14 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
   subroutine. FOR-loop state lives in stack slots rather than SSA values
   so jumps into loop bodies stay well-formed; mem2reg promotes them back
   in label-free code, so the sieve pass rate is unchanged.
+- **Dynamic arrays** live in the boxed string representation (marks
+  0xFE/0xFD/0xFC). `A<a,v,s>` parses by attempting the extraction and
+  backtracking to less-than when it does not close with `>`; subscripts
+  parse at additive precedence, so comparisons inside subscripts need
+  parentheses — the same resolution classic MV compilers use.
+  Assigning through `A<...>` demotes the base from the numeric tiers,
+  since the value then carries marks. `BEGIN CASE` desugars to a nested
+  IF chain in the parser; there is no CASE node in codegen.
 - **Runtime is C11** (clean frozen ABI, no C++ mangling in the contract);
   the compiler is C++17 against the LLVM C++ API.
 - **Arrays**: `DIM A(n[,m])`, 1-based, bounds-checked, elements are

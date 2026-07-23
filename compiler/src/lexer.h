@@ -21,6 +21,7 @@ enum class Tok {
     KwDim, KwPrint, KwCrt,
     KwCall, KwSubroutine, KwReturn, KwStop,
     KwGoto, KwGo, KwGosub,
+    KwBegin, KwCase, KwLocate,
     KwAnd, KwOr, KwNot,
 };
 

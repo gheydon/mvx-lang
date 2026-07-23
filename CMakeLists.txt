@@ -15,6 +15,7 @@ separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
 # --- runtime -----------------------------------------------------------
 add_library(mvxrt STATIC
   runtime/src/mv_value.c
+  runtime/src/mv_dyn.c
   runtime/src/mvx_ctx.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
 set_target_properties(mvxrt PROPERTIES

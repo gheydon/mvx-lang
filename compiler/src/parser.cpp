@@ -116,6 +116,8 @@ private:
         case Tok::KwLoop:     s = loopStmt();  break;
         case Tok::KwPrint:
         case Tok::KwCrt:      s = printStmt(); break;
+        case Tok::KwBegin:    s = caseStmt();  break;
+        case Tok::KwLocate:   s = locateStmt(); break;
         case Tok::KwCall:     s = callStmt();  break;
         case Tok::IntLit: {
             // A number at statement start is a classic Pick numeric
@@ -178,11 +180,51 @@ private:
 
     StmtP assignStmt() {
         auto s = mk(Stmt::K::Assign);
-        s->target = primaryRef();
+        s->target = maybeExtract(primaryRef());
         expect(Tok::Eq, "'=' in assignment");
         s->value = expression();
         endStatementSoft();
         return s;
+    }
+
+    // Dynamic-array extraction postfix: base<a[,v[,s]]>.  '<' is ambiguous
+    // with less-than; attempt the extraction parse and backtrack to the
+    // comparison reading if it does not close with '>'.  Subscripts parse
+    // at additive precedence, so comparisons inside need parentheses —
+    // which is what resolves the grammar, as in classic MV compilers.
+    ExprP maybeExtract(ExprP base) {
+        while (at(Tok::Lt)) {
+            size_t save = pos_;
+            int line = cur().line;
+            advance();
+            std::vector<ExprP> subs;
+            bool ok = true;
+            try {
+                for (;;) {
+                    subs.push_back(addExpr());
+                    if (at(Tok::Comma) && subs.size() < 3) {
+                        advance();
+                        continue;
+                    }
+                    break;
+                }
+                if (!at(Tok::Gt)) ok = false;
+            } catch (const CompileError &) {
+                ok = false;
+            }
+            if (!ok) {
+                pos_ = save;
+                break;
+            }
+            advance();                              // '>'
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::Extract;
+            e->line = line;
+            e->lhs = std::move(base);
+            e->args = std::move(subs);
+            base = std::move(e);
+        }
+        return base;
     }
 
     // A variable or name(subscripts) reference for assignment targets.
@@ -221,60 +263,109 @@ private:
         return s;
     }
 
+    // Shared THEN/ELSE clause parsing for IF and LOCATE.  Block form
+    // (classic Pick): THEN <eol> ... END [ELSE <eol> ... END]; both
+    // clauses also come in single-line form.  At least one is required.
+    void elseClause(Stmt &s) {
+        if (!at(Tok::KwElse)) return;
+        advance();
+        if (at(Tok::Eol) || at(Tok::Semi)) {
+            advance();
+            s.elseBody = block({Tok::KwEnd});
+            advance();                              // END
+        } else {
+            s.elseBody = lineStmts();
+        }
+    }
+
+    void thenElse(Stmt &s) {
+        if (at(Tok::KwThen)) {
+            advance();
+            if (at(Tok::Eol) || at(Tok::Semi)) {
+                advance();
+                s.body = block({Tok::KwEnd});
+                advance();                          // END
+            } else {
+                s.body = lineStmts();
+            }
+            elseClause(s);
+            endStatementSoft();
+            return;
+        }
+        if (!at(Tok::KwElse)) err("expected THEN or ELSE");
+        elseClause(s);
+        endStatementSoft();
+    }
+
     StmtP ifStmt() {
         advance();
         auto s = mk(Stmt::K::If);
         s->cond = expression();
+        thenElse(*s);
+        return s;
+    }
 
-        bool hadThen = false;
-        if (at(Tok::KwThen)) { advance(); hadThen = true; }
-
-        if (hadThen && (at(Tok::Eol) || at(Tok::Semi))) {
-            // Block THEN, jBASE style:  IF c THEN ... END [ELSE ... END]
-            advance();
-            s->body = block({Tok::KwEnd});
-            advance();                              // END
-            if (at(Tok::KwElse)) {
-                advance();
-                if (at(Tok::Eol) || at(Tok::Semi)) {
-                    advance();
-                    s->elseBody = block({Tok::KwEnd});
-                    advance();                      // END
-                } else {
-                    s->elseBody = lineStmts();
-                }
-            }
-            endStatementSoft();
-            return s;
+    // BEGIN CASE / CASE expr / END CASE, desugared to a nested IF chain.
+    StmtP caseStmt() {
+        advance();                                  // BEGIN
+        expect(Tok::KwCase, "CASE after BEGIN");
+        endStatement();
+        struct Branch { ExprP cond; std::vector<StmtP> body; int line; };
+        std::vector<Branch> brs;
+        for (;;) {
+            skipEols();
+            if (at(Tok::KwEnd)) break;
+            int line = cur().line;
+            expect(Tok::KwCase, "CASE or END CASE");
+            ExprP c = expression();
+            endStatement();
+            auto body = block({Tok::KwCase, Tok::KwEnd});
+            brs.push_back({std::move(c), std::move(body), line});
         }
-
-        if (hadThen) {
-            s->body = lineStmts();
-            if (at(Tok::KwElse)) {
-                advance();
-                if (at(Tok::Eol) || at(Tok::Semi)) {
-                    advance();
-                    s->elseBody = block({Tok::KwEnd});
-                    advance();                      // END
-                } else {
-                    s->elseBody = lineStmts();
-                }
-            }
-            endStatementSoft();
-            return s;
-        }
-
-        // IF cond ELSE ...   (no THEN clause)
-        if (!at(Tok::KwElse)) err("expected THEN or ELSE after IF condition");
-        advance();
-        if (at(Tok::Eol) || at(Tok::Semi)) {
-            advance();
-            s->elseBody = block({Tok::KwEnd});
-            advance();                              // END
-        } else {
-            s->elseBody = lineStmts();
-        }
+        advance();                                  // END
+        expect(Tok::KwCase, "CASE after END");
         endStatementSoft();
+
+        StmtP chain;
+        for (auto it = brs.rbegin(); it != brs.rend(); ++it) {
+            auto ifs = std::make_unique<Stmt>();
+            ifs->kind = Stmt::K::If;
+            ifs->line = it->line;
+            ifs->cond = std::move(it->cond);
+            ifs->body = std::move(it->body);
+            if (chain) ifs->elseBody.push_back(std::move(chain));
+            chain = std::move(ifs);
+        }
+        if (!chain) {                               // no branches: no-op
+            chain = std::make_unique<Stmt>();
+            chain->kind = Stmt::K::If;
+            chain->cond = std::make_unique<Expr>();
+            chain->cond->kind = Expr::K::IntLit;
+            chain->cond->ival = 0;
+        }
+        return chain;
+    }
+
+    // Classic Pick:  LOCATE(item, dyn{, attr{, val}}; var{; order}) THEN/ELSE
+    StmtP locateStmt() {
+        advance();
+        auto s = mk(Stmt::K::Locate);
+        expect(Tok::LParen, "'(' after LOCATE");
+        s->args.push_back(expression());            // item
+        expect(Tok::Comma, "','");
+        s->args.push_back(expression());            // dynamic array
+        while (at(Tok::Comma) && s->args.size() < 4) {
+            advance();
+            s->args.push_back(expression());        // attr#, value#
+        }
+        expect(Tok::Semi, "';' before setting variable");
+        s->name = expect(Tok::Ident, "setting variable").text;
+        if (at(Tok::Semi)) {
+            advance();
+            s->value = expression();                // order (AL/AR/DL/DR)
+        }
+        expect(Tok::RParen, "')'");
+        thenElse(*s);
         return s;
     }
 
@@ -527,10 +618,10 @@ private:
             advance();
             ExprP e = expression();
             expect(Tok::RParen, "')'");
-            return e;
+            return maybeExtract(std::move(e));
         }
         case Tok::Ident:
-            return primaryRef();
+            return maybeExtract(primaryRef());
         default:
             err("expected expression");
         }

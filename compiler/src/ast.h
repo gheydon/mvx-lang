@@ -23,6 +23,7 @@ struct Expr {
         IntLit, FltLit, StrLit,
         Var,        // name
         Paren,      // name(args): array element or intrinsic, resolved in codegen
+        Extract,    // lhs<args>: dynamic-array extraction (1-3 subscripts)
         Bin, Neg, Not,
     };
     K kind;
@@ -49,6 +50,8 @@ struct Stmt {
         Label,      // name: numeric statement label
         Goto,       // name: target label
         Gosub,      // name: target label
+        Locate,     // args: item, dyn[, attr[, val]]; name: setting var;
+                    // value: optional order; body/elseBody: THEN/ELSE
     };
     enum class LoopCond { None, While, Until };
 
