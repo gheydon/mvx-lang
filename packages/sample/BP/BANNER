@@ -1,0 +1,16 @@
+* /**
+*  * @file BANNER
+*  * @version 1.0
+*  * @author Gordon
+*  */
+* BANNER text — print a banner box around the text
+S = TRIM(SENTENCE())
+SP = INDEX(S, " ", 1)
+IF SP = 0 THEN
+   MSG = "MVX"
+END ELSE
+   MSG = S[SP + 1, LEN(S)]
+END
+PRINT STR("*", LEN(MSG) + 4)
+PRINT "* ":MSG:" *"
+PRINT STR("*", LEN(MSG) + 4)

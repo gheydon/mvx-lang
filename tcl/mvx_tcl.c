@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -77,13 +78,65 @@ static int voc_read(mv_value *voc, const char *verb, char *path,
     return found;
 }
 
-/* Resolution: account VOC first (local overrides), then the system
-   account's master VOC.  System verbs execute from the system CATALOG
-   by absolute path but run in the user's account (cwd). */
+/* Linked packages: the account's PACKAGES record (one path per line,
+   maintained by LINK-PKG / UNLINK-PKG) names package directories whose
+   VOCs join the resolution chain.  Reloaded when the file changes, so
+   a LINK-PKG takes effect in the same session. */
+#define MAX_PKGS 16
+static char g_pkgs[MAX_PKGS][1024];
+static mv_value g_pkgvoc[MAX_PKGS];
+static int g_pkgvoc_state[MAX_PKGS];
+static int g_npkgs;
+static long g_pkg_mtime = -1;
+
+static void pkgs_reload(void) {
+    struct stat sb;
+    long mt = stat("PACKAGES", &sb) == 0 ? (long)sb.st_mtime : 0;
+    if (mt == g_pkg_mtime) return;
+    g_pkg_mtime = mt;
+    for (int i = 0; i < g_npkgs; i++)
+        if (g_pkgvoc_state[i] > 0) mv_clear(&g_pkgvoc[i]);
+    g_npkgs = 0;
+    FILE *fp = fopen("PACKAGES", "r");
+    if (!fp) return;
+    char ln[1024];
+    while (fgets(ln, sizeof ln, fp) && g_npkgs < MAX_PKGS) {
+        size_t n = strlen(ln);
+        while (n && (ln[n - 1] == '\n' || ln[n - 1] == '\r' ||
+                     ln[n - 1] == ' '))
+            ln[--n] = '\0';
+        if (n == 0) continue;
+        snprintf(g_pkgs[g_npkgs], sizeof g_pkgs[0], "%s", ln);
+        g_pkgvoc_state[g_npkgs] = 0;
+        g_npkgs++;
+    }
+    fclose(fp);
+}
+
+/* Resolution: account VOC (local overrides), then linked packages in
+   listed order, then the system account's master VOC.  Foreign verbs
+   execute by path from their own CATALOG but run in the user's
+   account (cwd). */
 static int voc_lookup(const char *verb, char *path, size_t cap) {
     if (g_voc_state == 0) g_voc_state = voc_open(&g_voc, "VOC");
     if (g_voc_state > 0 && voc_read(&g_voc, verb, path, cap))
         return 1;
+
+    pkgs_reload();
+    for (int i = 0; i < g_npkgs; i++) {
+        if (g_pkgvoc_state[i] == 0) {
+            char pv[1152];
+            snprintf(pv, sizeof pv, "%s/VOC", g_pkgs[i]);
+            g_pkgvoc_state[i] = voc_open(&g_pkgvoc[i], pv);
+        }
+        if (g_pkgvoc_state[i] > 0) {
+            char rel[1024];
+            if (voc_read(&g_pkgvoc[i], verb, rel, sizeof rel)) {
+                snprintf(path, cap, "%s/%s", g_pkgs[i], rel);
+                return 1;
+            }
+        }
+    }
 
     if (g_sysvoc_state == 0) {
         char sysvoc[4096];

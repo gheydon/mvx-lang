@@ -51,6 +51,16 @@
   programs in `CATALOG/`, named by VOC records (attr 1 `V`, attr 2
   executable path). Dispatch order: builtins, account VOC, system VOC,
   not-found.
+- **Packages are account-shaped directories** (`BP/` source, `VOC/`
+  verb records, `CATALOG/` executables — built by `scripts/mkpkg.sh`)
+  linked into an account by the LINK-PKG / UNLINK-PKG / LIST-PKGS
+  verbs, which maintain the account's `PACKAGES` record (one path per
+  attribute, edited through the directory driver — the account root is
+  itself a directory file). TCL resolution: builtins, account VOC,
+  linked packages in listed order, system VOC. The package list
+  reloads when PACKAGES changes, so LINK-PKG takes effect in the same
+  session. Package verbs execute from their own CATALOG but run in the
+  linking account.
 - **Standard verbs live once, in the system account** (SYSPROG-style).
   The build compiles `verbs/*.b` into `build/system/CATALOG` and the
   master VOC is a directory file kept in the repo (`system/VOC`, one
