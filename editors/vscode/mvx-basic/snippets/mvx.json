@@ -2,11 +2,11 @@
   "Docblock": {
     "prefix": "docblock",
     "body": [
-      "* /**",
-      "*  * @file ${1:${TM_FILENAME_BASE}}",
-      "*  * @version ${2:1.0}",
-      "*  * @author ${3:$USER}",
-      "*  */"
+      "/**",
+      " * @file ${1:${TM_FILENAME_BASE}}",
+      " * @version ${2:1.0}",
+      " * @author ${3:$USER}",
+      " */"
     ],
     "description": "MVX docblock header"
   },
@@ -47,7 +47,7 @@
   },
   "Subroutine": {
     "prefix": "subroutine",
-    "body": ["* /**", "*  * @file ${1:NAME}", "*  * @version 1.0", "*  */", "SUBROUTINE ${1:NAME}(${2:ARGS})", "$0", "RETURN"],
+    "body": ["/**", " * @file ${1:NAME}", " * @version 1.0", " */", "SUBROUTINE ${1:NAME}(${2:ARGS})", "$0", "RETURN"],
     "description": "SUBROUTINE with docblock"
   }
 }

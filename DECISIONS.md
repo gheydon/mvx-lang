@@ -262,7 +262,15 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
   warn-and-zero on unassigned variables, PRECISION 4 output. Later MV
   extensions are admitted only where classic Pick has no equivalent
   (e.g. `SYSTEM(12)` millisecond clock for benchmarking, since classic
-  `TIME()` is whole seconds). Numeric statement labels, `GOTO`/`GO TO`,
+  `TIME()` is whole seconds). **C-style comments** (`/* */` and `//`)
+  are an admitted extension: both are impossible token sequences in
+  valid classic code (after `/` the grammar requires an operand), so
+  there is no ambiguity, and docblocks need no `*` prefix per line.
+  Guards: newlines inside a block comment still terminate statements
+  (stripping them would quietly invent line continuation), and the
+  known cost is one-way portability — MVX source using them will not
+  compile on legacy MV platforms; legacy source never contains them,
+  so imports are unaffected. Numeric statement labels, `GOTO`/`GO TO`,
   and `GOSUB`/`RETURN` are implemented: labels compile to basic blocks,
   GOSUB keeps a 1024-deep return stack dispatched on RETURN, and RETURN
   with an empty stack ends the program (or returns to the caller in a

@@ -16,6 +16,28 @@
     "comment": {
       "patterns": [
         {
+          "name": "comment.block.mvx-basic",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [
+            {
+              "name": "storage.type.class.docblock.mvx-basic",
+              "match": "@[A-Za-z][A-Za-z0-9_.-]*"
+            }
+          ]
+        },
+        {
+          "name": "comment.line.double-slash.mvx-basic",
+          "begin": "//",
+          "end": "$",
+          "patterns": [
+            {
+              "name": "storage.type.class.docblock.mvx-basic",
+              "match": "@[A-Za-z][A-Za-z0-9_.-]*"
+            }
+          ]
+        },
+        {
           "name": "comment.line.asterisk.mvx-basic",
           "begin": "^\\s*(\\*|!)",
           "end": "$",

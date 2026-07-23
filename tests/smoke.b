@@ -1,5 +1,11 @@
+/**
+ * @file smoke
+ * C-style comments are an MVX extension: block and // line comments,
+ * usable without the classic * prefix.
+ */
 * Smoke test: subset coverage
-A = 5
+// line comment style
+A = 5 /* inline block comment */ + 0
 B = 2.5
 C = A * B + 1
 PRINT "C=":C

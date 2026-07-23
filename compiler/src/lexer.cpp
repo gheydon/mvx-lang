@@ -120,6 +120,36 @@ std::vector<Token> lex(const std::string &src, const std::string &item) {
         auto two = [&](char a, char b) {
             return c == a && i + 1 < n && src[i + 1] == b;
         };
+
+        // C-style comments — an MVX extension (impossible token
+        // sequences in classic code, so no ambiguity).  Newlines inside
+        // a block comment still terminate statements: stripping them
+        // would quietly invent line continuation.
+        if (two('/', '/')) {
+            while (i < n && src[i] != '\n') i++;
+            continue;
+        }
+        if (two('/', '*')) {
+            i += 2;
+            for (;;) {
+                if (i >= n)
+                    throw CompileError(item, line,
+                                       "unterminated /* comment");
+                if (src[i] == '*' && i + 1 < n && src[i + 1] == '/') {
+                    i += 2;
+                    break;
+                }
+                if (src[i] == '\n') {
+                    if (!out.empty() && out.back().kind != Tok::Eol)
+                        push(Tok::Eol);
+                    else
+                        atStmtStart = true;
+                    line++;
+                }
+                i++;
+            }
+            continue;
+        }
         if (two('<', '=') || two('=', '<')) { push(Tok::Le); i += 2; continue; }
         if (two('>', '=') || two('=', '>')) { push(Tok::Ge); i += 2; continue; }
         if (two('<', '>') || two('>', '<')) { push(Tok::Ne); i += 2; continue; }
