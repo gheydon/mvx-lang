@@ -19,14 +19,35 @@ add_library(mvxrt STATIC
   runtime/src/mv_str.c
   runtime/src/mv_conv.c
   runtime/src/mvx_ctx.c
-  runtime/src/mvx_store.c
-  runtime/src/mvx_drv_lmdb.c
-  runtime/src/mvx_drv_dir.c)
+  runtime/src/mvx_store.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
-find_path(LMDB_INCLUDE_DIR lmdb.h REQUIRED)
-target_include_directories(mvxrt PRIVATE ${LMDB_INCLUDE_DIR})
+target_compile_definitions(mvxrt PRIVATE
+  MVX_DRIVER_DIR="${CMAKE_BINARY_DIR}/lib")
 set_target_properties(mvxrt PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+# --- storage drivers: dlopen'd shared libraries ------------------------
+# Each driver links its own backend dependency; compiled programs link
+# only libmvxrt.  Runtime symbols (mv_*, mvx_*) resolve from the host
+# process at load time.
+function(mvx_driver name)
+  add_library(mvxdrv_${name} SHARED ${ARGN})
+  target_include_directories(mvxdrv_${name} PRIVATE runtime/include)
+  set_target_properties(mvxdrv_${name} PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+    PREFIX "lib")
+  if(APPLE)
+    target_link_options(mvxdrv_${name} PRIVATE -undefined dynamic_lookup)
+  endif()
+endfunction()
+
+mvx_driver(dir runtime/src/mvx_drv_dir.c)
+
+find_path(LMDB_INCLUDE_DIR lmdb.h REQUIRED)
+find_library(LMDB_LIBRARY lmdb REQUIRED)
+mvx_driver(lmdb runtime/src/mvx_drv_lmdb.c)
+target_include_directories(mvxdrv_lmdb PRIVATE ${LMDB_INCLUDE_DIR})
+target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 
 # Program-entry object, shipped standalone so shared-library builds never
 # pick up a main().  The driver links it explicitly for executables.

@@ -52,8 +52,21 @@ typedef struct mvx_file_base {
     char *spec;                         /* canonical spec, lock-table key */
 } mvx_file_base;
 
-extern const mvx_driver mvx_driver_lmdb;
-extern const mvx_driver mvx_driver_dir;
+/* Drivers are shared libraries (libmvxdrv_<name>.dylib / .so), loaded
+   with dlopen on first use.  Backend dependencies (liblmdb, a database
+   client, ...) are linked into the driver library, so they load with
+   the driver and never burden compiled programs that don't use them.
+
+   Every driver library exports exactly one entry point:
+
+       const mvx_driver *mvx_driver_entry(int abi);
+
+   It must return NULL if `abi` is not an ABI version it supports,
+   otherwise its driver vtable.  The search path is $MVXDRIVERS
+   (colon-separated), then the runtime's built-in driver directory. */
+#define MVX_DRIVER_ABI 1
+
+typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 
 #ifdef __cplusplus
 }

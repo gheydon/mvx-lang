@@ -53,6 +53,8 @@ static MDB_env *env_get(char *err, size_t errlen) {
     return g_env = env;
 }
 
+static const mvx_driver mvx_driver_lmdb;
+
 static mvx_file *lmdb_open(const char *spec, char *err, size_t errlen) {
     MDB_env *env = env_get(err, errlen);
     if (!env) return NULL;
@@ -174,9 +176,13 @@ static void lmdb_select_end(mvx_cursor *c) {
     free(c);
 }
 
-const mvx_driver mvx_driver_lmdb = {
+static const mvx_driver mvx_driver_lmdb = {
     "lmdb",
     lmdb_open, lmdb_close,
     lmdb_read, lmdb_write, lmdb_del,
     lmdb_select_begin, lmdb_select_next, lmdb_select_end,
 };
+
+const mvx_driver *mvx_driver_entry(int abi) {
+    return abi == MVX_DRIVER_ABI ? &mvx_driver_lmdb : NULL;
+}

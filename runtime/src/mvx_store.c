@@ -8,10 +8,78 @@
  */
 #include "mvx_driver.h"
 
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+
+#ifdef __APPLE__
+#define DRV_SUFFIX ".dylib"
+#else
+#define DRV_SUFFIX ".so"
+#endif
+
+#ifndef MVX_DRIVER_DIR
+#define MVX_DRIVER_DIR "."
+#endif
+
+/* ------------------------------------------------ driver loading (dlopen) */
+
+typedef struct loaded_drv {
+    char *name;
+    const mvx_driver *drv;
+    struct loaded_drv *next;
+} loaded_drv;
+
+static loaded_drv *g_drivers;
+
+static const mvx_driver *driver_try(const char *dir, const char *name) {
+    char path[4096];
+    snprintf(path, sizeof path, "%s/libmvxdrv_%s" DRV_SUFFIX, dir, name);
+    void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (!h) return NULL;
+    mvx_driver_entry_fn entry =
+        (mvx_driver_entry_fn)dlsym(h, "mvx_driver_entry");
+    const mvx_driver *d = entry ? entry(MVX_DRIVER_ABI) : NULL;
+    if (!d) {
+        dlclose(h);
+        mvx_fatal("storage driver %s is not compatible (ABI %d)", path,
+                  MVX_DRIVER_ABI);
+    }
+    return d;                           /* handle stays open for process life */
+}
+
+/* Resolve a driver by name: $MVXDRIVERS (colon-separated), then the
+   built-in driver directory.  A missing driver is a configuration
+   error, not a missing file — fail loudly rather than taking ELSE. */
+static const mvx_driver *driver_load(const char *name) {
+    for (loaded_drv *l = g_drivers; l; l = l->next)
+        if (strcmp(l->name, name) == 0) return l->drv;
+
+    const mvx_driver *d = NULL;
+    const char *sp = getenv("MVXDRIVERS");
+    if (sp && sp[0]) {
+        char *dup = strdup(sp);
+        for (char *tok = strtok(dup, ":"); tok && !d;
+             tok = strtok(NULL, ":"))
+            d = driver_try(tok, name);
+        free(dup);
+    }
+    if (!d) d = driver_try(MVX_DRIVER_DIR, name);
+    if (!d)
+        mvx_fatal("cannot load storage driver \"%s\" "
+                  "(searched $MVXDRIVERS and %s)",
+                  name, MVX_DRIVER_DIR);
+
+    loaded_drv *l = malloc(sizeof(loaded_drv));
+    if (!l) mvx_fatal("out of memory loading driver");
+    l->name = strdup(name);
+    l->drv = d;
+    l->next = g_drivers;
+    g_drivers = l;
+    return d;
+}
 
 /* ------------------------------------------------------- per-ctx state */
 
@@ -140,9 +208,9 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
     struct stat sb2;
     const mvx_driver *drv;
     if (stat(path, &sb2) == 0 && S_ISDIR(sb2.st_mode))
-        drv = &mvx_driver_dir;
+        drv = driver_load("dir");
     else
-        drv = &mvx_driver_lmdb;
+        drv = driver_load("lmdb");
 
     char err[256] = "";
     mvx_file *f = drv->open(cspec, err, sizeof err);

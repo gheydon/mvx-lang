@@ -8,6 +8,16 @@
   the runtime lock table (`mvx_store.c`), keyed by file spec + record
   id, because READU can span user think-time and must never pin a
   backend transaction.
+- **Drivers are dlopen'd shared libraries** (`libmvxdrv_<name>.dylib`),
+  loaded on first use via the single exported entry point
+  `mvx_driver_entry(int abi)` with an ABI-version handshake
+  (`MVX_DRIVER_ABI`). Backend dependencies link into the driver library
+  — liblmdb is a dependency of `libmvxdrv_lmdb`, not of compiled
+  programs, so it loads exactly when the driver does. Search path:
+  `$MVXDRIVERS` (colon-separated), then the built-in driver directory
+  baked in at build time. A missing or ABI-incompatible driver is a
+  loud fatal error, not an OPEN ELSE — configuration breakage must not
+  masquerade as a missing file.
 - **File resolution**: account root is `$MVXACCOUNT` (default cwd). A
   spec naming an existing directory opens the directory driver
   (attributes ↔ lines, one record per file — the git-native shape);

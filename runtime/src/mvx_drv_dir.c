@@ -48,6 +48,8 @@ static char *rec_path(dir_file *f, const char *id, int64_t idlen) {
     return p;
 }
 
+static const mvx_driver mvx_driver_dir;
+
 static mvx_file *dir_open(const char *spec, char *err, size_t errlen) {
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
@@ -181,9 +183,13 @@ static void dir_select_end(mvx_cursor *c) {
     free(c);
 }
 
-const mvx_driver mvx_driver_dir = {
+static const mvx_driver mvx_driver_dir = {
     "dir",
     dir_open, dir_close,
     dir_read, dir_write, dir_del,
     dir_select_begin, dir_select_next, dir_select_end,
 };
+
+const mvx_driver *mvx_driver_entry(int abi) {
+    return abi == MVX_DRIVER_ABI ? &mvx_driver_dir : NULL;
+}
