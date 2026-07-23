@@ -47,7 +47,8 @@ standard verbs.
 | `CREATE-INDEX file item` / `DELETE-INDEX` / `LIST-INDEXES` | secondary indexes |
 | `LINK-PKG path` / `UNLINK-PKG path` / `LIST-PKGS` | packages |
 | `WHO` `TIME` `DATE` | session information |
-| `EXPORT file {dir}` | copy records to a git-native directory file |
+| `EXPORT {DICT} file {dir}` | copy records (or a dictionary) to a directory file |
+| `BUILD` | provision an account from its git-tracked config (post-clone) |
 | `IMPORT file {dir}` | mirror a directory file back (full sync) |
 | `GIT add\|commit\|branch\|checkout\|merge\|cherry-pick\|...` | git for records: full porcelain incl. branching |
 

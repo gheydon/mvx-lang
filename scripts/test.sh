@@ -239,6 +239,35 @@ GMEOF
    cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gmod"); \
   printf 'GIT STATUS\nGIT DIFF CUST\nGIT RESTORE CUST\nGIT STATUS\nCT CUST C2\n' | "$TCL" -a "$GACCT" 2>&1)"
 
+# BUILD: provision an account from git-tracked config after a clone.
+# A dictionary directory + BP source with no data file -> BUILD makes
+# the file, imports the schema, catalogs the source.
+VENDOR="$TESTROOT/vendor"
+mkdir -p "$VENDOR/CATALOG" "$VENDOR/BP"
+"$TCL" -a "$VENDOR" -c "CREATE-FILE PARTS" >/dev/null 2>&1
+bseed="$TESTROOT/bseed.b"
+cat > "$bseed" <<'BSEOF'
+OPEN "DICT","PARTS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"20L" ON D, "NAME"
+BSEOF
+"$MVX" "$bseed" -o "$TESTROOT/bseedbin" 2>/dev/null
+(cd "$VENDOR" && MVXACCOUNT=. "$TESTROOT/bseedbin")
+cat > "$VENDOR/BP/RPT" <<'RPTEOF'
+/**
+ * @file RPT
+ */
+PRINT "report verb works"
+RPTEOF
+MVXPRIV=developer "$TCL" -a "$VENDOR" -c "EXPORT DICT PARTS" >/dev/null 2>&1
+printf 'PARTS lmdb\n' > "$VENDOR/FILES"
+# "clone": copy only the tracked config, not the data
+CLONE="$TESTROOT/clone"
+mkdir -p "$CLONE"
+cp -r "$VENDOR/PARTS.DICT" "$VENDOR/BP" "$VENDOR/FILES" "$CLONE/"
+check tcl-build "$( \
+  MVXPRIV=developer "$TCL" -a "$CLONE" -c "BUILD" 2>&1 | normalise; \
+  printf 'LISTF\nLIST DICT PARTS\nRPT\n' | "$TCL" -a "$CLONE" 2>&1 | normalise)"
+
 # delivery: stock -> branch(site) -> customise -> cherry-pick upstream
 # -> merge stock down.  The Pick multi-site delivery workflow in git.
 DACCT="$TESTROOT/delacct"

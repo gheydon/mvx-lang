@@ -9,16 +9,32 @@
 * directory directly.  Default target: <file>.EXP.  Uses the active
 * select list when one exists.
 S = TRIM(SENTENCE())
-FN = FIELD(S, " ", 2)
-DIR = FIELD(S, " ", 3)
+A = FIELD(S, " ", 2)
+ISDICT = 0
+IF A = "DICT" THEN
+   ISDICT = 1
+   FN = FIELD(S, " ", 3)
+   DIR = FIELD(S, " ", 4)
+   IF DIR = "" THEN DIR = FN:".DICT"
+END ELSE
+   FN = A
+   DIR = FIELD(S, " ", 3)
+   IF DIR = "" THEN DIR = FN:".EXP"
+END
 IF FN = "" THEN
-   PRINT "usage: EXPORT file {directory}"
+   PRINT "usage: EXPORT {DICT} file {directory}"
    STOP
 END
-IF DIR = "" THEN DIR = FN:".EXP"
-OPEN FN TO SRC ELSE
-   PRINT "cannot open ":FN
-   STOP
+IF ISDICT THEN
+   OPEN "DICT", FN TO SRC ELSE
+      PRINT "cannot open DICT ":FN
+      STOP
+   END
+END ELSE
+   OPEN FN TO SRC ELSE
+      PRINT "cannot open ":FN
+      STOP
+   END
 END
 X = CREATEFILE(DIR, "DIR")
 OPEN DIR TO DST ELSE

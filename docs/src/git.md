@@ -125,3 +125,34 @@ repository and sites can `clone`/`pull`/`push` it once network
 transport is added — the branching model above is what makes stock
 delivery and feature round-tripping tractable across many client
 sites.
+
+## Cloning and rebuilding an account
+
+An account committed to git carries its *configuration* — dictionaries
+(as `<file>.DICT` directory files), BP source, VOC, `PACKAGES`,
+`FILES`, `GITIGNORE` — but not its data (kept out of git by
+`GITIGNORE`). After a clone you have the schema and source but no data
+files. `BUILD` provisions a working account from what is there:
+
+```sh
+git clone <account-repo> mysite && cd mysite
+mvx-tcl -a . -c BUILD          # developer privilege (it catalogs)
+```
+
+`BUILD`:
+
+1. ensures the account (`VOC`) exists;
+2. for each dictionary present without its data file, **creates the
+   file** — the type comes from the `FILES` manifest (`name type`
+   per line), then an interactive prompt (`MVXBUILD_ASK=1`), then the
+   `lmdb` default — and imports the dictionary into it;
+3. catalogs BP source into runnable verbs;
+4. links the packages listed in `PACKAGES`.
+
+This is why a `.DICT` directory with no data file is enough to
+rebuild: it tells `BUILD` a file exists and what its schema is, and
+`FILES` says what backend to make it on. Prepare an account for
+delivery by exporting each dictionary — `EXPORT DICT PARTS` writes
+`PARTS.DICT` — and declaring types in `FILES`; the data stays in the
+store. Packages are themselves account-shaped, so the same `BUILD`
+provisions a cloned package.
