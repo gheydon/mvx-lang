@@ -201,6 +201,12 @@ private:
             thenElse(*s);
             break;
         }
+        case Tok::KwFormlist:
+            advance();
+            s = mk(Stmt::K::Formlist);
+            s->value = expression();
+            endStatementSoft();
+            break;
         case Tok::KwExecute: {
             advance();
             s = mk(Stmt::K::Execute);
@@ -333,6 +339,20 @@ private:
                 e->rhs->kind = Expr::K::StrLit;
                 e->rhs->sval = m.text;
                 e->rhs->line = m.line;
+                base = std::move(e);
+                continue;
+            }
+            // Substring: base[start, len]
+            if (at(Tok::LBrack)) {
+                int line = advance().line;
+                auto e = std::make_unique<Expr>();
+                e->kind = Expr::K::Substr;
+                e->line = line;
+                e->lhs = std::move(base);
+                e->args.push_back(expression());
+                expect(Tok::Comma, "',' in substring");
+                e->args.push_back(expression());
+                expect(Tok::RBrack, "']'");
                 base = std::move(e);
                 continue;
             }

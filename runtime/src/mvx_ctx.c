@@ -193,9 +193,12 @@ void mv_time(mv_value *dst) {
     mv_set_int(dst, s);
 }
 
-void mv_system_fn(mv_value *dst, const mv_value *code) {
+void mv_system_fn(mvx_ctx *ctx, mv_value *dst, const mv_value *code) {
     int64_t s, ms;
     switch (mv_get_int(code)) {
+    case 11:                       /* select list active? */
+        mv_set_int(dst, mvx_list_active(ctx));
+        return;
     case 12:                       /* ms since midnight — later-MV extension;
                                       classic TIME() is whole seconds, too
                                       coarse for benchmarking */
@@ -203,7 +206,7 @@ void mv_system_fn(mv_value *dst, const mv_value *code) {
         mv_set_int(dst, ms);
         return;
     default:
-        mvx_fatal("SYSTEM(%lld) not implemented in Slice 1",
+        mvx_fatal("SYSTEM(%lld) not implemented",
                   (long long)mv_get_int(code));
     }
 }
@@ -251,11 +254,11 @@ double mvx_num_time(void) {
     return (double)v.i;
 }
 
-double mvx_num_system(double code) {
+double mvx_num_system(mvx_ctx *ctx, double code) {
     mv_value c, r;
     mv_init(&c); mv_init(&r);
     mv_set_int(&c, (int64_t)code);
-    mv_system_fn(&r, &c);
+    mv_system_fn(ctx, &r, &c);
     return mv_get_dbl(&r);
 }
 

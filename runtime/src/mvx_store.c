@@ -99,7 +99,78 @@ typedef struct store_state {
     lock_ent *locks;
     mv_value *sel_ids;                  /* materialised select list */
     int64_t sel_n, sel_pos;
+    int sel_active;                     /* a list was formed this process */
 } store_state;
+
+static void sel_push(store_state *st, int64_t *cap, const char *p,
+                     int64_t len) {
+    if (st->sel_n == *cap) {
+        *cap = *cap ? *cap * 2 : 64;
+        mv_value *ns = realloc(st->sel_ids,
+                               (size_t)*cap * sizeof(mv_value));
+        if (!ns) mvx_fatal("out of memory in select list");
+        st->sel_ids = ns;
+    }
+    mv_init(&st->sel_ids[st->sel_n]);
+    mv_set_str(&st->sel_ids[st->sel_n], p, len);
+    st->sel_n++;
+}
+
+/* --------------------------------------------------- session select list
+   The session/select-list seam (ARCHITECTURE.md 7.3): a program ending
+   with an unconsumed select list persists the remainder to the session
+   file ($MVXSESSION, owned by the TCL session); the next program's
+   first READNEXT picks it up.  That is how "SELECT ..." feeds the next
+   command, classic style, across processes.  Ids are newline-separated
+   (record ids containing newlines are not supported here).           */
+
+static void session_load(store_state *st) {
+    if (st->sel_active) return;
+    const char *sf = getenv("MVXSESSION");
+    if (!sf || !sf[0]) return;
+    FILE *fp = fopen(sf, "rb");
+    if (!fp) return;
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (sz <= 0) { fclose(fp); return; }
+    char *buf = malloc((size_t)sz);
+    if (!buf) mvx_fatal("out of memory loading select list");
+    if (fread(buf, 1, (size_t)sz, fp) != (size_t)sz) {
+        fclose(fp);
+        free(buf);
+        return;
+    }
+    fclose(fp);
+    fclose(fopen(sf, "wb"));            /* consumed exactly once */
+
+    st->sel_active = 1;
+    int64_t cap = 0;
+    const char *p = buf, *end = buf + sz;
+    while (p < end) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        int64_t len = (nl ? nl : end) - p;
+        if (len > 0) sel_push(st, &cap, p, len);
+        p = nl ? nl + 1 : end;
+    }
+    free(buf);
+}
+
+static void session_save(store_state *st) {
+    if (!st->sel_active || st->sel_pos >= st->sel_n) return;
+    const char *sf = getenv("MVXSESSION");
+    if (!sf || !sf[0]) return;
+    FILE *fp = fopen(sf, "wb");
+    if (!fp) return;
+    for (int64_t i = st->sel_pos; i < st->sel_n; i++) {
+        char nb[40];
+        const char *p;
+        int64_t len = mv_val_chars(&st->sel_ids[i], nb, sizeof nb, &p);
+        fwrite(p, 1, (size_t)len, fp);
+        fputc('\n', fp);
+    }
+    fclose(fp);
+}
 
 static store_state *state(mvx_ctx *ctx) {
     store_state *st = mvx_ctx_store_get(ctx);
@@ -121,6 +192,7 @@ static void clear_select(store_state *st) {
 void mvx_store_shutdown(mvx_ctx *ctx) {
     store_state *st = mvx_ctx_store_get(ctx);
     if (!st) return;
+    session_save(st);                   /* hand leftover list to session */
     clear_select(st);
     for (lock_ent *l = st->locks; l;) {
         lock_ent *n = l->next;
@@ -324,6 +396,7 @@ void mvx_select(mvx_ctx *ctx, const mv_value *fvar) {
     mvx_file_base *b = (mvx_file_base *)f;
     store_state *st = state(ctx);
     clear_select(st);
+    st->sel_active = 1;
 
     /* Materialise inside one short driver transaction — matches MV
        select-list semantics and keeps read txns short (4.2). */
@@ -348,8 +421,40 @@ void mvx_select(mvx_ctx *ctx, const mv_value *fvar) {
     b->driver->select_end(c);
 }
 
+void mvx_formlist(mvx_ctx *ctx, const mv_value *ids) {
+    store_state *st = state(ctx);
+    clear_select(st);
+    st->sel_active = 1;
+    char nb[40];
+    const char *p;
+    int64_t len = mv_val_chars(ids, nb, sizeof nb, &p);
+    int64_t cap = 0;
+    const char *end = p + len;
+    while (p < end) {
+        const char *am = memchr(p, '\xFE', (size_t)(end - p));
+        int64_t n = (am ? am : end) - p;
+        if (n > 0) sel_push(st, &cap, p, n);
+        p = am ? am + 1 : end;
+    }
+}
+
+/* SYSTEM(11): is a select list active (in-process or session)? */
+int64_t mvx_list_active(mvx_ctx *ctx) {
+    store_state *st = state(ctx);
+    if (st->sel_active) return st->sel_pos < st->sel_n;
+    const char *sf = getenv("MVXSESSION");
+    if (!sf || !sf[0]) return 0;
+    FILE *fp = fopen(sf, "rb");
+    if (!fp) return 0;
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fclose(fp);
+    return sz > 0;
+}
+
 int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id) {
     store_state *st = state(ctx);
+    session_load(st);
     if (st->sel_pos >= st->sel_n) return 0;
     mv_copy(id, &st->sel_ids[st->sel_pos++]);
     return 1;

@@ -67,6 +67,21 @@
   attribute); RETURNING receives the exit status (deviation from
   classic error-number lists, documented). Select-list passing across
   EXECUTE is deferred until session-state classification (6.6) exists.
+- **Select lists cross processes through the session file.** `mvx-tcl`
+  owns `$MVXSESSION` (created only when not inherited, so nested
+  EXECUTE shares the outer session). A program exiting with an
+  unconsumed select list persists the remainder there; the next
+  program's first READNEXT consumes it, exactly once. `SYSTEM(11)`
+  reports whether a list is active; query verbs use the active list
+  instead of re-selecting, classic style. This is the session/
+  select-list seam of ARCHITECTURE.md 7.3 — replacing the file with a
+  session service is a config change, not surgery.
+- **LIST and SELECT are BASIC verbs** driven by dictionary D-items
+  (1=D, 2=attr#, 3=OCONV conversion, 4=heading, 5=format "12L"/"8R").
+  WITH filters, BY sorts via ordered LOCATE insertion — using AR
+  (numeric) ordering when the BY item's dict format is R-justified.
+  SELECT installs its filtered ids with FORMLIST and exits, leaving
+  the list for the next command.
 - **`COMPILE(mode, src, out)`** is the narrow developer-tier primitive
   behind the BASIC and CATALOG verbs: structured arguments, argv built
   by the runtime, nothing to inject. BASIC compiles `FN ITEM` to

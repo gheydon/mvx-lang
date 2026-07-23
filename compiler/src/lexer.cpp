@@ -26,6 +26,7 @@ static const std::unordered_map<std::string, Tok> kKeywords = {
     {"ON", Tok::KwOn},
     {"EXECUTE", Tok::KwExecute},   {"PERFORM", Tok::KwExecute},
     {"CAPTURING", Tok::KwCapturing}, {"RETURNING", Tok::KwReturning},
+    {"FORMLIST", Tok::KwFormlist},
     {"AND", Tok::KwAnd},     {"OR", Tok::KwOr},
     {"NOT", Tok::KwNot},
     // word-form comparators normalise to the symbol tokens
@@ -126,6 +127,8 @@ std::vector<Token> lex(const std::string &src, const std::string &item) {
         switch (c) {
         case '(': push(Tok::LParen); break;
         case ')': push(Tok::RParen); atStmtStart = false; break;
+        case '[': push(Tok::LBrack); break;
+        case ']': push(Tok::RBrack); atStmtStart = false; break;
         case ',': push(Tok::Comma);  break;
         case ';': push(Tok::Semi);   break;
         case ':': push(Tok::Colon);  break;

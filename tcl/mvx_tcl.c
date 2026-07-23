@@ -158,6 +158,19 @@ int main(int argc, char **argv) {
     }
     setenv("MVXACCOUNT", ".", 1);       /* children resolve from cwd */
 
+    /* The session owns the select-list handoff file (7.3).  A nested
+       TCL (spawned by EXECUTE) inherits the outer session rather than
+       starting its own, so select lists flow across nesting. */
+    static char sesspath[256];
+    if (!getenv("MVXSESSION")) {
+        snprintf(sesspath, sizeof sesspath, "/tmp/mvxsess.XXXXXX");
+        int fd = mkstemp(sesspath);
+        if (fd >= 0) {
+            close(fd);
+            setenv("MVXSESSION", sesspath, 1);
+        }
+    }
+
     g_ctx = mvx_ctx_create();
 
     if (one_cmd) {                      /* ssh/cron style: -c and out */
@@ -165,6 +178,7 @@ int main(int argc, char **argv) {
         command(dup);
         free(dup);
         mvx_ctx_destroy(g_ctx);
+        if (sesspath[0]) unlink(sesspath);
         return 0;
     }
 
@@ -181,5 +195,6 @@ int main(int argc, char **argv) {
     }
     if (tty) fputc('\n', stdout);
     mvx_ctx_destroy(g_ctx);
+    if (sesspath[0]) unlink(sesspath);
     return 0;
 }

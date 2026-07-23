@@ -83,6 +83,8 @@ void    mv_field_fn(mv_value *dst, const mv_value *src,
                     const mv_value *delim, int64_t n, int64_t cnt);
 int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ);
 int64_t mv_num_fn(const mv_value *v);
+void    mv_substr(mv_value *dst, const mv_value *src, int64_t start,
+                  int64_t len);
 
 /* --- conversions and formatting ---------------------------------------- */
 void    mv_oconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
@@ -106,7 +108,7 @@ void mv_print_tab(mvx_ctx *ctx);                    /* comma zones (18 cols) */
 
 /* --- intrinsics -------------------------------------------------------- */
 void mv_time(mv_value *dst);                        /* secs since midnight */
-void mv_system_fn(mv_value *dst, const mv_value *code);
+void mv_system_fn(mvx_ctx *ctx, mv_value *dst, const mv_value *code);
 void mv_int_fn(mv_value *dst, const mv_value *a);
 void mv_sqrt_fn(mv_value *dst, const mv_value *a);
 void mv_abs_fn(mv_value *dst, const mv_value *a);
@@ -136,7 +138,8 @@ void    mvx_buf_destroy(void *p);
 void    mvx_narr_fail(int64_t i, int64_t j, int64_t d1, int64_t d2)
             __attribute__((noreturn));
 double  mvx_num_time(void);
-double  mvx_num_system(double code);
+double  mvx_num_system(mvx_ctx *ctx, double code);
+int64_t mvx_list_active(mvx_ctx *ctx);
 double  mvx_num_mod(double a, double b);
 int64_t mvx_num_imod(int64_t a, int64_t b);
 
@@ -153,6 +156,7 @@ int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *id);
 void    mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id);
 void    mvx_select(mvx_ctx *ctx, const mv_value *fvar);
+void    mvx_formlist(mvx_ctx *ctx, const mv_value *ids); /* AM-separated */
 int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id);
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */

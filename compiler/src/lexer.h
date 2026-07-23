@@ -10,7 +10,7 @@ enum class Tok {
     Eof, Eol,
     Ident, IntLit, FltLit, StrLit,
     // punctuation / operators
-    LParen, RParen, Comma, Semi, Colon,
+    LParen, RParen, LBrack, RBrack, Comma, Semi, Colon,
     Plus, Minus, Star, Slash, Caret,
     Eq,             // '=' — assignment or equality by context
     Ne, Lt, Le, Gt, Ge,
@@ -24,7 +24,7 @@ enum class Tok {
     KwBegin, KwCase, KwLocate, KwInput, KwMat, KwCommon,
     KwOpen, KwRead, KwReadu, KwWrite, KwWriteu, KwDelete, KwRelease,
     KwSelect, KwReadnext, KwFrom, KwOn,
-    KwExecute, KwCapturing, KwReturning,
+    KwExecute, KwCapturing, KwReturning, KwFormlist,
     KwAnd, KwOr, KwNot,
 };
 

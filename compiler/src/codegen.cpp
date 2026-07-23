@@ -139,6 +139,7 @@ public:
         case Expr::K::Not:
             return numericExpr(*e.lhs) ? NK::Int : NK::NotNum;
         case Expr::K::Extract: return NK::NotNum;
+        case Expr::K::Substr:  return NK::NotNum;
         case Expr::K::Fmt:     return NK::NotNum;
         case Expr::K::Paren: {
             if (arrays_.count(e.sval))
@@ -614,8 +615,9 @@ private:
             if (f == "TIME")
                 return dblToI64(callRt("mvx_num_time", dblTy_, {}, {}));
             if (f == "SYSTEM")
-                return dblToI64(callRt("mvx_num_system", dblTy_, {dblTy_},
-                                       {asDbl(*e.args[0])}));
+                return dblToI64(callRt("mvx_num_system", dblTy_,
+                                       {ptrTy_, dblTy_},
+                                       {ctxArg_, asDbl(*e.args[0])}));
             if (f == "INT")
                 return asI64(*e.args[0]);   // fptosi_sat truncates to zero
             if (f == "SQRT")
@@ -760,6 +762,11 @@ private:
                    {dest, base, subIdx(e, 0), subIdx(e, 1), subIdx(e, 2)});
             return;
         }
+        case Expr::K::Substr:
+            callRt("mv_substr", voidTy_, {ptrTy_, ptrTy_, i64Ty_, i64Ty_},
+                   {dest, evalPtr(*e.lhs), numIndex(*e.args[0]),
+                    numIndex(*e.args[1])});
+            return;
         case Expr::K::Fmt:
             call3("mv_fmt", dest, evalPtr(*e.lhs), evalPtr(*e.rhs));
             return;
@@ -839,7 +846,8 @@ private:
             return; }
         if (f == "TIME")   { need(0); call1("mv_time", dest); return; }
         if (f == "SYSTEM") { need(1);
-            call2("mv_system_fn", dest, evalPtr(*e.args[0])); return; }
+            call3("mv_system_fn", ctxArg_, dest, evalPtr(*e.args[0]));
+            return; }
         if (f == "INT")    { need(1);
             call2("mv_int_fn", dest, evalPtr(*e.args[0])); return; }
         if (f == "SQRT")   { need(1);
@@ -1043,6 +1051,10 @@ private:
             emitThenElse(found, s, "rn");
             break;
         }
+        case Stmt::K::Formlist:
+            callRt("mvx_formlist", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, evalPtr(*s.value)});
+            break;
         case Stmt::K::Execute: {
             Value *cap = s.name.empty()
                              ? (Value *)ConstantPointerNull::get(ptrTy_)

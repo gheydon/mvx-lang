@@ -8,7 +8,8 @@ OPEN NAME TO F ELSE
    PRINT "cannot open ":NAME
    STOP
 END
-SELECT F
+* use the active select list when one exists, classic style
+IF SYSTEM(11) = 0 THEN SELECT F
 N = 0
 DONE = 0
 LOOP

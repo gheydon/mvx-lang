@@ -134,6 +134,22 @@ int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ) {
     return 0;
 }
 
+/* X[start,len] — MV semantics: 1-based; start past the end yields "";
+   len clipped to what remains; start < 1 clamps to 1. */
+void mv_substr(mv_value *dst, const mv_value *src, int64_t start,
+               int64_t len) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    if (start < 1) start = 1;
+    if (start > s.len || len <= 0) {
+        mv_set_str(dst, "", 0);
+        return;
+    }
+    int64_t avail = s.len - (start - 1);
+    if (len > avail) len = avail;
+    mv_set_str(dst, s.p + start - 1, len);
+}
+
 int64_t mv_num_fn(const mv_value *v) {
     switch (v->tag) {
     case MV_INT:

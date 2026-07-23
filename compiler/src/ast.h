@@ -24,6 +24,7 @@ struct Expr {
         Var,        // name
         Paren,      // name(args): array element or intrinsic, resolved in codegen
         Extract,    // lhs<args>: dynamic-array extraction (1-3 subscripts)
+        Substr,     // lhs[start,len]: substring; args = start, len
         Fmt,        // lhs "mask": format-mask application; rhs = mask expr
         Bin, Neg, Not,
     };
@@ -64,6 +65,7 @@ struct Stmt {
         Select,     // args: file
         Readnext,   // name: id var; THEN/ELSE
         Execute,    // value: sentence; name: CAPTURING var; name2: RETURNING
+        Formlist,   // value: dynamic array -> active select list
     };
     enum class LoopCond { None, While, Until };
 
