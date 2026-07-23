@@ -43,6 +43,24 @@
   primitives the CREATE-FILE / DELETE-FILE verbs will wrap when TCL
   arrives, since verbs are BASIC programs, not C.
 
+## Slice 3 — TCL
+
+- **The C shell is dispatch only.** `mvx-tcl` implements the prompt,
+  the builtin table (OFF/QUIT/BYE, `!`), VOC lookup, and fork/exec of
+  cataloged executables — nothing else. Verbs are compiled BASIC
+  programs in `CATALOG/`, named by VOC records (attr 1 `V`, attr 2
+  executable path). Dispatch order: builtins, VOC, not-found.
+- **The sentence crosses via the environment**: TCL sets
+  `$MVX_SENTENCE`; the `SENTENCE()` intrinsic reads it. Verbs parse
+  their own arguments with FIELD().
+- **`!` is currently ungated.** The privilege gate belongs in the
+  runtime exec primitive when EXECUTE lands (ARCHITECTURE.md 8.1); a
+  check that lived only in the shell would be decorative, so none is
+  pretended here.
+- **Account = parameter, not mode**: `-a` flag, then `$MVXACCOUNT`,
+  then cwd; the shell chdirs to the account and children resolve
+  relative to it. `-c` runs one sentence for ssh/cron use.
+
 # Slice 1 decisions
 
 Concrete resolutions of the two open decisions in `ARCHITECTURE.md` §3.3,

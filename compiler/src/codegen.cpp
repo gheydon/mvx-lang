@@ -805,6 +805,10 @@ private:
         if (f == "TRIM") { need(1);
             call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
             return; }
+        if (f == "SENTENCE") { need(0);
+            callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, dest});
+            return; }
         if (f == "OCONV" || f == "ICONV") { need(2);
             callRt(f == "OCONV" ? "mv_oconv" : "mv_iconv", voidTy_,
                    {ptrTy_, ptrTy_, ptrTy_, ptrTy_},

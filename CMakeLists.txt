@@ -49,6 +49,12 @@ mvx_driver(lmdb runtime/src/mvx_drv_lmdb.c)
 target_include_directories(mvxdrv_lmdb PRIVATE ${LMDB_INCLUDE_DIR})
 target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 
+# --- classic TCL shell -------------------------------------------------
+add_executable(mvx-tcl tcl/mvx_tcl.c)
+target_link_libraries(mvx-tcl PRIVATE mvxrt ${CMAKE_DL_LIBS})
+set_target_properties(mvx-tcl PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 # Program-entry object, shipped standalone so shared-library builds never
 # pick up a main().  The driver links it explicitly for executables.
 add_custom_command(

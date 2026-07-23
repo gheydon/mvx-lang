@@ -1,0 +1,11 @@
+* Seed the account VOC with the base verb set.
+X = CREATEFILE("VOC")
+OPEN "VOC" TO V ELSE
+   PRINT "cannot create or open VOC"
+   STOP
+END
+WRITE "V":@AM:"CATALOG/CREATE-FILE" ON V, "CREATE-FILE"
+WRITE "V":@AM:"CATALOG/DELETE-FILE" ON V, "DELETE-FILE"
+WRITE "V":@AM:"CATALOG/COUNT" ON V, "COUNT"
+WRITE "V":@AM:"CATALOG/CT" ON V, "CT"
+PRINT "VOC ready"

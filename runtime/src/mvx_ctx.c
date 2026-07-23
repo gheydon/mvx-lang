@@ -152,6 +152,14 @@ void mv_print_tab(mvx_ctx *ctx) {
     }
 }
 
+/* The TCL command line that invoked this program, set by the shell. */
+void mv_sentence(mvx_ctx *ctx, mv_value *dst) {
+    (void)ctx;
+    const char *s = getenv("MVX_SENTENCE");
+    if (!s) s = "";
+    mv_set_str(dst, s, (int64_t)strlen(s));
+}
+
 /* ---------------------------------------------------------------- input */
 
 void mv_input(mvx_ctx *ctx, mv_value *dst) {
