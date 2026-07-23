@@ -267,6 +267,15 @@ private:
     std::vector<Value *> tempPool_;
     size_t tempUsed_ = 0;
 
+    // Labels and GOSUB.
+    std::map<std::string, BasicBlock *> labelBBs_;
+    bool hasGosub_ = false;
+    Value *gsSp_ = nullptr;                 // i64 alloca, stack pointer
+    Value *gsStack_ = nullptr;              // [kGosubDepth x i32] alloca
+    std::vector<BasicBlock *> gosubConts_;  // continuation per GOSUB site
+    BasicBlock *gosubRetBB_ = nullptr;
+    static constexpr uint64_t kGosubDepth = 1024;
+
     // ---------------------------------------------------------------- utils
 
     [[noreturn]] void err(int line, const std::string &msg) {
@@ -762,12 +771,115 @@ private:
         case Stmt::K::Loop:   emitLoop(s);   break;
         case Stmt::K::Print:  emitPrint(s);  break;
         case Stmt::K::Call:   emitCall(s);   break;
+        case Stmt::K::Label: {
+            BasicBlock *bb = labelBBs_.at(s.name);
+            bb->insertInto(fn_);
+            b_.CreateBr(bb);                        // fall through
+            b_.SetInsertPoint(bb);
+            break;
+        }
+        case Stmt::K::Goto:
+            b_.CreateBr(labelBBs_.at(s.name));
+            b_.SetInsertPoint(newBB("dead"));
+            break;
+        case Stmt::K::Gosub:
+            emitGosub(s);
+            break;
         case Stmt::K::Return:
+            // With GOSUBs present, RETURN pops the return stack; with an
+            // empty stack it ends the program / returns to the caller.
+            b_.CreateBr(hasGosub_ ? gosubRetBB() : retBB_);
+            b_.SetInsertPoint(newBB("dead"));
+            break;
         case Stmt::K::Stop:
-            b_.CreateBr(retBB_);
+            if (prog_.isSubroutine) {
+                // STOP ends the whole program, not just the subroutine.
+                callRt("mvx_stop", voidTy_, {}, {});
+                b_.CreateUnreachable();
+            } else {
+                b_.CreateBr(retBB_);
+            }
             b_.SetInsertPoint(newBB("dead"));
             break;
         }
+    }
+
+    // ------------------------------------------------------ GOSUB support
+
+    void ensureGosubState() {
+        if (gsSp_) return;
+        gsSp_ = eb_.CreateAlloca(i64Ty_, nullptr, "gosub.sp");
+        gsStack_ = eb_.CreateAlloca(
+            ArrayType::get(i32Ty_, kGosubDepth), nullptr, "gosub.stack");
+        eb_.CreateStore(ConstantInt::get(i64Ty_, 0), gsSp_);
+    }
+
+    BasicBlock *gosubRetBB() {
+        if (!gosubRetBB_)
+            gosubRetBB_ = BasicBlock::Create(llctx_, "gosub.ret");
+        return gosubRetBB_;
+    }
+
+    void emitGosub(const Stmt &s) {
+        ensureGosubState();
+        Value *sp = b_.CreateLoad(i64Ty_, gsSp_);
+
+        BasicBlock *failBB = newBB("gosub.deep");
+        BasicBlock *pushBB = newBB("gosub.push");
+        b_.CreateCondBr(
+            b_.CreateICmpUGE(sp, ConstantInt::get(i64Ty_, kGosubDepth)),
+            failBB, pushBB,
+            MDBuilder(llctx_).createUnlikelyBranchWeights());
+        b_.SetInsertPoint(failBB);
+        callRt("mvx_fatal", voidTy_, {ptrTy_},
+               {stringConst("GOSUB nesting deeper than 1024")});
+        b_.CreateUnreachable();
+
+        b_.SetInsertPoint(pushBB);
+        uint32_t id = (uint32_t)gosubConts_.size();
+        Value *cell = b_.CreateGEP(ArrayType::get(i32Ty_, kGosubDepth),
+                                   gsStack_,
+                                   {ConstantInt::get(i64Ty_, 0), sp});
+        b_.CreateStore(ConstantInt::get(i32Ty_, id), cell);
+        b_.CreateStore(
+            b_.CreateAdd(sp, ConstantInt::get(i64Ty_, 1)), gsSp_);
+        b_.CreateBr(labelBBs_.at(s.name));
+
+        BasicBlock *cont = newBB("gosub.cont");
+        gosubConts_.push_back(cont);
+        b_.SetInsertPoint(cont);
+    }
+
+    // Built once at the end: pop the stack and dispatch to the site
+    // after the matching GOSUB; empty stack falls out of the program.
+    void finishGosubRet() {
+        if (!gosubRetBB_) return;
+        gosubRetBB_->insertInto(fn_);
+        b_.SetInsertPoint(gosubRetBB_);
+        if (!hasGosub_ || gosubConts_.empty()) {
+            b_.CreateBr(retBB_);
+            return;
+        }
+        Value *sp = b_.CreateLoad(i64Ty_, gsSp_);
+        BasicBlock *popBB = newBB("gosub.pop");
+        b_.CreateCondBr(
+            b_.CreateICmpEQ(sp, ConstantInt::get(i64Ty_, 0)),
+            retBB_, popBB);
+        b_.SetInsertPoint(popBB);
+        Value *nsp = b_.CreateSub(sp, ConstantInt::get(i64Ty_, 1));
+        b_.CreateStore(nsp, gsSp_);
+        Value *cell = b_.CreateGEP(ArrayType::get(i32Ty_, kGosubDepth),
+                                   gsStack_,
+                                   {ConstantInt::get(i64Ty_, 0), nsp});
+        Value *id = b_.CreateLoad(i32Ty_, cell);
+        BasicBlock *deadBB = newBB("gosub.baddisp");
+        SwitchInst *sw = b_.CreateSwitch(id, deadBB,
+                                         (unsigned)gosubConts_.size());
+        for (uint32_t k = 0; k < gosubConts_.size(); k++)
+            sw->addCase(ConstantInt::get(cast<IntegerType>(i32Ty_), k),
+                        gosubConts_[k]);
+        b_.SetInsertPoint(deadBB);
+        b_.CreateUnreachable();
     }
 
     void emitAssign(const Stmt &s) {
@@ -853,8 +965,11 @@ private:
         else callRt("mv_set_int", voidTy_, {ptrTy_, i64Ty_},
                     {step, ConstantInt::get(i64Ty_, 1)});
         Value *stepD = callRt("mv_get_dbl", dblTy_, {ptrTy_}, {step});
-        Value *ascending =
-            b_.CreateFCmpOGE(stepD, ConstantFP::get(dblTy_, 0.0));
+        // Loop state lives in allocas, not SSA values: a label inside the
+        // body admits jumps that would break SSA dominance otherwise.
+        Value *ascSlot = eb_.CreateAlloca(b_.getInt1Ty(), nullptr, "for.asc");
+        b_.CreateStore(
+            b_.CreateFCmpOGE(stepD, ConstantFP::get(dblTy_, 0.0)), ascSlot);
 
         BasicBlock *testBB = newBB("for.test");
         BasicBlock *bodyBB = newBB("for.body");
@@ -865,7 +980,7 @@ private:
         Value *c = callRt("mv_compare", i64Ty_, {ptrTy_, ptrTy_},
                           {var, limit});
         Value *zero = ConstantInt::get(i64Ty_, 0);
-        Value *cont = b_.CreateSelect(ascending,
+        Value *cont = b_.CreateSelect(b_.CreateLoad(b_.getInt1Ty(), ascSlot),
                                       b_.CreateICmpSLE(c, zero),
                                       b_.CreateICmpSGE(c, zero));
         b_.CreateCondBr(cont, bodyBB, doneBB);
@@ -885,14 +1000,22 @@ private:
         Type *ty = isInt ? i64Ty_ : dblTy_;
         Value *var = numVarSlot(s.name);
         b_.CreateStore(isInt ? evalNum(*s.from) : asDbl(*s.from), var);
-        Value *limit = isInt ? evalNum(*s.to) : asDbl(*s.to);
+        // Loop state lives in allocas, not SSA values: a label inside the
+        // body admits jumps that would break SSA dominance otherwise.
+        // mem2reg promotes these back when the loop is label-free.
+        Value *limitSlot = eb_.CreateAlloca(ty, nullptr, "for.lim");
+        Value *stepSlot = eb_.CreateAlloca(ty, nullptr, "for.step");
+        Value *ascSlot = eb_.CreateAlloca(b_.getInt1Ty(), nullptr, "for.asc");
+        b_.CreateStore(isInt ? evalNum(*s.to) : asDbl(*s.to), limitSlot);
         Value *step;
         if (s.step) step = isInt ? evalNum(*s.step) : asDbl(*s.step);
         else step = isInt ? (Value *)ConstantInt::get(i64Ty_, 1)
                           : (Value *)ConstantFP::get(dblTy_, 1.0);
-        Value *ascending = isInt
-            ? b_.CreateICmpSGE(step, ConstantInt::get(i64Ty_, 0))
-            : b_.CreateFCmpOGE(step, ConstantFP::get(dblTy_, 0.0));
+        b_.CreateStore(step, stepSlot);
+        b_.CreateStore(
+            isInt ? b_.CreateICmpSGE(step, ConstantInt::get(i64Ty_, 0))
+                  : b_.CreateFCmpOGE(step, ConstantFP::get(dblTy_, 0.0)),
+            ascSlot);
 
         BasicBlock *testBB = newBB("for.test");
         BasicBlock *bodyBB = newBB("for.body");
@@ -901,10 +1024,12 @@ private:
 
         b_.SetInsertPoint(testBB);
         Value *v = b_.CreateLoad(ty, var);
+        Value *limit = b_.CreateLoad(ty, limitSlot);
+        Value *asc = b_.CreateLoad(b_.getInt1Ty(), ascSlot);
         Value *cont = isInt
-            ? b_.CreateSelect(ascending, b_.CreateICmpSLE(v, limit),
+            ? b_.CreateSelect(asc, b_.CreateICmpSLE(v, limit),
                               b_.CreateICmpSGE(v, limit))
-            : b_.CreateSelect(ascending, b_.CreateFCmpOLE(v, limit),
+            : b_.CreateSelect(asc, b_.CreateFCmpOLE(v, limit),
                               b_.CreateFCmpOGE(v, limit));
         b_.CreateCondBr(cont, bodyBB, doneBB);
 
@@ -912,8 +1037,9 @@ private:
         emitBlock(s.body);
         b_.SetCurrentDebugLocation(loc(s.line));
         Value *cur = b_.CreateLoad(ty, var);
-        b_.CreateStore(isInt ? b_.CreateAdd(cur, step)
-                             : b_.CreateFAdd(cur, step), var);
+        Value *st = b_.CreateLoad(ty, stepSlot);
+        b_.CreateStore(isInt ? b_.CreateAdd(cur, st)
+                             : b_.CreateFAdd(cur, st), var);
         b_.CreateBr(testBB);
 
         b_.SetInsertPoint(doneBB);
@@ -993,6 +1119,36 @@ private:
         }
     }
 
+    void collectLabels(const std::vector<StmtP> &stmts) {
+        for (const auto &sp : stmts) {
+            const Stmt &s = *sp;
+            if (s.kind == Stmt::K::Label) {
+                if (labelBBs_.count(s.name))
+                    err(s.line, "duplicate label " + s.name);
+                labelBBs_[s.name] =
+                    BasicBlock::Create(llctx_, "L" + s.name);
+            }
+            if (s.kind == Stmt::K::Gosub) hasGosub_ = true;
+            collectLabels(s.body);
+            collectLabels(s.elseBody);
+            collectLabels(s.pre);
+            collectLabels(s.post);
+        }
+    }
+
+    void checkLabelRefs(const std::vector<StmtP> &stmts) {
+        for (const auto &sp : stmts) {
+            const Stmt &s = *sp;
+            if ((s.kind == Stmt::K::Goto || s.kind == Stmt::K::Gosub) &&
+                !labelBBs_.count(s.name))
+                err(s.line, "label " + s.name + " is not defined");
+            checkLabelRefs(s.body);
+            checkLabelRefs(s.elseBody);
+            checkLabelRefs(s.pre);
+            checkLabelRefs(s.post);
+        }
+    }
+
     void setupDebug(const std::string &fnName) {
         namespace fs = std::filesystem;
         fs::path p = fs::absolute(prog_.sourcePath);
@@ -1038,6 +1194,8 @@ private:
 
     void buildFunction() {
         collectArrayNames(prog_.body);
+        collectLabels(prog_.body);
+        checkLabelRefs(prog_.body);
         num_.run(prog_);
 
         std::string fnName;
@@ -1103,6 +1261,8 @@ private:
         b_.SetCurrentDebugLocation(
             loc(prog_.body.empty() ? 1 : prog_.body.back()->line));
         b_.CreateRetVoid();
+
+        finishGosubRet();
 
         dib_.finalize();
     }

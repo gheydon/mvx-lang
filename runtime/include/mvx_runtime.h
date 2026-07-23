@@ -95,6 +95,7 @@ int64_t mvx_num_imod(int64_t a, int64_t b);
 
 /* --- errors / ABI support ---------------------------------------------- */
 void mvx_fatal(const char *fmt, ...) __attribute__((noreturn, format(printf, 1, 2)));
+void mvx_stop(void) __attribute__((noreturn));      /* STOP: end the program */
 void mvx_arity_check(const char *name, int32_t expected, int32_t got);
 
 /* Compiled main programs export this; the runtime crt calls it. */

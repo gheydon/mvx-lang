@@ -117,6 +117,32 @@ private:
         case Tok::KwPrint:
         case Tok::KwCrt:      s = printStmt(); break;
         case Tok::KwCall:     s = callStmt();  break;
+        case Tok::IntLit: {
+            // A number at statement start is a classic Pick numeric
+            // label.  It may stand alone or precede a statement on the
+            // same line, so no end-of-statement check here.
+            Token t = advance();
+            s = mk(Stmt::K::Label);
+            s->name = std::to_string(t.ival);
+            break;
+        }
+        case Tok::KwGoto:
+        case Tok::KwGo: {
+            if (advance().kind == Tok::KwGo && at(Tok::KwTo))
+                advance();                          // GO TO n
+            s = mk(Stmt::K::Goto);
+            s->name = std::to_string(
+                expect(Tok::IntLit, "label number").ival);
+            endStatementSoft();
+            break;
+        }
+        case Tok::KwGosub:
+            advance();
+            s = mk(Stmt::K::Gosub);
+            s->name = std::to_string(
+                expect(Tok::IntLit, "label number").ival);
+            endStatementSoft();
+            break;
         case Tok::KwReturn:
             advance();
             s = mk(Stmt::K::Return);

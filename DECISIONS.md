@@ -106,10 +106,14 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
   warn-and-zero on unassigned variables, PRECISION 4 output. Later MV
   extensions are admitted only where classic Pick has no equivalent
   (e.g. `SYSTEM(12)` millisecond clock for benchmarking, since classic
-  `TIME()` is whole seconds). Numeric statement labels and
-  `GOTO`/`GOSUB` — pervasive in traditional Pick source — are not in the
-  Slice 1 subset yet; they are frontend-only additions and can land
-  without touching the value representation or ABI.
+  `TIME()` is whole seconds). Numeric statement labels, `GOTO`/`GO TO`,
+  and `GOSUB`/`RETURN` are implemented: labels compile to basic blocks,
+  GOSUB keeps a 1024-deep return stack dispatched on RETURN, and RETURN
+  with an empty stack ends the program (or returns to the caller in a
+  subroutine). `STOP` terminates the whole program even from inside a
+  subroutine. FOR-loop state lives in stack slots rather than SSA values
+  so jumps into loop bodies stay well-formed; mem2reg promotes them back
+  in label-free code, so the sieve pass rate is unchanged.
 - **Runtime is C11** (clean frozen ABI, no C++ mangling in the contract);
   the compiler is C++17 against the LLVM C++ API.
 - **Arrays**: `DIM A(n[,m])`, 1-based, bounds-checked, elements are

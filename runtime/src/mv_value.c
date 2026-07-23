@@ -18,6 +18,10 @@ void mvx_fatal(const char *fmt, ...) {
     exit(70); /* EX_SOFTWARE */
 }
 
+void mvx_stop(void) {
+    exit(0);
+}
+
 void mvx_arity_check(const char *name, int32_t expected, int32_t got) {
     if (expected != got)
         mvx_fatal("CALL %s: %d argument(s) passed, subroutine takes %d",
