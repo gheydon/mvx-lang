@@ -1,0 +1,53 @@
+{
+  "Docblock": {
+    "prefix": "docblock",
+    "body": [
+      "* /**",
+      "*  * @file ${1:${TM_FILENAME_BASE}}",
+      "*  * @version ${2:1.0}",
+      "*  * @author ${3:$USER}",
+      "*  */"
+    ],
+    "description": "MVX docblock header"
+  },
+  "IF block": {
+    "prefix": "if",
+    "body": ["IF ${1:cond} THEN", "   $0", "END"],
+    "description": "Block IF"
+  },
+  "IF/ELSE block": {
+    "prefix": "ifelse",
+    "body": ["IF ${1:cond} THEN", "   $2", "END ELSE", "   $0", "END"],
+    "description": "Block IF with ELSE"
+  },
+  "FOR loop": {
+    "prefix": "for",
+    "body": ["FOR ${1:I} = ${2:1} TO ${3:N}", "   $0", "NEXT $1"],
+    "description": "FOR / NEXT"
+  },
+  "LOOP": {
+    "prefix": "loop",
+    "body": ["LOOP", "   ${1:READNEXT ID ELSE DONE = 1}", "UNTIL ${2:DONE} DO", "   $0", "REPEAT"],
+    "description": "LOOP / UNTIL / REPEAT"
+  },
+  "BEGIN CASE": {
+    "prefix": "case",
+    "body": ["BEGIN CASE", "CASE ${1:cond}", "   $2", "CASE 1", "   $0", "END CASE"],
+    "description": "BEGIN CASE construct"
+  },
+  "READ": {
+    "prefix": "read",
+    "body": ["READ ${1:R} FROM ${2:F}, ${3:ID} THEN", "   $0", "END ELSE", "   PRINT ${3:ID}:\" not on file\"", "END"],
+    "description": "READ with THEN/ELSE"
+  },
+  "OPEN": {
+    "prefix": "open",
+    "body": ["OPEN \"${1:FILE}\" TO ${2:F} ELSE", "   PRINT \"cannot open ${1:FILE}\"", "   STOP", "END"],
+    "description": "OPEN with ELSE"
+  },
+  "Subroutine": {
+    "prefix": "subroutine",
+    "body": ["* /**", "*  * @file ${1:NAME}", "*  * @version 1.0", "*  */", "SUBROUTINE ${1:NAME}(${2:ARGS})", "$0", "RETURN"],
+    "description": "SUBROUTINE with docblock"
+  }
+}

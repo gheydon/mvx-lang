@@ -1,0 +1,46 @@
+{
+  "name": "mvx-basic",
+  "displayName": "MVX BASIC",
+  "description": "Language support for MVX Pick/MultiValue BASIC: syntax highlighting, snippets, and compiler error matching",
+  "version": "0.1.0",
+  "publisher": "mvx",
+  "engines": { "vscode": "^1.70.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mvx-basic",
+        "aliases": ["MVX BASIC", "Pick BASIC"],
+        "extensions": [".b"],
+        "filenamePatterns": ["**/BP/*", "**/verbs/*.b"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mvx-basic",
+        "scopeName": "source.mvx-basic",
+        "path": "./syntaxes/mvx-basic.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "mvx-basic",
+        "path": "./snippets/mvx.json"
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "mvx",
+        "owner": "mvx-basic",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.+):(\\d+):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "message": 3
+        }
+      }
+    ]
+  }
+}

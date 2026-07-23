@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "mvx: compile current file",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/bin/mvx",
+      "args": ["-c", "${file}", "-o", "/tmp/${fileBasename}.o"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$mvx"
+    },
+    {
+      "label": "mvx: run tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/test.sh",
+      "problemMatcher": []
+    }
+  ]
+}

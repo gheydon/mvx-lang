@@ -1,0 +1,87 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "MVX BASIC",
+  "scopeName": "source.mvx-basic",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#label" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#sysvar" },
+    { "include": "#keyword" },
+    { "include": "#intrinsic" },
+    { "include": "#operator" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.asterisk.mvx-basic",
+          "begin": "^\\s*(\\*|!)",
+          "end": "$",
+          "patterns": [
+            {
+              "name": "storage.type.class.docblock.mvx-basic",
+              "match": "@[A-Za-z][A-Za-z0-9_.-]*"
+            }
+          ]
+        },
+        {
+          "name": "comment.line.rem.mvx-basic",
+          "begin": "^\\s*(?i:REM)\\b",
+          "end": "$"
+        }
+      ]
+    },
+    "label": {
+      "name": "entity.name.tag.label.mvx-basic",
+      "match": "^\\s*\\d+\\b"
+    },
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.mvx-basic",
+          "begin": "\"",
+          "end": "\""
+        },
+        {
+          "name": "string.quoted.single.mvx-basic",
+          "begin": "'",
+          "end": "'"
+        }
+      ]
+    },
+    "number": {
+      "name": "constant.numeric.mvx-basic",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    "sysvar": {
+      "name": "variable.language.mvx-basic",
+      "match": "@(AM|FM|VM|SM|SVM|ID|RECORD)\\b"
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "name": "keyword.control.mvx-basic",
+          "match": "\\b(IF|THEN|ELSE|END|FOR|NEXT|TO|STEP|LOOP|REPEAT|WHILE|UNTIL|DO|BEGIN|CASE|GOTO|GOSUB|GO|RETURN|STOP)\\b"
+        },
+        {
+          "name": "keyword.other.statement.mvx-basic",
+          "match": "\\b(CALL|SUBROUTINE|COMMON|COM|DIM|MAT|PRINT|CRT|INPUT|EXECUTE|PERFORM|CAPTURING|RETURNING|FORMLIST|LOCATE|OPEN|READU|READNEXT|READ|WRITEU|WRITE|DELETE|RELEASE|SELECT|FROM|ON)\\b"
+        },
+        {
+          "name": "keyword.operator.word.mvx-basic",
+          "match": "\\b(AND|OR|NOT|EQ|NE|LT|GT|LE|GE)\\b"
+        }
+      ]
+    },
+    "intrinsic": {
+      "name": "support.function.mvx-basic",
+      "match": "\\b(LEN|COUNT|DCOUNT|SEQ|INDEX|NUM|STATUS|CHAR|STR|SPACE|TRIM|FIELD|OCONV|ICONV|FMT|ENV|SENTENCE|TIME|DATE|SYSTEM|INT|SQRT|ABS|MOD|CREATEFILE|DELETEFILE|COMPILE|FILELIST|INDEXBUILD|INDEXDROP|INDEXSELECT|EXTRACT|REPLACE|INSERT|DOCTAG)(?=\\s*\\()"
+    },
+    "operator": {
+      "name": "keyword.operator.mvx-basic",
+      "match": "(<=|>=|<>|><|=<|=>|[-+*/^=#<>:])"
+    }
+  }
+}
