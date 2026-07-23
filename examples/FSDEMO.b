@@ -1,6 +1,6 @@
 /**
  * @file FSDEMO
- * @version 1.3
+ * @version 1.4
  * A tiny full-screen application, sized to the terminal: arrows move
  * the X; HOME centres, END jumps to the right edge, PGUP/PGDN
  * page vertically; q or ESC quits. Bounds re-read every keystroke,
@@ -18,9 +18,9 @@ LOOP
    H = SYSTEM(3)
    IF X > W - 1 THEN X = W - 1
    IF Y > H - 2 THEN Y = H - 2
-   PRINT @(0, 0):@(-4):"MVX full-screen demo  ":W:"x":H:"  arrows move, HOME centres, q quits"
+   PRINT @(0, 0):@(-4):COLOR("BRIGHT WHITE", "BLUE"):" MVX full-screen demo  ":W:"x":H:"  arrows/HOME/END/PGUP/PGDN move, q quits ":COLOR("OFF")
    PRINT @(0, 1):STR("-", W - 1):
-   PRINT @(X, Y):"X":@(0, H - 1):@(-4):"pos ":X:",":Y:"  key ":K:
+   PRINT @(X, Y):COLOR("BRIGHT YELLOW"):"X":COLOR("OFF"):@(0, H - 1):@(-4):"pos ":X:",":Y:"  key ":K:
    K = KEYIN()
 UNTIL K = "q" OR K = "ESC" DO
    PRINT @(X, Y):" ":

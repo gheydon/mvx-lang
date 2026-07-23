@@ -204,9 +204,88 @@ void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b) {
         case -6: n = snprintf(buf, sizeof buf, "\033[?1049l"); break;
         case -7: n = snprintf(buf, sizeof buf, "\033[?25l"); break;
         case -8: n = snprintf(buf, sizeof buf, "\033[?25h"); break;
+        /* video attributes, UniVerse-flavoured numbering */
+        case -11: n = snprintf(buf, sizeof buf, "\033[5m"); break;
+        case -12: n = snprintf(buf, sizeof buf, "\033[25m"); break;
+        case -13: n = snprintf(buf, sizeof buf, "\033[7m"); break;
+        case -14: n = snprintf(buf, sizeof buf, "\033[27m"); break;
+        case -15: n = snprintf(buf, sizeof buf, "\033[4m"); break;
+        case -16: n = snprintf(buf, sizeof buf, "\033[24m"); break;
+        case -17: n = snprintf(buf, sizeof buf, "\033[1m"); break;
+        case -18: n = snprintf(buf, sizeof buf, "\033[0m"); break;
         default: n = 0; break;
         }
     }
+    mv_set_str(dst, buf, n);
+}
+
+/* COLOR(fg {, bg}) -> ANSI SGR string.  Names: BLACK RED GREEN YELLOW
+   BLUE MAGENTA CYAN WHITE, optionally prefixed BRIGHT; a number 0-255
+   selects from the 256-colour palette; "" leaves that plane alone;
+   OFF/RESET resets everything. */
+static int color_code(const char *name, int64_t len, int bg, char *out,
+                      size_t cap) {
+    char up[32];
+    if (len <= 0 || len >= (int64_t)sizeof up) return 0;
+    for (int64_t i = 0; i < len; i++)
+        up[i] = (char)((name[i] >= 'a' && name[i] <= 'z')
+                           ? name[i] - 32
+                           : name[i]);
+    up[len] = '\0';
+
+    int bright = 0;
+    const char *p = up;
+    if (strncmp(p, "BRIGHT ", 7) == 0) {
+        bright = 1;
+        p += 7;
+    }
+    static const char *names[8] = {"BLACK", "RED",     "GREEN", "YELLOW",
+                                   "BLUE",  "MAGENTA", "CYAN",  "WHITE"};
+    for (int i = 0; i < 8; i++)
+        if (strcmp(p, names[i]) == 0) {
+            int base = bg ? (bright ? 100 : 40) : (bright ? 90 : 30);
+            return snprintf(out, cap, "%d", base + i);
+        }
+    /* 256-colour number */
+    char *end = NULL;
+    long n = strtol(up, &end, 10);
+    if (end && *end == '\0' && n >= 0 && n <= 255)
+        return snprintf(out, cap, "%d;5;%ld", bg ? 48 : 38, n);
+    return 0;
+}
+
+void mv_color_fn(mv_value *dst, const mv_value *fg, const mv_value *bg) {
+    char fb[40], bb[40];
+    const char *fp, *bp = "";
+    int64_t fl = mv_val_chars(fg, fb, sizeof fb, &fp);
+    int64_t bl = 0;
+    if (bg) bl = mv_val_chars(bg, bb, sizeof bb, &bp);
+
+    char upfirst[8] = "";
+    for (int i = 0; i < 7 && i < fl; i++)
+        upfirst[i] = (char)((fp[i] >= 'a' && fp[i] <= 'z') ? fp[i] - 32
+                                                           : fp[i]);
+    if (fl > 0 && (strncmp(upfirst, "OFF", 3) == 0 ||
+                   strncmp(upfirst, "RESET", 5) == 0)) {
+        mv_set_str(dst, "\033[0m", 4);
+        return;
+    }
+
+    char codes[64] = "";
+    char one[24];
+    if (fl > 0 && color_code(fp, fl, 0, one, sizeof one))
+        snprintf(codes, sizeof codes, "%s", one);
+    if (bl > 0 && color_code(bp, bl, 1, one, sizeof one)) {
+        size_t cl = strlen(codes);
+        snprintf(codes + cl, sizeof codes - cl, "%s%s", cl ? ";" : "",
+                 one);
+    }
+    if (!codes[0]) {
+        mv_set_str(dst, "", 0);
+        return;
+    }
+    char buf[80];
+    int n = snprintf(buf, sizeof buf, "\033[%sm", codes);
     mv_set_str(dst, buf, n);
 }
 

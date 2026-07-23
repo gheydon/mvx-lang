@@ -857,6 +857,16 @@ private:
                     ConstantInt::get(i64Ty_, e.args.size() == 2 ? 1 : 0)});
             return;
         }
+        if (f == "COLOR") {
+            if (e.args.size() != 1 && e.args.size() != 2)
+                err(e.line, "COLOR() takes 1 or 2 arguments");
+            Value *bg = e.args.size() == 2
+                            ? evalPtr(*e.args[1])
+                            : (Value *)ConstantPointerNull::get(ptrTy_);
+            callRt("mv_color_fn", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+                   {dest, evalPtr(*e.args[0]), bg});
+            return;
+        }
         if (f == "KEYIN") {
             if (e.args.size() > 1)
                 err(e.line, "KEYIN() takes at most one argument");

@@ -11,4 +11,5 @@ key: ^A
 key: ESC
 at codes: 7 3 7 27
 term size (piped fallback): 80x24
+colors: 5 8 4 11 4 4
 bye
