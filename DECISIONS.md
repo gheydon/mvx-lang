@@ -1,4 +1,27 @@
-# MVX — Settled decisions (Slice 1)
+# MVX — Settled decisions
+
+## Slice 2 — storage
+
+- **The driver contract lives in `mvx_driver.h`** and is exactly the
+  minimal set from ARCHITECTURE.md 4.1: open/close, read/write/delete,
+  select (snapshot cursor). Locks are NOT in the contract — they live in
+  the runtime lock table (`mvx_store.c`), keyed by file spec + record
+  id, because READU can span user think-time and must never pin a
+  backend transaction.
+- **File resolution**: account root is `$MVXACCOUNT` (default cwd). A
+  spec naming an existing directory opens the directory driver
+  (attributes ↔ lines, one record per file — the git-native shape);
+  anything else is a named DB in the account's LMDB environment at
+  `<account>/mvxdata.lmdb`. One env per account, one named DB per file,
+  short transactions, copy-out reads, 511-byte key validation.
+- **File variables** are a fifth value tag (`MV_FILE`), holding the
+  driver handle pointer; handles are context-owned and closed at exit.
+  WRITE releases the record lock, WRITEU keeps it — both after a
+  successful driver write.
+- **Two-part `OPEN "DICT","F"`** parses but fails (ELSE) until
+  dictionaries exist.
+
+# Slice 1 decisions
 
 Concrete resolutions of the two open decisions in `ARCHITECTURE.md` §3.3,
 plus the smaller choices they force. These are load-bearing: the ABI ones

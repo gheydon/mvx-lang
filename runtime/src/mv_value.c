@@ -225,6 +225,13 @@ static const char *val_chars(const mv_value *v, char *buf, size_t cap,
     }
 }
 
+int64_t mv_val_chars(const mv_value *v, char *numbuf, size_t cap,
+                     const char **out) {
+    int64_t len;
+    *out = val_chars(v, numbuf, cap, &len);
+    return len;
+}
+
 void mv_cat(mv_value *dst, const mv_value *a, const mv_value *b) {
     char ba[40], bb[40];
     int64_t la, lb;

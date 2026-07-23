@@ -20,6 +20,7 @@ enum {
     MV_INT        = 1,
     MV_DBL        = 2,
     MV_STR        = 3,
+    MV_FILE       = 4,      /* file variable; i holds the mvx_file* */
 };
 
 typedef struct mv_string {
@@ -137,6 +138,28 @@ double  mvx_num_time(void);
 double  mvx_num_system(double code);
 double  mvx_num_mod(double a, double b);
 int64_t mvx_num_imod(int64_t a, int64_t b);
+
+/* --- storage (Slice 2) --------------------------------------------------
+   File variables carry MV_FILE tag.  All boolean results are int64:
+   1 = success/found, 0 = failure/not-found (drives THEN/ELSE).         */
+int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
+                 mv_value *fvar);
+int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
+                 const mv_value *id, int64_t lock);
+void    mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
+                  const mv_value *id, int64_t keep_lock);
+int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
+                       const mv_value *id);
+void    mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id);
+void    mvx_select(mvx_ctx *ctx, const mv_value *fvar);
+int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id);
+void    mvx_store_shutdown(mvx_ctx *ctx);           /* ctx destroy hook */
+void   *mvx_ctx_store_get(mvx_ctx *ctx);
+void    mvx_ctx_store_set(mvx_ctx *ctx, void *p);
+
+/* Borrow a char view of a value (numeric tags render into numbuf). */
+int64_t mv_val_chars(const mv_value *v, char *numbuf, size_t cap,
+                     const char **out);
 
 /* --- errors / ABI support ---------------------------------------------- */
 void mvx_fatal(const char *fmt, ...) __attribute__((noreturn, format(printf, 1, 2)));

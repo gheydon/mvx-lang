@@ -124,6 +124,83 @@ private:
             s->target = primaryRef();
             endStatementSoft();
             break;
+        case Tok::KwOpen: {
+            advance();
+            s = mk(Stmt::K::Open);
+            s->args.push_back(expression());
+            if (at(Tok::Comma)) {                   // OPEN "DICT","F" form
+                advance();
+                s->args.push_back(expression());
+            }
+            expect(Tok::KwTo, "TO in OPEN");
+            s->name = expect(Tok::Ident, "file variable").text;
+            thenElse(*s);
+            break;
+        }
+        case Tok::KwRead:
+        case Tok::KwReadu: {
+            bool lock = cur().kind == Tok::KwReadu;
+            advance();
+            s = mk(Stmt::K::ReadF);
+            if (lock) s->name = "U";
+            s->target = primaryRef();
+            expect(Tok::KwFrom, "FROM in READ");
+            s->args.push_back(expression());        // file
+            expect(Tok::Comma, "','");
+            s->args.push_back(expression());        // id
+            thenElse(*s);
+            break;
+        }
+        case Tok::KwWrite:
+        case Tok::KwWriteu: {
+            bool keep = cur().kind == Tok::KwWriteu;
+            advance();
+            s = mk(Stmt::K::WriteF);
+            if (keep) s->name = "U";
+            s->value = expression();                // record
+            if (at(Tok::KwOn) || at(Tok::KwTo)) advance();
+            else err("expected ON in WRITE");
+            s->args.push_back(expression());        // file
+            expect(Tok::Comma, "','");
+            s->args.push_back(expression());        // id
+            endStatementSoft();
+            break;
+        }
+        case Tok::KwDelete: {
+            advance();
+            s = mk(Stmt::K::DeleteF);
+            s->args.push_back(expression());
+            expect(Tok::Comma, "',' in DELETE");
+            s->args.push_back(expression());
+            endStatementSoft();
+            break;
+        }
+        case Tok::KwRelease: {
+            advance();
+            s = mk(Stmt::K::Release);
+            if (!at(Tok::Eol) && !at(Tok::Semi) && !at(Tok::Eof) &&
+                !at(Tok::KwElse)) {
+                s->args.push_back(expression());
+                expect(Tok::Comma, "',' in RELEASE");
+                s->args.push_back(expression());
+            }
+            endStatementSoft();
+            break;
+        }
+        case Tok::KwSelect: {
+            advance();
+            s = mk(Stmt::K::Select);
+            s->args.push_back(expression());
+            endStatementSoft();
+            break;
+        }
+        case Tok::KwReadnext: {
+            advance();
+            s = mk(Stmt::K::Readnext);
+            s->name = expect(Tok::Ident, "id variable").text;
+            thenElse(*s);
+            break;
+        }
         case Tok::KwCommon: {
             advance();
             s = mk(Stmt::K::Common);
@@ -669,6 +746,24 @@ private:
         case Tok::LParen: {
             advance();
             ExprP e = expression();
+            expect(Tok::RParen, "')'");
+            return maybeExtract(std::move(e));
+        }
+        case Tok::KwDelete: {
+            // DELETE doubles as the dynamic-array function in expressions.
+            advance();
+            auto e = std::make_unique<Expr>();
+            e->kind = Expr::K::Paren;
+            e->line = line;
+            e->sval = "DELETE";
+            expect(Tok::LParen, "'(' after DELETE");
+            if (!at(Tok::RParen)) {
+                for (;;) {
+                    e->args.push_back(expression());
+                    if (!at(Tok::Comma)) break;
+                    advance();
+                }
+            }
             expect(Tok::RParen, "')'");
             return maybeExtract(std::move(e));
         }

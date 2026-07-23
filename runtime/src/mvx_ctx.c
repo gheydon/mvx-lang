@@ -31,7 +31,11 @@ struct mvx_ctx {
     int64_t print_col;      /* current output column, for comma zones */
     int64_t status;         /* STATUS() value, set by conversions */
     common_block *commons;
+    void *store;            /* storage state, owned by mvx_store.c */
 };
+
+void *mvx_ctx_store_get(mvx_ctx *ctx) { return ctx->store; }
+void  mvx_ctx_store_set(mvx_ctx *ctx, void *p) { ctx->store = p; }
 
 mvx_ctx *mvx_ctx_create(void) {
     mvx_ctx *ctx = calloc(1, sizeof(mvx_ctx));
@@ -40,6 +44,7 @@ mvx_ctx *mvx_ctx_create(void) {
 }
 
 void mvx_ctx_destroy(mvx_ctx *ctx) {
+    mvx_store_shutdown(ctx);
     common_block *b = ctx->commons;
     while (b) {
         common_block *next = b->next;

@@ -18,8 +18,13 @@ add_library(mvxrt STATIC
   runtime/src/mv_dyn.c
   runtime/src/mv_str.c
   runtime/src/mv_conv.c
-  runtime/src/mvx_ctx.c)
+  runtime/src/mvx_ctx.c
+  runtime/src/mvx_store.c
+  runtime/src/mvx_drv_lmdb.c
+  runtime/src/mvx_drv_dir.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
+find_path(LMDB_INCLUDE_DIR lmdb.h REQUIRED)
+target_include_directories(mvxrt PRIVATE ${LMDB_INCLUDE_DIR})
 set_target_properties(mvxrt PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 

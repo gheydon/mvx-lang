@@ -169,6 +169,10 @@ int main(int argc, char **argv) {
     if (!shared)
         cmd += " " + shellQuote((lib / "mvx_crt.o").string());
     cmd += " " + shellQuote((lib / "libmvxrt.a").string());
+#ifdef __APPLE__
+    cmd += " -L/opt/homebrew/lib";
+#endif
+    cmd += " -llmdb";
     cmd += " -o " + shellQuote(outPath);
 
     int rc = std::system(cmd.c_str());

@@ -274,6 +274,16 @@ private:
                     joinArr(s.name, kindOf(*s.value), changed);
                 }
                 break;
+            case Stmt::K::Open:
+            case Stmt::K::Readnext:
+                joinVar(s.name, NK::NotNum, changed);
+                break;
+            case Stmt::K::ReadF:
+                if (s.target->kind == Expr::K::Var)
+                    joinVar(s.target->sval, NK::NotNum, changed);
+                else
+                    joinArr(s.target->sval, NK::NotNum, changed);
+                break;
             default:
                 break;
             }
@@ -981,6 +991,32 @@ private:
             break;
         case Stmt::K::Common:
             break;          // bound at function entry
+        case Stmt::K::Open:     emitOpen(s);     break;
+        case Stmt::K::ReadF:    emitReadF(s);    break;
+        case Stmt::K::WriteF:   emitWriteF(s);   break;
+        case Stmt::K::DeleteF:
+            callRt("mvx_delete_rec", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, evalPtr(*s.args[0]), evalPtr(*s.args[1])});
+            break;
+        case Stmt::K::Release:
+            if (s.args.empty())
+                callRt("mvx_release", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+                       {ctxArg_, ConstantPointerNull::get(ptrTy_),
+                        ConstantPointerNull::get(ptrTy_)});
+            else
+                callRt("mvx_release", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+                       {ctxArg_, evalPtr(*s.args[0]), evalPtr(*s.args[1])});
+            break;
+        case Stmt::K::Select:
+            callRt("mvx_select", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, evalPtr(*s.args[0])});
+            break;
+        case Stmt::K::Readnext: {
+            Value *found = callRt("mvx_readnext", i64Ty_, {ptrTy_, ptrTy_},
+                                  {ctxArg_, getScalar(s.name, s.line)});
+            emitThenElse(found, s, "rn");
+            break;
+        }
 
         case Stmt::K::Return:
             // With GOSUBs present, RETURN pops the return stack; with an
@@ -1037,6 +1073,58 @@ private:
             emitCommonBindings(s.pre, counters);
             emitCommonBindings(s.post, counters);
         }
+    }
+
+    // Branch on an i64 result into the statement's THEN/ELSE bodies.
+    void emitThenElse(Value *result, const Stmt &s, const char *tag) {
+        Value *c = b_.CreateICmpNE(result, ConstantInt::get(i64Ty_, 0));
+        BasicBlock *thenBB = newBB((std::string(tag) + ".then").c_str());
+        BasicBlock *elseBB = newBB((std::string(tag) + ".else").c_str());
+        BasicBlock *doneBB = newBB((std::string(tag) + ".done").c_str());
+        b_.CreateCondBr(c, thenBB, elseBB);
+        b_.SetInsertPoint(thenBB);
+        emitBlock(s.body);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(elseBB);
+        emitBlock(s.elseBody);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(doneBB);
+    }
+
+    void emitOpen(const Stmt &s) {
+        bool twoPart = s.args.size() == 2;
+        Value *dict = twoPart ? evalPtr(*s.args[0])
+                              : (Value *)ConstantPointerNull::get(ptrTy_);
+        Value *spec = evalPtr(*s.args[twoPart ? 1 : 0]);
+        Value *fvar = getScalar(s.name, s.line);
+        Value *ok = callRt("mvx_open", i64Ty_,
+                           {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                           {ctxArg_, dict, spec, fvar});
+        emitThenElse(ok, s, "open");
+    }
+
+    void emitReadF(const Stmt &s) {
+        const Expr &t = *s.target;
+        Value *dst;
+        if (t.kind == Expr::K::Var)
+            dst = getScalar(t.sval, t.line);
+        else if (arrayNames_.count(t.sval) && !num_.numericArray(t.sval))
+            dst = arrayElemPtr(t);
+        else
+            err(t.line, "READ target must be a variable or array element");
+        Value *lock = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
+        Value *found = callRt(
+            "mvx_read", i64Ty_, {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+            {ctxArg_, dst, evalPtr(*s.args[0]), evalPtr(*s.args[1]), lock});
+        emitThenElse(found, s, "read");
+    }
+
+    void emitWriteF(const Stmt &s) {
+        Value *keep = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
+        callRt("mvx_write", voidTy_,
+               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+               {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
+                evalPtr(*s.args[1]), keep});
     }
 
     void emitInput(const Stmt &s) {
