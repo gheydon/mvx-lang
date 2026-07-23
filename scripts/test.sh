@@ -270,6 +270,36 @@ EOF
 check tcl-session "$(cd "$ACCT" && \
   MVXACCOUNT=. MVXSESSION="$TESTROOT/sess" "$TESTROOT/progsel" 2>&1)"
 
+# the networked daemon: same account flow through mvxd, plus the lock
+# lease (holder dies without releasing; next session proceeds)
+DSOCK="/tmp/mvxd-test-$$.sock"
+DACCT="$TESTROOT/dacct"
+mkdir -p "$DACCT"
+"$ROOT/build/bin/mvxd" -d "$TESTROOT/ddata" -s "$DSOCK" 2>/dev/null &
+DPID=$!
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  [ -S "$DSOCK" ] && break
+  sleep 0.1
+done
+dlock="$TESTROOT/dlock.b"
+cat > "$dlock" <<'EOF'
+OPEN "PARTS" TO F ELSE STOP
+READU R FROM F, "W100" THEN PRINT "locked, exiting without RELEASE"
+EOF
+"$MVX" "$dlock" -o "$TESTROOT/dlockbin" 2>/dev/null
+check tcl-daemon "$( \
+  export MVXDAEMON="$DSOCK"; \
+  "$TCL" -a "$DACCT" -c "CREATE-FILE VOC" >/dev/null 2>&1; \
+  printf 'CREATE-FILE PARTS\n' | "$TCL" -a "$DACCT" 2>&1; \
+  (cd "$DACCT" && MVXACCOUNT=. MVXDAEMON="$DSOCK" "$TESTROOT/seedbin"); \
+  printf 'LIST PARTS NAME COLOR\nCREATE-INDEX PARTS COLOR\nLIST PARTS NAME WITH COLOR = blue\nLISTF\n' | \
+    "$TCL" -a "$DACCT" 2>&1; \
+  (cd "$DACCT" && MVXACCOUNT=. MVXDAEMON="$DSOCK" "$TESTROOT/dlockbin"); \
+  (cd "$DACCT" && MVXACCOUNT=. MVXDAEMON="$DSOCK" "$TESTROOT/dlockbin"); \
+  unset MVXDAEMON)"
+kill $DPID 2>/dev/null
+rm -f "$DSOCK"
+
 # ---------------------------------------------------------------- phase 3
 if [ "$QUICK" = 0 ]; then
   echo "== sieve"

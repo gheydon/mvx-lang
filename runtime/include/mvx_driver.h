@@ -80,6 +80,13 @@ typedef struct mvx_driver {
     mvx_cursor *(*index_select)(mvx_file *f, const char *item,
                                 const char *key, int64_t klen);
     int (*index_drop)(mvx_file *f, const char *item);
+
+    /* Optional lock authority (may be NULL): a backend that arbitrates
+       between sessions (the mvxd daemon) grants and releases record
+       locks itself; lock returns 0 while another session holds it.
+       When NULL, the runtime's process-local lock table applies. */
+    int (*lock)(mvx_file *f, const char *id, int64_t idlen);
+    int (*unlock)(mvx_file *f, const char *id, int64_t idlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
@@ -100,7 +107,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 3
+#define MVX_DRIVER_ABI 4
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

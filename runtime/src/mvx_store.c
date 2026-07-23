@@ -15,6 +15,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #ifdef __APPLE__
 #define DRV_SUFFIX ".dylib"
@@ -87,6 +88,7 @@ static const mvx_driver *driver_load(const char *name) {
 
 typedef struct lock_ent {
     char *key;                          /* spec \x01 id */
+    mvx_file *f;                        /* for driver-held locks */
     struct lock_ent *next;
 } lock_ent;
 
@@ -254,11 +256,20 @@ static char *lock_key(mvx_file *f, const char *id, int64_t idlen) {
     return k;
 }
 
+/* Drop a lock entry; when the backend is the lock authority, tell it. */
 static void lock_drop(store_state *st, const char *key) {
     for (lock_ent **pp = &st->locks; *pp; pp = &(*pp)->next) {
         if (strcmp((*pp)->key, key) == 0) {
             lock_ent *dead = *pp;
             *pp = dead->next;
+            if (dead->f) {
+                mvx_file_base *b = (mvx_file_base *)dead->f;
+                if (b->driver->unlock) {
+                    const char *id = strchr(dead->key, '\x01') + 1;
+                    b->driver->unlock(dead->f, id,
+                                      (int64_t)strlen(id));
+                }
+            }
             free(dead->key);
             free(dead);
             return;
@@ -289,6 +300,11 @@ static const mvx_driver *resolve(const char *cspec, int want_dict,
         return driver_load("dir");
     }
     snprintf(outspec, cap, want_dict ? "DICT.%s" : "%s", cspec);
+    /* The config swap of ARCHITECTURE.md 4.3/4.4: with $MVXDAEMON set,
+       LMDB-backed files go through the daemon; directory files stay
+       local.  Same contract, different transport. */
+    const char *dmn = getenv("MVXDAEMON");
+    if (dmn && dmn[0]) return driver_load("lmdbnet");
     return driver_load("lmdb");
 }
 
@@ -478,9 +494,15 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
         store_state *st = state(ctx);
         char *key = lock_key(f, ip, idlen);
         lock_drop(st, key);             /* re-lock by same session is fine */
+        if (b->driver->lock) {
+            /* Backend is the lock authority: classic READU blocks
+               until the holder releases (or its connection drops). */
+            while (!b->driver->lock(f, ip, idlen)) usleep(50000);
+        }
         lock_ent *l = malloc(sizeof(lock_ent));
         if (!l) mvx_fatal("out of memory in lock table");
         l->key = key;
+        l->f = b->driver->lock ? f : NULL;
         l->next = st->locks;
         st->locks = l;
     }
@@ -679,6 +701,13 @@ void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {
     if (!fvar) {                        /* bare RELEASE: drop everything */
         for (lock_ent *l = st->locks; l;) {
             lock_ent *n = l->next;
+            if (l->f) {
+                mvx_file_base *lb = (mvx_file_base *)l->f;
+                if (lb->driver->unlock) {
+                    const char *id = strchr(l->key, '\x01') + 1;
+                    lb->driver->unlock(l->f, id, (int64_t)strlen(id));
+                }
+            }
             free(l->key);
             free(l);
             l = n;
@@ -806,7 +835,9 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
         closedir(d);
     }
 
-    const mvx_driver *lmdb = driver_load("lmdb");
+    const char *dmn = getenv("MVXDAEMON");
+    const mvx_driver *lmdb =
+        driver_load(dmn && dmn[0] ? "lmdbnet" : "lmdb");
     if (lmdb->names) {
         mv_value names;
         mv_init(&names);
@@ -817,8 +848,9 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
             while (p < end) {
                 const char *am = memchr(p, '\xFE', (size_t)(end - p));
                 size_t n = (am ? am : end) - p;
-                if (n > 0 && !(n > 5 && memcmp(p, "DICT.", 5) == 0))
-                    FL_PUT(p, n, 'L');
+                int internal = (n > 5 && memcmp(p, "DICT.", 5) == 0) ||
+                               memmem(p, n, ".IDX.", 5) != NULL;
+                if (n > 0 && !internal) FL_PUT(p, n, 'L');
                 p = am ? am + 1 : end;
             }
         }
@@ -851,6 +883,8 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
     if (!spec_cstr(spec, cspec, sizeof cspec)) return 0;
 
     const char *drvname = "lmdb";
+    const char *dmn = getenv("MVXDAEMON");
+    if (dmn && dmn[0]) drvname = "lmdbnet";
     char tb[40];
     const char *tp = "";
     if (type) mv_val_chars(type, tb, sizeof tb, &tp);

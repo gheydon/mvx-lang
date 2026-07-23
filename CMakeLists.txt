@@ -54,6 +54,15 @@ mvx_driver(lmdb runtime/src/mvx_drv_lmdb.c)
 target_include_directories(mvxdrv_lmdb PRIVATE ${LMDB_INCLUDE_DIR})
 target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 
+mvx_driver(lmdbnet runtime/src/mvx_drv_lmdbnet.c)
+
+# --- the networked LMDB daemon -----------------------------------------
+add_executable(mvxd daemon/mvxd.c)
+target_include_directories(mvxd PRIVATE ${LMDB_INCLUDE_DIR})
+target_link_libraries(mvxd PRIVATE ${LMDB_LIBRARY})
+set_target_properties(mvxd PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 # --- classic TCL shell -------------------------------------------------
 add_executable(mvx-tcl tcl/mvx_tcl.c)
 target_link_libraries(mvx-tcl PRIVATE mvxrt ${CMAKE_DL_LIBS})

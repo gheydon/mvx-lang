@@ -209,6 +209,7 @@ static const mvx_driver mvx_driver_lmdb = {
     lmdb_create, lmdb_remove,
     lmdb_names,
     lmdb_write_ix, lmdb_del_ix, lmdb_index_select, lmdb_index_drop,
+    NULL, NULL,                         /* locks: runtime local table */
 };
 
 static int lmdb_create(const char *spec, char *err, size_t errlen) {

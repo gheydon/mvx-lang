@@ -1,0 +1,18 @@
+[417] file PARTS created
+seeded
+@ID          Name         Colour  
+G200         Gadget       red     
+S300         Sprocket     blue    
+W100         Widget       blue    
+3 record(s) listed
+index PARTS.COLOR built, 3 record(s)
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+2 record(s) listed
+File                     Type
+PARTS                    lmdb
+VOC                      lmdb
+2 file(s)
+locked, exiting without RELEASE
+locked, exiting without RELEASE

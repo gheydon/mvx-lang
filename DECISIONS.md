@@ -70,6 +70,31 @@
   no list is active, falling back to a scan; the result feeds the same
   select-list machinery either way.
 
+## Networked daemon (ARCHITECTURE.md 4.3)
+
+- **mvxd owns its LMDB environment exclusively** and serialises client
+  access over unix-socket or TCP; a file is either embedded-access or
+  daemon-owned, never both. The daemon speaks raw record bytes — MV
+  semantics stay in the client runtime — and links only liblmdb.
+- **Deployment is the promised config swap**: `$MVXDAEMON` (socket
+  path or host:port) routes LMDB-backed files through the `lmdbnet`
+  driver — identical contract, different transport. Directory files
+  stay local, so BP source and daemon data mix per file. CREATE-FILE,
+  DELETE-FILE, and LISTF follow the same routing.
+- **The daemon is the single lock authority** for its files: the
+  driver contract gains an optional lock capability (ABI 4); when
+  present, READU acquires from the backend (blocking with retry,
+  classic style) instead of the process-local table. Locks are leased
+  to the connection — a client that dies without RELEASE loses its
+  locks the moment the connection drops, so killed pods cannot orphan
+  record locks. Proven in the harness.
+- **SELECT snapshots inside the daemon, then sends**: the read
+  transaction closes before a byte hits the wire, so a slow client
+  never pins pages.
+- Accepted knowingly, per the architecture: single point of failure,
+  single-writer ceiling, and the HA story is ours to build. Protocol
+  integers are host-order — same-architecture clients for now.
+
 ## Slice 3 — TCL
 
 - **The C shell is dispatch only.** `mvx-tcl` implements the prompt,
