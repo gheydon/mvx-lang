@@ -239,6 +239,32 @@ GMEOF
    cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gmod"); \
   printf 'GIT STATUS\nGIT DIFF CUST\nGIT RESTORE CUST\nGIT STATUS\nCT CUST C2\n' | "$TCL" -a "$GACCT" 2>&1)"
 
+# delivery: stock -> branch(site) -> customise -> cherry-pick upstream
+# -> merge stock down.  The Pick multi-site delivery workflow in git.
+DACCT="$TESTROOT/delacct"
+mkdir -p "$DACCT/CATALOG"
+"$TCL" -a "$DACCT" -c "CREATE-FILE MENU" >/dev/null 2>&1
+dseed2="$TESTROOT/dseed2.b"
+cat > "$dseed2" <<'DEOF'
+OPEN "MENU" TO F ELSE STOP
+WRITE "Sales" ON F, "M1"
+DEOF
+"$MVX" "$dseed2" -o "$TESTROOT/dseed2bin" 2>/dev/null
+(cd "$DACCT" && MVXACCOUNT=. "$TESTROOT/dseed2bin")
+custom="$TESTROOT/dcustom.b"
+cat > "$custom" <<'DCEOF'
+OPEN "MENU" TO F ELSE STOP
+WRITE "ACME Dashboard" ON F, "M9"
+DCEOF
+"$MVX" "$custom" -o "$TESTROOT/dcustombin" 2>/dev/null
+check tcl-delivery "$( \
+  export MVXACCOUNT="$DACCT"; \
+  { printf "LINK-PKG $ROOT/packages/git\nGIT INIT\nGIT ADD MENU\nGIT COMMIT -m stock\nGIT BRANCH site\nGIT CHECKOUT site\n" | "$TCL" -a "$DACCT" 2>&1; \
+    (cd "$DACCT" && "$TESTROOT/dcustombin"); \
+    printf 'GIT ADD MENU\nGIT COMMIT -m acme-custom\nGIT CHECKOUT main\nGIT CHERRY-PICK site\nCT MENU M9\nGIT BRANCH\n' | "$TCL" -a "$DACCT" 2>&1; \
+  } | sed -E 's/\[[0-9a-f]{7,40}\]/[HASH]/g; s/^[0-9a-f]{7,40} /HASH /g' | normalise; \
+  unset MVXACCOUNT)"
+
 # GITIGNORE: bulk data excluded, dictionary tracked
 IGACCT="$TESTROOT/igacct"
 mkdir -p "$IGACCT/CATALOG"

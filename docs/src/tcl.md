@@ -49,7 +49,7 @@ standard verbs.
 | `WHO` `TIME` `DATE` | session information |
 | `EXPORT file {dir}` | copy records to a git-native directory file |
 | `IMPORT file {dir}` | mirror a directory file back (full sync) |
-| `GIT add\|status\|commit\|log\|diff\|restore\|...` | git for records (real-git porcelain) |
+| `GIT add\|commit\|branch\|checkout\|merge\|cherry-pick\|...` | git for records: full porcelain incl. branching |
 
 ## Select lists between commands
 

@@ -88,3 +88,40 @@ files.
 | BP / source | the directory | git tracks the directory file natively |
 | VOC / dictionaries | the hash file | `GIT ADD` / `COMMIT` / `RESTORE` |
 | data files | the backend store | ignored via `GITIGNORE` |
+
+## Delivery: stock, sites, and upstream features
+
+The perennial MultiValue problem — ship a stock product to many sites,
+let each customise, and fold good customisations back into the
+mainline — is git branching. The record repo makes it concrete:
+
+```
+                stock mainline = the main branch
+> GIT BRANCH site-acme          deploy stock to a site (a branch)
+> GIT CHECKOUT site-acme        switch: the records update to match
+  ... customise: edit verbs, dictionaries, add records ...
+> GIT ADD ... ; GIT COMMIT -m "acme: custom dashboard"
+
+  roll a site feature upstream into stock:
+> GIT CHECKOUT main
+> GIT CHERRY-PICK site-acme     apply just that commit to the mainline
+
+  push new stock down to a site:
+> GIT CHECKOUT site-acme
+> GIT MERGE main                3-way merge; records update
+```
+
+`GIT CHECKOUT` switches the branch **and materialises its records into
+the live hash files** — the working tree is the data, so a checkout
+updates the records (writing changes, deleting records absent from the
+branch). `GIT MERGE` and `GIT CHERRY-PICK` do real 3-way merges of
+records, dictionaries, and verbs: when a site and the mainline touched
+different records they merge cleanly; when they touched the same
+record git reports the conflict for you to resolve (edit the record,
+`GIT ADD`, `GIT COMMIT`). `GIT BRANCH` lists or creates branches.
+
+Because it is real git underneath, the mainline can live in a shared
+repository and sites can `clone`/`pull`/`push` it once network
+transport is added — the branching model above is what makes stock
+delivery and feature round-tripping tractable across many client
+sites.

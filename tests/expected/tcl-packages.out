@@ -1,6 +1,6 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-git@4.0        ok     @ROOT@/packages/git     requires cmd
+git@5.0        ok     @ROOT@/packages/git     requires cmd
 cmd@1.0        ok     @ROOT@/packages/cmd     
 2 package(s) linked
 GIT - version-control hash-file records
@@ -16,6 +16,10 @@ commands:
   diff         unstaged record changes {file}
   show         committed content of a record (file id)
   restore      restore records from HEAD (file)
+  branch       list or create a branch (name)
+  checkout     switch branch, update records (name)
+  merge        merge a branch into this one (name)
+  cherry-pick  apply one commit (commit)
   help         show this help
 cannot unlink cmd: @ROOT@/packages/git depends on it
 unlinked @ROOT@/packages/git
