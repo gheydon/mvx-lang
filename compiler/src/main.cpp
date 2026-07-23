@@ -166,9 +166,24 @@ int main(int argc, char **argv) {
 #endif
     }
     for (const std::string &o : linkObjects) cmd += " " + shellQuote(o);
-    if (!shared)
+    if (!shared) {
         cmd += " " + shellQuote((lib / "mvx_crt.o").string());
-    cmd += " " + shellQuote((lib / "libmvxrt.a").string());
+        // Only executables carry the runtime, and they carry ALL of it
+        // (whole-archive): shared subroutine libraries resolve
+        // mv_*/mvx_* from the host program at load, and may need
+        // runtime functions the host's own code never referenced.
+        // Embedding the runtime in each subroutine library instead
+        // would duplicate per-image state (a second LMDB env handle
+        // for the same files, separate driver registries) — a
+        // correctness hazard, not just bloat.
+#ifdef __APPLE__
+        cmd += " -Wl,-force_load," + shellQuote((lib / "libmvxrt.a").string());
+#else
+        cmd += " -Wl,--whole-archive " +
+               shellQuote((lib / "libmvxrt.a").string()) +
+               " -Wl,--no-whole-archive";
+#endif
+    }
 #ifndef __APPLE__
     cmd += " -ldl";                     // dlopen for storage drivers
     if (!shared)
