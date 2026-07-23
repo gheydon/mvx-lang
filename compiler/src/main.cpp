@@ -137,7 +137,11 @@ int main(int argc, char **argv) {
                 }
                 tmpDir = buf.data();
             }
-            obj = (tmpDir / (fs::path(src).stem().string() + ".o")).string();
+            // filename(), not stem(): MV item names contain dots
+            // (CMD.ADD, CMD.RUN) and stem() would collide them all
+            // onto one object file.
+            obj = (tmpDir / (fs::path(src).filename().string() + ".o"))
+                      .string();
         }
 
         try {

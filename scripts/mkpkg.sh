@@ -15,21 +15,32 @@ case "$(uname)" in
   *)      EXT=so ;;
 esac
 
+PKGNAME="$(head -1 "$PKG/PKG" 2>/dev/null)"
+[ -n "$PKGNAME" ] || PKGNAME="$(basename "$PKG")"
+
+# SUBROUTINE sources bundle into ONE shared library per package (the
+# jBASE deployment shape — one dlopen, one artifact); main programs
+# become verb executables in CATALOG/.
 mkdir -p "$PKG/CATALOG"
+rm -rf "$PKG/LIB"
+SUBS=""
 for src in "$PKG"/BP/*; do
   [ -f "$src" ] || continue
   name="$(basename "$src")"
-  # SUBROUTINE sources become shared libraries in LIB/ (runtime CALL
-  # loads them); main programs become verb executables in CATALOG/.
   first="$(awk 'NF && $1 !~ /^[*!]/ { print $1; exit }' "$src")"
   if [ "$first" = "SUBROUTINE" ]; then
-    mkdir -p "$PKG/LIB"
-    "$ROOT/build/bin/mvx" -shared "$src" -o "$PKG/LIB/$name.$EXT"
-    echo "  cataloged $name (subroutine)"
+    SUBS="$SUBS $src"
+    echo "  bundling $name"
   else
     "$ROOT/build/bin/mvx" "$src" -o "$PKG/CATALOG/$name"
     echo "  cataloged $name"
   fi
 done
+if [ -n "$SUBS" ]; then
+  mkdir -p "$PKG/LIB"
+  # shellcheck disable=SC2086
+  "$ROOT/build/bin/mvx" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
+  echo "  built LIB/lib$PKGNAME.$EXT"
+fi
 
 echo "package built: $PKG"
