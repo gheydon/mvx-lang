@@ -69,8 +69,22 @@ int64_t mv_compare(const mv_value *a, const mv_value *b);   /* <0, 0, >0 */
 mv_array *mv_arr_create(int64_t d1, int64_t d2);    /* d2 == 0 → one-dim */
 void      mv_arr_destroy(mv_array *a);
 mv_value *mv_arr_elem(mv_array *a, int64_t i, int64_t j); /* 1-based, checked */
+void      mv_arr_fill(mv_array *a, const mv_value *val);
+void      mv_arr_copy(mv_array *dst, const mv_array *src); /* dims must match */
 
-/* --- output ------------------------------------------------------------ */
+/* --- string intrinsics ------------------------------------------------- */
+void    mv_char_fn(mv_value *dst, int64_t code);
+int64_t mv_seq_fn(const mv_value *v);
+void    mv_space_fn(mv_value *dst, int64_t n);
+void    mv_str_fn(mv_value *dst, const mv_value *src, int64_t n);
+void    mv_trim_fn(mv_value *dst, const mv_value *src);
+void    mv_field_fn(mv_value *dst, const mv_value *src,
+                    const mv_value *delim, int64_t n, int64_t cnt);
+int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ);
+int64_t mv_num_fn(const mv_value *v);
+
+/* --- input / output ---------------------------------------------------- */
+void mv_input(mvx_ctx *ctx, mv_value *dst);         /* read line from stdin */
 void mv_print(mvx_ctx *ctx, const mv_value *v);     /* no newline */
 void mv_print_nl(mvx_ctx *ctx);
 void mv_print_tab(mvx_ctx *ctx);                    /* comma zones (18 cols) */

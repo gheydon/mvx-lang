@@ -70,6 +70,23 @@ void mv_print_tab(mvx_ctx *ctx) {
     }
 }
 
+/* ---------------------------------------------------------------- input */
+
+void mv_input(mvx_ctx *ctx, mv_value *dst) {
+    (void)ctx;
+    char *line = NULL;
+    size_t cap = 0;
+    ssize_t n = getline(&line, &cap, stdin);
+    if (n < 0) {
+        mv_set_str(dst, "", 0);
+        free(line);
+        return;
+    }
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) n--;
+    mv_set_str(dst, line, n);
+    free(line);
+}
+
 /* ------------------------------------------------------------ intrinsics */
 
 static void time_of_day(int64_t *secs, int64_t *msecs) {

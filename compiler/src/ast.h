@@ -52,6 +52,8 @@ struct Stmt {
         Gosub,      // name: target label
         Locate,     // args: item, dyn[, attr[, val]]; name: setting var;
                     // value: optional order; body/elseBody: THEN/ELSE
+        Input,      // target: Var or array element read from stdin
+        Mat,        // MAT name = value  |  MAT name = MAT name2
     };
     enum class LoopCond { None, While, Until };
 
@@ -60,6 +62,7 @@ struct Stmt {
 
     ExprP target, value;                 // Assign
     std::string name;                    // Dim / For var / Call name
+    std::string name2;                   // Mat copy source array
     std::vector<ExprP> args;             // Dim dims / Call args / Print items
     std::vector<bool> printTabs;         // Print: item k preceded by comma zone
     bool noNewline = false;              // Print trailing ':'

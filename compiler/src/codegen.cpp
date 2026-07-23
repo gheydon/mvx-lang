@@ -48,7 +48,12 @@ const std::set<std::string> kStrIntrinsics = {
 
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
-    "LEN", "COUNT", "DCOUNT",
+    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM",
+};
+
+// String-valued intrinsics (boxed results).
+const std::set<std::string> kStrFns = {
+    "CHAR", "STR", "SPACE", "TRIM", "FIELD",
 };
 
 // System mark constants: @AM/@FM, @VM, @SM/@SVM.
@@ -195,6 +200,11 @@ private:
                 s.target->kind == Expr::K::Paren &&
                 !isByteLit(*s.value))
                 byteUnsafe_.insert(s.target->sval);
+            if (s.kind == Stmt::K::Mat) {
+                if (s.name2.empty() ? !isByteLit(*s.value) : true)
+                    byteUnsafe_.insert(s.name);
+                if (!s.name2.empty()) byteUnsafe_.insert(s.name2);
+            }
             collect(s.body); collect(s.elseBody);
             collect(s.pre);  collect(s.post);
         }
@@ -236,6 +246,22 @@ private:
                 joinVar(s.name, k, changed);
                 break;
             }
+            case Stmt::K::Input:
+                // Reads an arbitrary line into the target.
+                if (s.target->kind == Expr::K::Var)
+                    joinVar(s.target->sval, NK::NotNum, changed);
+                else
+                    joinArr(s.target->sval, NK::NotNum, changed);
+                break;
+            case Stmt::K::Mat:
+                if (!s.name2.empty()) {
+                    // MAT copy runs through the boxed representation.
+                    joinArr(s.name, NK::NotNum, changed);
+                    joinArr(s.name2, NK::NotNum, changed);
+                } else {
+                    joinArr(s.name, kindOf(*s.value), changed);
+                }
+                break;
             default:
                 break;
             }
@@ -524,6 +550,17 @@ private:
             if (f == "DCOUNT" && e.args.size() == 2)
                 return callRt("mv_dcount_fn", i64Ty_, {ptrTy_, ptrTy_},
                               {evalPtr(*e.args[0]), evalPtr(*e.args[1])});
+            if (f == "SEQ" && e.args.size() == 1)
+                return callRt("mv_seq_fn", i64Ty_, {ptrTy_},
+                              {evalPtr(*e.args[0])});
+            if (f == "NUM" && e.args.size() == 1)
+                return callRt("mv_num_fn", i64Ty_, {ptrTy_},
+                              {evalPtr(*e.args[0])});
+            if (f == "INDEX" && e.args.size() == 3)
+                return callRt("mv_index_fn", i64Ty_,
+                              {ptrTy_, ptrTy_, i64Ty_},
+                              {evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                               numIndex(*e.args[2])});
             if (kIntIntrinsics.count(f))
                 err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")
@@ -711,6 +748,31 @@ private:
                 err(e.line, f + "() takes " + std::to_string(n) +
                                 " argument(s)");
         };
+        if (f == "CHAR") { need(1);
+            callRt("mv_char_fn", voidTy_, {ptrTy_, i64Ty_},
+                   {dest, numIndex(*e.args[0])});
+            return; }
+        if (f == "SPACE") { need(1);
+            callRt("mv_space_fn", voidTy_, {ptrTy_, i64Ty_},
+                   {dest, numIndex(*e.args[0])});
+            return; }
+        if (f == "STR") { need(2);
+            callRt("mv_str_fn", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
+                   {dest, evalPtr(*e.args[0]), numIndex(*e.args[1])});
+            return; }
+        if (f == "TRIM") { need(1);
+            call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
+            return; }
+        if (f == "FIELD") {
+            if (e.args.size() != 3 && e.args.size() != 4)
+                err(e.line, "FIELD() takes 3 or 4 arguments");
+            Value *cnt = e.args.size() == 4 ? numIndex(*e.args[3])
+                                            : ConstantInt::get(i64Ty_, 1);
+            callRt("mv_field_fn", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
+                   {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    numIndex(*e.args[2]), cnt});
+            return; }
         if (f == "TIME")   { need(0); call1("mv_time", dest); return; }
         if (f == "SYSTEM") { need(1);
             call2("mv_system_fn", dest, evalPtr(*e.args[0])); return; }
@@ -883,6 +945,12 @@ private:
         case Stmt::K::Locate:
             emitLocate(s);
             break;
+        case Stmt::K::Input:
+            emitInput(s);
+            break;
+        case Stmt::K::Mat:
+            emitMat(s);
+            break;
         case Stmt::K::Return:
             // With GOSUBs present, RETURN pops the return stack; with an
             // empty stack it ends the program / returns to the caller.
@@ -899,6 +967,74 @@ private:
             }
             b_.SetInsertPoint(newBB("dead"));
             break;
+        }
+    }
+
+    void emitInput(const Stmt &s) {
+        const Expr &t = *s.target;
+        Value *dst;
+        if (t.kind == Expr::K::Var) {
+            if (!t.sval.empty() && t.sval[0] == '@')
+                err(t.line, "cannot INPUT into system variable " + t.sval);
+            dst = getScalar(t.sval, t.line);
+        } else if (arrayNames_.count(t.sval)) {
+            if (num_.numericArray(t.sval))
+                err(t.line, "internal error: INPUT target not demoted");
+            dst = arrayElemPtr(t);
+        } else {
+            err(t.line, "INPUT target must be a variable or array element");
+        }
+        callRt("mv_input", voidTy_, {ptrTy_, ptrTy_}, {ctxArg_, dst});
+    }
+
+    void emitMat(const Stmt &s) {
+        if (!arrayNames_.count(s.name))
+            err(s.line, "MAT target " + s.name + " is not DIM'd");
+        if (!s.name2.empty() && !arrayNames_.count(s.name2))
+            err(s.line, "MAT source " + s.name2 + " is not DIM'd");
+
+        if (num_.numericArray(s.name)) {
+            // Fill only: MAT copies are demoted to boxed by analysis.
+            NumArr &a = numArrSlots(s.name);
+            Value *base = b_.CreateLoad(ptrTy_, a.ptr);
+            Value *d1 = b_.CreateLoad(i64Ty_, a.d1);
+            Value *d2 = b_.CreateLoad(i64Ty_, a.d2);
+            Value *cols = b_.CreateSelect(
+                b_.CreateICmpEQ(d2, ConstantInt::get(i64Ty_, 0)),
+                ConstantInt::get(i64Ty_, 1), d2);
+            Value *n = b_.CreateMul(d1, cols);
+            if (a.elemTy == b_.getInt8Ty()) {
+                Value *byte = b_.CreateTrunc(evalNum(*s.value),
+                                             b_.getInt8Ty());
+                b_.CreateMemSet(base, byte, n, MaybeAlign(1));
+                return;
+            }
+            Value *v = a.elemTy == dblTy_ ? asDbl(*s.value)
+                                          : evalNum(*s.value);
+            Value *idxSlot = eb_.CreateAlloca(i64Ty_, nullptr, "mat.i");
+            b_.CreateStore(ConstantInt::get(i64Ty_, 0), idxSlot);
+            BasicBlock *testBB = newBB("mat.test");
+            BasicBlock *bodyBB = newBB("mat.body");
+            BasicBlock *doneBB = newBB("mat.done");
+            b_.CreateBr(testBB);
+            b_.SetInsertPoint(testBB);
+            Value *i = b_.CreateLoad(i64Ty_, idxSlot);
+            b_.CreateCondBr(b_.CreateICmpSLT(i, n), bodyBB, doneBB);
+            b_.SetInsertPoint(bodyBB);
+            b_.CreateStore(v, b_.CreateGEP(a.elemTy, base, i));
+            b_.CreateStore(b_.CreateAdd(i, ConstantInt::get(i64Ty_, 1)),
+                           idxSlot);
+            b_.CreateBr(testBB);
+            b_.SetInsertPoint(doneBB);
+            return;
+        }
+
+        Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
+        if (!s.name2.empty()) {
+            Value *src = b_.CreateLoad(ptrTy_, getArraySlot(s.name2));
+            call2("mv_arr_copy", arr, src);
+        } else {
+            call2("mv_arr_fill", arr, evalPtr(*s.value));
         }
     }
 

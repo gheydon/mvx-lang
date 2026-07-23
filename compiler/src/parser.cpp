@@ -118,6 +118,25 @@ private:
         case Tok::KwCrt:      s = printStmt(); break;
         case Tok::KwBegin:    s = caseStmt();  break;
         case Tok::KwLocate:   s = locateStmt(); break;
+        case Tok::KwInput:
+            advance();
+            s = mk(Stmt::K::Input);
+            s->target = primaryRef();
+            endStatementSoft();
+            break;
+        case Tok::KwMat:
+            advance();
+            s = mk(Stmt::K::Mat);
+            s->name = expect(Tok::Ident, "array name after MAT").text;
+            expect(Tok::Eq, "'=' in MAT assignment");
+            if (at(Tok::KwMat)) {
+                advance();
+                s->name2 = expect(Tok::Ident, "array name").text;
+            } else {
+                s->value = expression();
+            }
+            endStatementSoft();
+            break;
         case Tok::KwCall:     s = callStmt();  break;
         case Tok::IntLit: {
             // A number at statement start is a classic Pick numeric

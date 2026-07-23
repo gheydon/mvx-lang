@@ -305,6 +305,23 @@ void mv_arr_destroy(mv_array *a) {
     free(a);
 }
 
+void mv_arr_fill(mv_array *a, const mv_value *val) {
+    int64_t n = a->d1 * (a->d2 ? a->d2 : 1);
+    for (int64_t k = 0; k < n; k++)
+        mv_copy(&a->elems[k], val);
+}
+
+void mv_arr_copy(mv_array *dst, const mv_array *src) {
+    if (dst->d1 != src->d1 || dst->d2 != src->d2)
+        mvx_fatal("MAT copy between arrays of different dimensions "
+                  "(%lld,%lld) and (%lld,%lld)",
+                  (long long)dst->d1, (long long)dst->d2,
+                  (long long)src->d1, (long long)src->d2);
+    int64_t n = dst->d1 * (dst->d2 ? dst->d2 : 1);
+    for (int64_t k = 0; k < n; k++)
+        mv_copy(&dst->elems[k], &src->elems[k]);
+}
+
 mv_value *mv_arr_elem(mv_array *a, int64_t i, int64_t j) {
     if (a->d2 == 0) {
         if (i < 1 || i > a->d1 || j != 0)
