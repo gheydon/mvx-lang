@@ -1,0 +1,7 @@
+linked @ROOT@/packages/git
+linked @ROOT@/packages/cmd
+initialised empty git repository
+ignoring ORDERS
+ORDERS is in GITIGNORE, nothing staged
+staged 1 record(s)
+A  ORDERS.DICT/CUST

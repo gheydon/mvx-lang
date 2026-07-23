@@ -9,6 +9,7 @@ commands:
   init         create the record repository
   add          stage records (file {id})
   rm           unstage a record (file id)
+  ignore       keep records out of history (pattern)
   status       show staged / changed records
   commit       commit staged records (-m msg)
   log          commit history

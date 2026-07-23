@@ -239,6 +239,29 @@ GMEOF
    cd "$GACCT" && MVXACCOUNT=. "$TESTROOT/gmod"); \
   printf 'GIT STATUS\nGIT DIFF CUST\nGIT RESTORE CUST\nGIT STATUS\nCT CUST C2\n' | "$TCL" -a "$GACCT" 2>&1)"
 
+# GITIGNORE: bulk data excluded, dictionary tracked
+IGACCT="$TESTROOT/igacct"
+mkdir -p "$IGACCT/CATALOG"
+"$TCL" -a "$IGACCT" -c "CREATE-FILE ORDERS" >/dev/null 2>&1
+igseed="$TESTROOT/igseed.b"
+cat > "$igseed" <<'IGEOF'
+OPEN "ORDERS" TO F ELSE STOP
+FOR I = 1 TO 5
+   WRITE "order-":I ON F, "O":I
+NEXT I
+OPEN "DICT", "ORDERS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"20L" ON D, "CUST"
+IGEOF
+"$MVX" "$igseed" -o "$TESTROOT/igseedbin" 2>/dev/null
+(cd "$IGACCT" && MVXACCOUNT=. "$TESTROOT/igseedbin")
+check tcl-gitignore "$(printf '%s\n' \
+  "LINK-PKG $ROOT/packages/git" \
+  'GIT INIT' \
+  'GIT IGNORE ORDERS' \
+  'GIT ADD ORDERS' \
+  'GIT ADD DICT ORDERS' \
+  'GIT STATUS' | "$TCL" -a "$IGACCT" 2>&1 | normalise)"
+
 # PORT-SOURCE: C-style comments to classic, output must compile
 cat > "$ACCT/BP/CPORT" <<'EOF'
 /**

@@ -43,6 +43,28 @@ Status codes match git: `A` staged-added, `M` modified, `D` deleted,
 `??` untracked, with the staged column first. `GIT RM file record`
 unstages a record.
 
+## What to track: GITIGNORE and dictionaries
+
+You do not commit a million order records — but you do commit their
+schema. `GITIGNORE` (a record in the account, one glob per line) keeps
+matching files and records out of history; `GIT IGNORE pattern`
+appends to it. Dictionaries are addressed as `DICT`:
+
+```
+> GIT IGNORE ORDERS               keep the bulk order data out
+> GIT ADD ORDERS                  ORDERS is in GITIGNORE, nothing staged
+> GIT ADD DICT ORDERS             stage the ORDERS dictionary (schema)
+> GIT STATUS
+A  ORDERS.DICT/CUST               only the schema is tracked
+```
+
+A pattern matches a file name (`ORDERS`), a glob (`*.TMP`,
+`LOG*`), or a `file/record` path (`ORDERS/O*`). Ignored records never
+appear as untracked, so `GIT STATUS` stays quiet about bulk data. The
+usual shape is to ignore data files and `GIT ADD DICT` their
+dictionaries, plus `GIT ADD VOC` for verbs — schema and configuration
+in git, data in the store.
+
 Because record blobs are line-oriented text (attribute marks become
 newlines), ordinary git tooling reads the same history:
 
@@ -65,4 +87,4 @@ files.
 |---|---|---|
 | BP / source | the directory | git tracks the directory file natively |
 | VOC / dictionaries | the hash file | `GIT ADD` / `COMMIT` / `RESTORE` |
-| data files | the backend store | usually not tracked |
+| data files | the backend store | ignored via `GITIGNORE` |
