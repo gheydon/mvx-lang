@@ -191,6 +191,7 @@ static void lmdb_select_end(mvx_cursor *c) {
 
 static int lmdb_create(const char *spec, char *err, size_t errlen);
 static int lmdb_remove(const char *spec, char *err, size_t errlen);
+static int lmdb_names(mv_value *out, char *err, size_t errlen);
 
 static const mvx_driver mvx_driver_lmdb = {
     "lmdb",
@@ -198,6 +199,7 @@ static const mvx_driver mvx_driver_lmdb = {
     lmdb_read, lmdb_write, lmdb_del,
     lmdb_select_begin, lmdb_select_next, lmdb_select_end,
     lmdb_create, lmdb_remove,
+    lmdb_names,
 };
 
 static int lmdb_create(const char *spec, char *err, size_t errlen) {
@@ -213,6 +215,44 @@ static int lmdb_remove(const char *spec, char *err, size_t errlen) {
     if (mdb_txn_begin(g_env, NULL, 0, &txn) != 0) return 0;
     if (mdb_drop(txn, dbi, 1) != 0) { mdb_txn_abort(txn); return 0; }
     return mdb_txn_commit(txn) == 0;
+}
+
+/* Named-DB names are the keys of the environment's unnamed main DB. */
+static int lmdb_names(mv_value *out, char *err, size_t errlen) {
+    MDB_env *env = env_get(err, errlen);
+    if (!env) return 0;
+    MDB_txn *txn;
+    if (mdb_txn_begin(env, NULL, MDB_RDONLY, &txn) != 0) return 0;
+    MDB_dbi main_dbi;
+    if (mdb_dbi_open(txn, NULL, 0, &main_dbi) != 0) {
+        mdb_txn_abort(txn);
+        return 0;
+    }
+    MDB_cursor *cur;
+    if (mdb_cursor_open(txn, main_dbi, &cur) != 0) {
+        mdb_txn_abort(txn);
+        return 0;
+    }
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    MDB_val k, v;
+    while (mdb_cursor_get(cur, &k, &v, MDB_NEXT) == 0) {
+        if (len + k.mv_size + 1 > cap) {
+            cap = cap ? cap * 2 : 256;
+            while (cap < len + k.mv_size + 1) cap *= 2;
+            char *nb = realloc(buf, cap);
+            if (!nb) mvx_fatal("out of memory in LISTF");
+            buf = nb;
+        }
+        if (len) buf[len++] = (char)0xFE;
+        memcpy(buf + len, k.mv_data, k.mv_size);
+        len += k.mv_size;
+    }
+    mdb_cursor_close(cur);
+    mdb_txn_abort(txn);
+    mv_set_str(out, buf ? buf : "", (int64_t)len);
+    free(buf);
+    return 1;
 }
 
 const mvx_driver *mvx_driver_entry(int abi) {

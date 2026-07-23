@@ -51,6 +51,11 @@ typedef struct mvx_driver {
        remove returns 0 if it does not. */
     int (*create)(const char *spec, char *err, size_t errlen);
     int (*remove)(const char *spec, char *err, size_t errlen);
+
+    /* Optional (may be NULL): enumerate the file specs this driver
+       holds for the account, as an @AM-separated list.  Backing for
+       the LISTF verb. */
+    int (*names)(mv_value *out, char *err, size_t errlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
@@ -71,7 +76,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 1
+#define MVX_DRIVER_ABI 2
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

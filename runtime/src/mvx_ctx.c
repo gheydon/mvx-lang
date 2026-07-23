@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 
 /* Session context.  The parameter exists in every ABI signature so that
    session identity, locks, and the privilege gate can land here later
@@ -199,7 +200,11 @@ void mv_input(mvx_ctx *ctx, mv_value *dst) {
 static void time_of_day(int64_t *secs, int64_t *msecs) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    int64_t since_midnight = tv.tv_sec % 86400;
+    struct tm lt;
+    time_t t = tv.tv_sec;
+    localtime_r(&t, &lt);               /* classic TIME() is local time */
+    int64_t since_midnight =
+        (int64_t)lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec;
     *secs  = since_midnight;
     *msecs = since_midnight * 1000 + tv.tv_usec / 1000;
 }
@@ -208,6 +213,20 @@ void mv_time(mv_value *dst) {
     int64_t s, ms;
     time_of_day(&s, &ms);
     mv_set_int(dst, s);
+}
+
+/* DATE(): internal date, day 0 = 31 DEC 1967, local time. */
+int64_t mv_date_fn(void) {
+    time_t t = time(NULL);
+    struct tm lt;
+    localtime_r(&t, &lt);
+    int64_t y = lt.tm_year + 1900, m = lt.tm_mon + 1, d = lt.tm_mday;
+    y -= m <= 2;
+    int64_t era = (y >= 0 ? y : y - 399) / 400;
+    int64_t yoe = y - era * 400;
+    int64_t doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468 + 732;
 }
 
 void mv_system_fn(mvx_ctx *ctx, mv_value *dst, const mv_value *code) {

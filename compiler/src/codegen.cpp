@@ -49,7 +49,7 @@ const std::set<std::string> kStrIntrinsics = {
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
-    "CREATEFILE", "DELETEFILE", "COMPILE",
+    "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
 };
 
 // String-valued intrinsics (boxed results).
@@ -593,6 +593,8 @@ private:
                                numIndex(*e.args[2])});
             if (f == "STATUS" && e.args.empty())
                 return callRt("mvx_status", i64Ty_, {ptrTy_}, {ctxArg_});
+            if (f == "DATE" && e.args.empty())
+                return callRt("mv_date_fn", i64Ty_, {}, {});
             if (f == "CREATEFILE" &&
                 (e.args.size() == 1 || e.args.size() == 2)) {
                 Value *type = e.args.size() == 2
@@ -823,6 +825,10 @@ private:
             return; }
         if (f == "ENV") { need(1);
             call2("mv_env", dest, evalPtr(*e.args[0]));
+            return; }
+        if (f == "FILELIST") { need(0);
+            callRt("mvx_filelist", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, dest});
             return; }
         if (f == "SENTENCE") { need(0);
             callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},

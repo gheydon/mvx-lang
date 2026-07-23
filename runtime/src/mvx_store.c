@@ -8,6 +8,7 @@
  */
 #include "mvx_driver.h"
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -464,6 +465,72 @@ int64_t mvx_readnext(mvx_ctx *ctx, mv_value *id) {
     if (st->sel_pos >= st->sel_n) return 0;
     mv_copy(id, &st->sel_ids[st->sel_pos++]);
     return 1;
+}
+
+/* FILELIST(): every MV file in the account — subdirectories (directory
+   driver) plus LMDB named DBs, as "name @VM type" attributes.  DICT
+   stores and infrastructure directories are filtered out. */
+void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
+    (void)ctx;
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+
+#define FL_PUT(p, n, ty)                                                  \
+    do {                                                                  \
+        size_t need = (n) + 3;                                            \
+        if (len + need > cap) {                                           \
+            cap = cap ? cap * 2 : 256;                                    \
+            while (cap < len + need) cap *= 2;                            \
+            char *nb = realloc(buf, cap);                                 \
+            if (!nb) mvx_fatal("out of memory in FILELIST");              \
+            buf = nb;                                                     \
+        }                                                                 \
+        if (len) buf[len++] = (char)0xFE;                                 \
+        memcpy(buf + len, (p), (n));                                      \
+        len += (n);                                                       \
+        buf[len++] = (char)0xFD;                                          \
+        buf[len++] = (ty);                                                \
+    } while (0)
+
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    DIR *d = opendir(acct);
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            if (strcmp(e->d_name, "mvxdata.lmdb") == 0) continue;
+            char p[4096];
+            snprintf(p, sizeof p, "%s/%s", acct, e->d_name);
+            struct stat sb;
+            if (stat(p, &sb) != 0 || !S_ISDIR(sb.st_mode)) continue;
+            FL_PUT(e->d_name, strlen(e->d_name), 'D');
+        }
+        closedir(d);
+    }
+
+    const mvx_driver *lmdb = driver_load("lmdb");
+    if (lmdb->names) {
+        mv_value names;
+        mv_init(&names);
+        char err[256] = "";
+        if (lmdb->names(&names, err, sizeof err) &&
+            names.tag == MV_STR && names.s->len > 0) {
+            const char *p = names.s->data, *end = p + names.s->len;
+            while (p < end) {
+                const char *am = memchr(p, '\xFE', (size_t)(end - p));
+                size_t n = (am ? am : end) - p;
+                if (n > 0 && !(n > 5 && memcmp(p, "DICT.", 5) == 0))
+                    FL_PUT(p, n, 'L');
+                p = am ? am + 1 : end;
+            }
+        }
+        mv_clear(&names);
+    }
+#undef FL_PUT
+
+    mv_set_str(dst, buf ? buf : "", (int64_t)len);
+    free(buf);
 }
 
 /* -------------------------------------------------------- file lifecycle

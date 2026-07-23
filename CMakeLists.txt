@@ -56,6 +56,11 @@ target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 # --- classic TCL shell -------------------------------------------------
 add_executable(mvx-tcl tcl/mvx_tcl.c)
 target_link_libraries(mvx-tcl PRIVATE mvxrt ${CMAKE_DL_LIBS})
+find_library(EDITLINE_LIBRARY edit)
+if(EDITLINE_LIBRARY)
+  target_compile_definitions(mvx-tcl PRIVATE HAVE_EDITLINE)
+  target_link_libraries(mvx-tcl PRIVATE ${EDITLINE_LIBRARY})
+endif()
 target_compile_definitions(mvx-tcl PRIVATE
   MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
 set_target_properties(mvx-tcl PROPERTIES

@@ -29,6 +29,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef HAVE_EDITLINE
+#include <editline/readline.h>
+#endif
+
 #ifndef MVX_SYSTEM_DIR
 #define MVX_SYSTEM_DIR "."
 #endif
@@ -40,6 +44,19 @@ static int g_voc_state, g_sysvoc_state; /* 0 untried, 1 open, -1 absent */
 static const char *system_dir(void) {
     const char *p = getenv("MVXSYSTEM");
     return p && p[0] ? p : MVX_SYSTEM_DIR;
+}
+
+/* Current account identity, refreshed on entry and by LOGTO. */
+static char g_acct_path[4096] = "?";
+static char g_acct_base[256] = "?";
+
+static void account_refresh(void) {
+    if (!getcwd(g_acct_path, sizeof g_acct_path))
+        snprintf(g_acct_path, sizeof g_acct_path, "?");
+    const char *b = strrchr(g_acct_path, '/');
+    snprintf(g_acct_base, sizeof g_acct_base, "%s",
+             b && b[1] ? b + 1 : g_acct_path);
+    setenv("MVXACCTPATH", g_acct_path, 1);
 }
 
 static int voc_open(mv_value *voc, const char *spec) {
@@ -217,6 +234,32 @@ static void command(char *line) {
         return;
     }
 
+    if (strcmp(verb, "LOGTO") == 0) {   /* switch accounts */
+        const char *arg = line;
+        while (*arg && *arg != ' ' && *arg != '\t') arg++;
+        while (*arg == ' ' || *arg == '\t') arg++;
+        if (!*arg) {
+            fprintf(stderr, "usage: LOGTO account-directory\n");
+            return;
+        }
+        if (chdir(arg) != 0) {
+            fprintf(stderr, "LOGTO: cannot enter account %s\n", arg);
+            return;
+        }
+        account_refresh();
+        g_voc_state = 0;                /* re-resolve in the new account */
+        g_pkg_stamp = -1;
+        g_npkgs = 0;
+        const char *sess = getenv("MVXSESSION");
+        if (sess && sess[0]) {          /* select lists don't cross LOGTO */
+            FILE *fp = fopen(sess, "wb");
+            if (fp) fclose(fp);
+        }
+        printf("now in account %s (%s)\n", g_acct_base, g_acct_path);
+        fflush(stdout);
+        return;
+    }
+
     char path[1024];
     int r = voc_lookup(verb, path, sizeof path);
     if (r > 0) {
@@ -270,6 +313,7 @@ int main(int argc, char **argv) {
     }
 
     g_ctx = mvx_ctx_create();
+    account_refresh();
 
     if (one_cmd) {                      /* ssh/cron style: -c and out */
         char *dup = strdup(one_cmd);
@@ -280,19 +324,48 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    char cwd[4096] = "?";
-    getcwd(cwd, sizeof cwd);
-    const char *base = strrchr(cwd, '/');
-    base = base && base[1] ? base + 1 : cwd;
+    account_refresh();
 
     int tty = isatty(0);
-    if (tty) printf("MVX TCL — account %s (%s)\n", base, cwd);
+    if (tty) {
+        printf("MVX TCL — account %s (%s)\n", g_acct_base, g_acct_path);
+        fflush(stdout);
+    }
+
+#ifdef HAVE_EDITLINE
+    char histfile[4096] = "";
+    if (tty) {
+        const char *home = getenv("HOME");
+        if (home && home[0]) {
+            snprintf(histfile, sizeof histfile, "%s/.mvx_history", home);
+            read_history(histfile);
+        }
+    }
+#endif
+
     char line[4096];
     for (;;) {
+#ifdef HAVE_EDITLINE
         if (tty) {
-            printf("%s> ", base);
+            char prompt[300];
+            snprintf(prompt, sizeof prompt, "%s> ", g_acct_base);
+            char *l = readline(prompt);
+            if (!l) break;
+            if (*l) {
+                add_history(l);
+                if (histfile[0]) write_history(histfile);
+            }
+            snprintf(line, sizeof line, "%s", l);
+            free(l);
+            command(line);
+            continue;
+        }
+#else
+        if (tty) {
+            printf("%s> ", g_acct_base);
             fflush(stdout);
         }
+#endif
         if (!fgets(line, sizeof line, stdin)) break;
         command(line);
     }
