@@ -27,8 +27,9 @@ against, please get in touch. **I am happy to sign an NDA** to get
 access to code for testing.
 
 **Infrastructure and development tools are the priority to start
-with** — application frameworks and toolsets such as **CueBic** and
-**SB+ (SystemBuilder)** — because porting the platforms that products
+with** — application frameworks and toolsets such as **CueBic**
+(Apscore International) and **SB+ / SystemBuilder** (now SB/XA, Rocket
+Software) — because porting the platforms that products
 are *built on* creates the foundation to build and run those products
 on MVX. Runtime/application frameworks, screen and report generators,
 and similar toolkits are exactly what I would like to test against
