@@ -184,6 +184,21 @@ mvx-git pull                              # git pull, then re-sync the account
 mvx-git checkout release-2            # switch branch, rebuild records
 ```
 
+**Clone provisions a new account.** A clone lands in a fresh directory,
+so mvx-git treats it specially:
+
+- if the cloned repo carries a `.mvx` descriptor it *is* an account —
+  mvx-git rebuilds it automatically (`CONVERT-ACCOUNT`);
+- if it does not, and stdin is a terminal, mvx-git asks
+  *"Directory … is not an MVX account. Create one here? (y/N)"* —
+  defaulting to no. On yes it creates one with `BUILD`, which only adds
+  a `.mvx` and a `VOC` (and catalogs any `BP`), so declining leaves an
+  ordinary checkout and an accidental yes cannot mangle a non-MVX repo.
+
+Set `MVXGIT_CREATE=1` to answer yes without prompting (for scripts and
+the coming package installer); with no terminal and no override,
+mvx-git never prompts and never creates an account.
+
 `mvx-git` changes no MVX internals — it only orchestrates the real
 `git` and the existing `CONVERT-ACCOUNT` verb. It is built by the git
 package's `build-native.sh` into `packages/git/bin/`, which `mkpkg.sh`

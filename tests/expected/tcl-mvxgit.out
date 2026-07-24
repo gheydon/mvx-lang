@@ -1,2 +1,4 @@
-clone rebuilt: hash-file store present
+account clone (.mvx) rebuilt
 1 record(s) counted
+plain clone stayed plain
+opt-in clone created account

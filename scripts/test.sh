@@ -312,10 +312,24 @@ EOF
     git add -A && git -c user.email=t@t -c user.name=t commit -qm acct ) >/dev/null 2>&1
   MGC="$TESTROOT/mgclone"
   MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGS" "$MGC" >/dev/null 2>&1
+  # a repo WITHOUT a .mvx descriptor: plain clone stays plain; only an
+  # explicit opt-in ($MVXGIT_CREATE) turns it into a new account.
+  MGP="$TESTROOT/mgplain"
+  mkdir -p "$MGP/BP"; printf 'PRINT "hi"\n' > "$MGP/BP/HELLO"
+  ( cd "$MGP" && git init -q -b main && git add -A && \
+    git -c user.email=t@t -c user.name=t commit -qm src ) >/dev/null 2>&1
+  MGPD="$TESTROOT/mgplain-default"
+  MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPD" </dev/null >/dev/null 2>&1
+  MGPY="$TESTROOT/mgplain-optin"
+  MVXGIT_CREATE=1 MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPY" </dev/null >/dev/null 2>&1
   check tcl-mvxgit "$( \
-    { [ -d "$MGC/mvxdata.lmdb" ] && echo 'clone rebuilt: hash-file store present' \
-        || echo 'clone NOT rebuilt'; }; \
-    "$TCL" -a "$MGC" -c 'COUNT PARTS' 2>&1)"
+    { [ -d "$MGC/mvxdata.lmdb" ] && echo 'account clone (.mvx) rebuilt' \
+        || echo 'account clone NOT rebuilt'; }; \
+    "$TCL" -a "$MGC" -c 'COUNT PARTS' 2>&1; \
+    { [ -f "$MGPD/.mvx" ] && echo 'plain clone became account (WRONG)' \
+        || echo 'plain clone stayed plain'; }; \
+    { [ -f "$MGPY/.mvx" ] && echo 'opt-in clone created account' \
+        || echo 'opt-in clone NOT created'; })"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
