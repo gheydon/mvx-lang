@@ -7,3 +7,14 @@ demo/
 packages/*/CATALOG/
 packages/*/LIB/
 packages/git/LIB/
+
+# LMDB hash-file stores are binary and account-local: never commit them.
+# An account is version-controlled in its legible form (EXPORT-ACCOUNT)
+# and rebuilt with scripts/mvx-convert.sh.
+mvxdata.lmdb/
+# tt/ is a throwaway scratch account.
+tt/
+# The repo root is the source tree, not an MVX account: ignore a stray
+# descriptor left by running mvx-tcl here (real accounts still track
+# their own .mvx).
+/.mvx
