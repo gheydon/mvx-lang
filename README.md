@@ -161,3 +161,16 @@ book.
 - `docs/` — the MVX book (mdBook)
 - `bench/sieve.b` — the prime-sieve benchmark
 - `tests/`, `scripts/test.sh` — the test harness
+
+## License
+
+Copyright (C) 2026 Gordon Heydon.
+
+MVX is free software: you can redistribute it and/or modify it under
+the terms of the **GNU General Public License, version 2** as published
+by the Free Software Foundation. See [`LICENSE`](LICENSE) for the full
+text.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
