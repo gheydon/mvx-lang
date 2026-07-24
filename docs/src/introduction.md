@@ -25,7 +25,7 @@ Highlights:
 - **Pluggable storage.** MV files bind to backends through a small
   driver contract. Two drivers ship: embedded LMDB and plain
   directories (attributes as lines — the git-friendly shape). A third,
-  `lmdbnet`, reaches an `mvxd` daemon over the network; switching an
+  `lmdbnet`, reaches an `mvx-lmdbd` daemon over the network; switching an
   account from embedded to networked is one environment variable.
 - **The classic environment.** TCL with VOC dispatch, `LIST`/`SELECT`
   queries driven by dictionaries, select lists that flow between
@@ -42,7 +42,7 @@ Highlights:
 |---|---|
 | `mvx-basic` | compiler and link driver |
 | `mvx` | the classic TCL shell |
-| `mvxd` | the networked storage daemon |
+| `mvx-lmdbd` | the networked storage daemon |
 | `verbs/` | standard verbs (BASIC source) |
 | `packages/` | shipped packages: `cmd`, `git`, `sample` |
 | `examples/` | FSDEMO, SNAKE |

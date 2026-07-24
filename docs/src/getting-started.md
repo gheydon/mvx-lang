@@ -10,7 +10,7 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/llvm
 ninja -C build
 ```
 
-This produces `build/bin/{mvx-basic,mvx,mvxd}`, the runtime and storage
+This produces `build/bin/{mvx-basic,mvx,mvx-lmdbd}`, the runtime and storage
 drivers in `build/lib/`, and the **system account** — the compiled
 standard verbs and master VOC — in `build/system/`.
 

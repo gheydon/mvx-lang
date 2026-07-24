@@ -71,7 +71,7 @@ The compiler and the environment are both well advanced. Highlights:
   two tiers of numeric specialisation over the boxed value
   representation.
 - **Storage** — a pluggable driver contract with embedded LMDB, a
-  networked `mvxd` daemon, and directory backends; dictionaries,
+  networked `mvx-lmdbd` daemon, and directory backends; dictionaries,
   secondary indexes, record locks, and select lists; mixed
   local/remote per file (`CREATE-FILE … USING <driver>`).
 - **Environment** — classic TCL with VOC dispatch, the standard verb
@@ -175,7 +175,7 @@ book.
 - `compiler/` — lexer, parser, LLVM codegen, `mvx-basic` driver (C++17)
 - `runtime/` — value type, arrays, storage, intrinsics (C11);
   `mvx_runtime.h` is the permanent ABI surface
-- `daemon/` — `mvxd`, the networked LMDB storage daemon
+- `daemon/` — `mvx-lmdbd`, the networked LMDB storage daemon
 - `tcl/` — `mvx`, the classic shell
 - `verbs/` — the standard verb set (MVX BASIC)
 - `packages/` — shipped packages (`cmd`, `git`, `sample`)

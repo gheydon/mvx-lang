@@ -72,7 +72,7 @@
 
 ## Networked daemon (ARCHITECTURE.md 4.3)
 
-- **mvxd owns its LMDB environment exclusively** and serialises client
+- **mvx-lmdbd owns its LMDB environment exclusively** and serialises client
   access over unix-socket or TCP; a file is either embedded-access or
   daemon-owned, never both. The daemon speaks raw record bytes — MV
   semantics stay in the client runtime — and links only liblmdb.

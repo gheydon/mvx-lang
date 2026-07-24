@@ -94,7 +94,7 @@ typedef struct mvx_driver {
     int (*index_drop)(mvx_file *f, const char *item);
 
     /* Optional lock authority (may be NULL): a backend that arbitrates
-       between sessions (the mvxd daemon) grants and releases record
+       between sessions (the mvx-lmdbd daemon) grants and releases record
        locks itself; lock returns 0 while another session holds it.
        When NULL, the runtime's process-local lock table applies. */
     int (*lock)(mvx_file *f, const char *id, int64_t idlen);

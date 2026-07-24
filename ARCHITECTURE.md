@@ -631,7 +631,7 @@ common core; treat exotic conversions as a long tail.
 
 - `mvx-basic` — compiler and CLI
 - `mvx` — classic TCL shell (the interactive environment; MVX TCL)
-- `mvxd` — LMDB daemon
+- `mvx-lmdbd` — LMDB daemon
 - MVX BASIC — the language implementation
 - XTCL — extended shell
 

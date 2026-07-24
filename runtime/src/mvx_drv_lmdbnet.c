@@ -13,7 +13,7 @@
 /* lmdbnet driver — the networked transport for LMDB-backed files.
  *
  * Presents the identical storage contract as the embedded driver, but
- * every operation travels to an mvxd daemon.  A file's spec may carry
+ * every operation travels to an mvx-lmdbd daemon.  A file's spec may carry
  * its daemon address ("addr\nspec" — placed by the store from the
  * account's REMOTE bindings); $MVXDAEMON is the default.  One
  * connection per daemon, shared by all its files.  A path means a

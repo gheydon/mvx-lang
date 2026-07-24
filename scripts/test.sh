@@ -485,12 +485,12 @@ EOF
 check tcl-session "$(cd "$ACCT" && \
   MVXACCOUNT=. MVXSESSION="$TESTROOT/sess" "$TESTROOT/progsel" 2>&1)"
 
-# the networked daemon: same account flow through mvxd, plus the lock
+# the networked daemon: same account flow through mvx-lmdbd, plus the lock
 # lease (holder dies without releasing; next session proceeds)
-DSOCK="/tmp/mvxd-test-$$.sock"
+DSOCK="/tmp/mvx-lmdbd-test-$$.sock"
 DACCT="$TESTROOT/dacct"
 mkdir -p "$DACCT"
-"$ROOT/build/bin/mvxd" -d "$TESTROOT/ddata" -s "$DSOCK" 2>/dev/null &
+"$ROOT/build/bin/mvx-lmdbd" -d "$TESTROOT/ddata" -s "$DSOCK" 2>/dev/null &
 DPID=$!
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   [ -S "$DSOCK" ] && break

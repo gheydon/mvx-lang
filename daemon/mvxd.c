@@ -10,7 +10,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-/* mvxd — the networked LMDB daemon (ARCHITECTURE.md 4.3).
+/* mvx-lmdbd — the networked LMDB daemon (ARCHITECTURE.md 4.3).
  *
  * Owns one LMDB environment EXCLUSIVELY and serialises client access:
  * a file is either embedded-access or daemon-owned, never both.  The
@@ -20,7 +20,7 @@
  * short transaction and only then sends it — a slow client never pins
  * a read transaction.
  *
- *   mvxd -d <datadir> (-s <unix-socket> | -p <port>)
+ *   mvx-lmdbd -d <datadir> (-s <unix-socket> | -p <port>)
  *
  * The daemon speaks raw record bytes; MV semantics live in the client
  * runtime.  Requests are handled one at a time — writes serialise
@@ -511,13 +511,13 @@ int main(int argc, char **argv) {
             port = atoi(argv[++i]);
         else {
             fprintf(stderr,
-                    "usage: mvxd -d datadir (-s unix-socket | -p port)\n");
+                    "usage: mvx-lmdbd -d datadir (-s unix-socket | -p port)\n");
             return 2;
         }
     }
     if (!datadir || (!sockpath && port == 0)) {
         fprintf(stderr,
-                "usage: mvxd -d datadir (-s unix-socket | -p port)\n");
+                "usage: mvx-lmdbd -d datadir (-s unix-socket | -p port)\n");
         return 2;
     }
 
@@ -530,7 +530,7 @@ int main(int argc, char **argv) {
     if (mdb_env_create(&g_env) || mdb_env_set_maxdbs(g_env, 126) ||
         mdb_env_set_mapsize(g_env, (size_t)1 << 30) ||
         mdb_env_open(g_env, envpath, 0, 0664)) {
-        fprintf(stderr, "mvxd: cannot open environment at %s\n", envpath);
+        fprintf(stderr, "mvx-lmdbd: cannot open environment at %s\n", envpath);
         return 1;
     }
     int dead = 0;
@@ -545,7 +545,7 @@ int main(int argc, char **argv) {
         unlink(sockpath);
         if (bind(lfd, (struct sockaddr *)&a, sizeof a) != 0 ||
             listen(lfd, 16) != 0) {
-            fprintf(stderr, "mvxd: cannot listen on %s\n", sockpath);
+            fprintf(stderr, "mvx-lmdbd: cannot listen on %s\n", sockpath);
             return 1;
         }
     } else {
@@ -558,11 +558,11 @@ int main(int argc, char **argv) {
         a.sin_port = htons((uint16_t)port);
         if (bind(lfd, (struct sockaddr *)&a, sizeof a) != 0 ||
             listen(lfd, 16) != 0) {
-            fprintf(stderr, "mvxd: cannot listen on port %d\n", port);
+            fprintf(stderr, "mvx-lmdbd: cannot listen on port %d\n", port);
             return 1;
         }
     }
-    fprintf(stderr, "mvxd: serving %s on %s\n", envpath,
+    fprintf(stderr, "mvx-lmdbd: serving %s on %s\n", envpath,
             sockpath ? sockpath : "tcp");
 
     struct pollfd fds[MAX_CONNS + 1];

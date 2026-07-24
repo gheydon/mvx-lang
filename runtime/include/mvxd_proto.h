@@ -10,7 +10,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-/* mvxd wire protocol — shared by the daemon and the lmdbnet driver.
+/* mvx-lmdbd wire protocol — shared by the daemon and the lmdbnet driver.
  *
  * Frames are length-prefixed:
  *   request:  u32 payload-length | u8 op | fields

@@ -7,19 +7,19 @@ The default. Each account directory carries its own
 safely (LMDB single-writer, many readers). Directory files are plain
 directories. Nothing to operate.
 
-## Multi host: mvxd
+## Multi host: mvx-lmdbd
 
 LMDB must never live on a network filesystem. For more than one host,
-`mvxd` owns the environment exclusively and serialises access:
+`mvx-lmdbd` owns the environment exclusively and serialises access:
 
 ```sh
-mvxd -d /var/mvx/data -s /run/mvxd.sock     # or -p 4700 for TCP
+mvx-lmdbd -d /var/mvx/data -s /run/mvx-lmdbd.sock     # or -p 4700 for TCP
 ```
 
 Clients switch with one variable — the promised config swap:
 
 ```sh
-export MVXDAEMON=/run/mvxd.sock             # or host:4700
+export MVXDAEMON=/run/mvx-lmdbd.sock             # or host:4700
 mvx -a /path/to/account
 ```
 
@@ -35,7 +35,7 @@ A file's backend is named at creation:
 ```
 > CREATE-FILE ORDERS                          local LMDB (default)
 > CREATE-FILE ARCHIVE DIR                      directory (git-native source)
-> CREATE-FILE SHARED USING lmdbnet /run/mvxd.sock   networked LMDB
+> CREATE-FILE SHARED USING lmdbnet /run/mvx-lmdbd.sock   networked LMDB
 > CREATE-FILE HOT USING lmdbnet               networked, default $MVXDAEMON
 ```
 
@@ -129,5 +129,5 @@ embedded file and a daemon file coexist in one account.
 `$MVXPRIV` comes from the process environment — system-level
 configuration that account data cannot write. In containers, run app
 sessions stateless with the account on a volume or entirely behind
-`mvxd`, and grant `unrestricted` only where a shell escape is truly
+`mvx-lmdbd`, and grant `unrestricted` only where a shell escape is truly
 needed.
