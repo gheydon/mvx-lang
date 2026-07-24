@@ -1,0 +1,16 @@
+* new string and math intrinsics (SLICE 3 language breadth)
+CRT PWR(2, 10)
+CRT SQRT(144)
+CRT SIN(30)
+CRT COS(0)
+CRT TAN(45)
+CRT ATAN(1)
+CRT EREPLACE("a.b.c", ".", "/")
+CRT SWAP("xyx", "x", "z")
+CRT CONVERT("abc", "ABC", "cabbage")
+CRT "[" : TRIMB("hi   ") : "]"
+CRT "[" : TRIMF("   hi") : "]"
+CRT ALPHA("Smith")
+CRT ALPHA("Sm1th")
+CRT QUOTE("hi")
+CRT SQUOTE("hi")

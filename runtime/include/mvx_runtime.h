@@ -99,6 +99,12 @@ void    mv_substr(mv_value *dst, const mv_value *src, int64_t start,
                   int64_t len);
 void    mv_change_fn(mv_value *dst, const mv_value *src,
                      const mv_value *oldv, const mv_value *newv);
+void    mv_trimb_fn(mv_value *dst, const mv_value *src);
+void    mv_trimf_fn(mv_value *dst, const mv_value *src);
+void    mv_convert_fn(mv_value *dst, const mv_value *fromv,
+                      const mv_value *tov, const mv_value *src);
+int64_t mv_alpha_fn(const mv_value *src);
+void    mv_quote_fn(mv_value *dst, const mv_value *src, int64_t q);
 
 /* --- conversions and formatting ---------------------------------------- */
 void    mv_oconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
@@ -165,6 +171,13 @@ double  mvx_num_system(mvx_ctx *ctx, double code);
 int64_t mvx_list_active(mvx_ctx *ctx);
 double  mvx_num_mod(double a, double b);
 int64_t mvx_num_imod(int64_t a, int64_t b);
+double  mvx_num_pow(double a, double b);
+double  mvx_num_ln(double x);
+double  mvx_num_exp(double x);
+double  mvx_num_sin(double deg);
+double  mvx_num_cos(double deg);
+double  mvx_num_tan(double deg);
+double  mvx_num_atan(double x);
 
 /* --- storage (Slice 2) --------------------------------------------------
    File variables carry MV_FILE tag.  All boolean results are int64:

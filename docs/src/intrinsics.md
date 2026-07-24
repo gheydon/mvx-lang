@@ -16,6 +16,11 @@
 | `NUM(x)` | 1 if x is numeric ("" counts) |
 | `s[start, len]` | substring (operator) |
 | `CHANGE(s, old, new)` | replace every occurrence of old with new |
+| `EREPLACE(s, old, new)` / `SWAP(s, old, new)` | same as CHANGE |
+| `CONVERT(from, to, s)` | translate each char: from[i] -> to[i], deleted when to is shorter |
+| `TRIMB(s)` / `TRIMF(s)` | strip trailing / leading blanks |
+| `ALPHA(s)` | 1 if s is non-empty and all letters |
+| `QUOTE(s)` / `DQUOTE(s)` / `SQUOTE(s)` | wrap in double / double / single quotes |
 | `FMT(x, mask)` | format: `L`/`R` justify, fill `#` space `*` star `%` zero, width — `FMT(N, "R%8")` |
 
 ### Dynamic arrays
@@ -37,6 +42,10 @@ System constants: `@AM`/`@FM` (attribute mark), `@VM` (value mark),
 | `INT(x)` | truncate toward zero |
 | `ABS(x)`, `SQRT(x)` | as expected |
 | `MOD(a, b)` | modulo, sign of b |
+| `PWR(x, y)` | x to the power y (also `x ^ y`) |
+| `LN(x)`, `EXP(x)` | natural log and its inverse |
+| `SIN(d)`, `COS(d)`, `TAN(d)` | trigonometry, argument in **degrees** |
+| `ATAN(x)` | arctangent, result in **degrees** |
 | `RND(n)` | random 0 .. n-1 |
 
 ### Date and time

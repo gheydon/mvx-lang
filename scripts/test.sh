@@ -99,6 +99,7 @@ lang case
 lang dynarr
 lang conv
 lang strfns world
+lang strmath
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)

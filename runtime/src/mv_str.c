@@ -100,6 +100,74 @@ void mv_trim_fn(mv_value *dst, const mv_value *src) {
     free(buf);
 }
 
+/* TRIMB — remove trailing spaces/tabs only. */
+void mv_trimb_fn(mv_value *dst, const mv_value *src) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    int64_t n = s.len;
+    while (n > 0 && (s.p[n - 1] == ' ' || s.p[n - 1] == '\t')) n--;
+    mv_set_str(dst, s.p, n);
+}
+
+/* TRIMF — remove leading spaces/tabs only. */
+void mv_trimf_fn(mv_value *dst, const mv_value *src) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    int64_t i = 0;
+    while (i < s.len && (s.p[i] == ' ' || s.p[i] == '\t')) i++;
+    mv_set_str(dst, s.p + i, s.len - i);
+}
+
+/* CONVERT(from, to, str) — translate each character of str: a char found
+ * at position i of `from` becomes to[i], or is deleted when `to` is
+ * shorter; characters not in `from` pass through unchanged. */
+void mv_convert_fn(mv_value *dst, const mv_value *fromv,
+                   const mv_value *tov, const mv_value *src) {
+    char fb[40], tb[40], sb[40];
+    span from = val_span(fromv, fb, sizeof fb);
+    span to = val_span(tov, tb, sizeof tb);
+    span s = val_span(src, sb, sizeof sb);
+    char *buf = malloc(s.len ? (size_t)s.len : 1);
+    if (!buf) mvx_fatal("out of memory in CONVERT");
+    int64_t out = 0;
+    for (int64_t i = 0; i < s.len; i++) {
+        char c = s.p[i];
+        int64_t j = -1;
+        for (int64_t k = 0; k < from.len; k++)
+            if (from.p[k] == c) { j = k; break; }
+        if (j < 0) buf[out++] = c;
+        else if (j < to.len) buf[out++] = to.p[j];
+        /* j >= to.len: the character is deleted */
+    }
+    mv_set_str(dst, buf, out);
+    free(buf);
+}
+
+/* ALPHA — 1 when the string is non-empty and all letters, else 0. */
+int64_t mv_alpha_fn(const mv_value *src) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    if (s.len == 0) return 0;
+    for (int64_t i = 0; i < s.len; i++) {
+        char c = s.p[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return 0;
+    }
+    return 1;
+}
+
+/* QUOTE/DQUOTE/SQUOTE — wrap the string in the quote character q. */
+void mv_quote_fn(mv_value *dst, const mv_value *src, int64_t q) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    char *buf = malloc((size_t)s.len + 2);
+    if (!buf) mvx_fatal("out of memory in QUOTE");
+    buf[0] = (char)q;
+    if (s.len) memcpy(buf + 1, s.p, (size_t)s.len);
+    buf[s.len + 1] = (char)q;
+    mv_set_str(dst, buf, s.len + 2);
+    free(buf);
+}
+
 void mv_field_fn(mv_value *dst, const mv_value *src, const mv_value *delim,
                  int64_t n, int64_t cnt) {
     char nb[40], db[40];

@@ -372,6 +372,17 @@ int64_t mvx_num_imod(int64_t a, int64_t b) {
     return r;
 }
 
+/* Numeric intrinsics.  __builtin_* map to libm without pulling in the
+ * header.  Pick trigonometry works in degrees, not radians. */
+#define MVX_DEG (3.14159265358979323846 / 180.0)
+double mvx_num_pow(double a, double b) { return __builtin_pow(a, b); }
+double mvx_num_ln(double x)   { return __builtin_log(x); }
+double mvx_num_exp(double x)  { return __builtin_exp(x); }
+double mvx_num_sin(double d)  { return __builtin_sin(d * MVX_DEG); }
+double mvx_num_cos(double d)  { return __builtin_cos(d * MVX_DEG); }
+double mvx_num_tan(double d)  { return __builtin_tan(d * MVX_DEG); }
+double mvx_num_atan(double x) { return __builtin_atan(x) / MVX_DEG; }
+
 void mv_mod_fn(mv_value *dst, const mv_value *a, const mv_value *b) {
     if (a->tag == MV_INT && b->tag == MV_INT) {
         if (b->i == 0) { mv_set_int(dst, a->i); return; }  /* MV: MOD(x,0)=x */

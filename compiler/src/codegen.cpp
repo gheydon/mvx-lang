@@ -51,6 +51,7 @@ namespace {
 
 const std::set<std::string> kIntrinsics = {
     "TIME", "SYSTEM", "INT", "SQRT", "ABS", "MOD",
+    "PWR", "LN", "EXP", "SIN", "COS", "TAN", "ATAN",
 };
 
 // String-valued dynamic-array intrinsics (boxed path only).
@@ -60,7 +61,7 @@ const std::set<std::string> kStrIntrinsics = {
 
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
-    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS",
+    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND",
     "OSWRITE", "OSDELETE", "EDITFILE",
@@ -169,7 +170,9 @@ public:
                 if (!numericExpr(*a)) return NK::NotNum;
             const std::string &f = e.sval;
             if (f == "TIME" || f == "SYSTEM" || f == "INT") return NK::Int;
-            if (f == "SQRT") return NK::Dbl;
+            if (f == "SQRT" || f == "PWR" || f == "LN" || f == "EXP" ||
+                f == "SIN" || f == "COS" || f == "TAN" || f == "ATAN")
+                return NK::Dbl;
             if (f == "ABS")  return kindOf(*e.args[0]);
             /* MOD */
             return joinNK(kindOf(*e.args[0]), kindOf(*e.args[1]));
@@ -600,6 +603,9 @@ private:
             if (f == "NUM" && e.args.size() == 1)
                 return callRt("mv_num_fn", i64Ty_, {ptrTy_},
                               {evalPtr(*e.args[0])});
+            if (f == "ALPHA" && e.args.size() == 1)
+                return callRt("mv_alpha_fn", i64Ty_, {ptrTy_},
+                              {evalPtr(*e.args[0])});
             if (f == "INDEX" && e.args.size() == 3)
                 return callRt("mv_index_fn", i64Ty_,
                               {ptrTy_, ptrTy_, i64Ty_},
@@ -666,6 +672,25 @@ private:
                 return asI64(*e.args[0]);   // fptosi_sat truncates to zero
             if (f == "SQRT")
                 return fpIntrinsic(Intrinsic::sqrt, {asDbl(*e.args[0])});
+            {
+                struct { const char *nm, *rt; int arity; } maths[] = {
+                    {"PWR", "mvx_num_pow", 2}, {"LN", "mvx_num_ln", 1},
+                    {"EXP", "mvx_num_exp", 1}, {"SIN", "mvx_num_sin", 1},
+                    {"COS", "mvx_num_cos", 1}, {"TAN", "mvx_num_tan", 1},
+                    {"ATAN", "mvx_num_atan", 1},
+                };
+                for (auto &m : maths) {
+                    if (f != m.nm) continue;
+                    if ((int)e.args.size() != m.arity)
+                        err(e.line, f + "() takes " +
+                                        std::to_string(m.arity) + " argument(s)");
+                    if (m.arity == 2)
+                        return callRt(m.rt, dblTy_, {dblTy_, dblTy_},
+                                      {asDbl(*e.args[0]), asDbl(*e.args[1])});
+                    return callRt(m.rt, dblTy_, {dblTy_},
+                                  {asDbl(*e.args[0])});
+                }
+            }
             if (f == "ABS") {
                 const Expr &a = *e.args[0];
                 if (num_.kindOf(a) == NK::Int) {
@@ -864,6 +889,29 @@ private:
             return; }
         if (f == "TRIM") { need(1);
             call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
+            return; }
+        if (f == "TRIMB") { need(1);
+            call2("mv_trimb_fn", dest, evalPtr(*e.args[0]));
+            return; }
+        if (f == "TRIMF") { need(1);
+            call2("mv_trimf_fn", dest, evalPtr(*e.args[0]));
+            return; }
+        if (f == "CONVERT") { need(3);
+            callRt("mv_convert_fn", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    evalPtr(*e.args[2])});
+            return; }
+        if (f == "EREPLACE" || f == "SWAP") { need(3);
+            callRt("mv_change_fn", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    evalPtr(*e.args[2])});
+            return; }
+        if (f == "QUOTE" || f == "DQUOTE" || f == "SQUOTE") { need(1);
+            callRt("mv_quote_fn", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
+                   {dest, evalPtr(*e.args[0]),
+                    ConstantInt::get(i64Ty_, f == "SQUOTE" ? '\'' : '"')});
             return; }
         if (f == "ENV") { need(1);
             call2("mv_env", dest, evalPtr(*e.args[0]));
