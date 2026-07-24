@@ -190,7 +190,7 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
     if (sl == 0 || ol == 0) return -1;
 
     char mvx[4096], srcbuf[1024], outbuf[1024];
-    snprintf(mvx, sizeof mvx, "%s/mvx", bin_dir());
+    snprintf(mvx, sizeof mvx, "%s/mvx-basic", bin_dir());
     snprintf(srcbuf, sizeof srcbuf, "%.*s", (int)sl, sp);
     snprintf(outbuf, sizeof outbuf, "%.*s", (int)ol, op);
     if (mp[0] == 's' || mp[0] == 'S') {
@@ -219,7 +219,7 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
 }
 
 /* --- EXECUTE — run a TCL sentence (allowed at every tier) --------------
-   Dispatch stays in one place: spawn mvx-tcl -c <sentence>.  A `!` in
+   Dispatch stays in one place: spawn mvx -c <sentence>.  A `!` in
    the sentence is gated inside the child by this same module. */
 
 int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
@@ -230,7 +230,7 @@ int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
     int64_t sl = mv_val_chars(sentence, nb, sizeof nb, &sp);
 
     char tcl[4096], sent[4096];
-    snprintf(tcl, sizeof tcl, "%s/mvx-tcl", bin_dir());
+    snprintf(tcl, sizeof tcl, "%s/mvx", bin_dir());
     snprintf(sent, sizeof sent, "%.*s", (int)sl, sp);
 
     char *argv[5];

@@ -15,6 +15,6 @@ mvxdata.lmdb/
 # tt/ is a throwaway scratch account.
 tt/
 # The repo root is the source tree, not an MVX account: ignore a stray
-# descriptor left by running mvx-tcl here (real accounts still track
+# descriptor left by running mvx here (real accounts still track
 # their own .mvx).
 /.mvx

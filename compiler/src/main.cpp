@@ -59,14 +59,14 @@ fs::path exeDir() {
 fs::path runtimeLibDir() {
     fs::path lib = exeDir().parent_path() / "lib";
     if (fs::exists(lib / "libmvxrt.a")) return lib;
-    std::cerr << "mvx: cannot find runtime library near " << exeDir()
+    std::cerr << "mvx-basic: cannot find runtime library near " << exeDir()
               << "\n";
     exit(1);
 }
 
 int usage() {
     std::cerr <<
-        "usage: mvx [options] file.b [file.b|file.o ...]\n"
+        "usage: mvx-basic [options] file.b [file.b|file.o ...]\n"
         "  -c           compile to object only (no link)\n"
         "  -o <path>    output path\n"
         "  -shared      produce a shared subroutine library\n"
@@ -112,11 +112,11 @@ int main(int argc, char **argv) {
     }
     if (sources.empty() && objects.empty()) return usage();
     if (compileOnly && shared) {
-        std::cerr << "mvx: -c and -shared are mutually exclusive\n";
+        std::cerr << "mvx-basic: -c and -shared are mutually exclusive\n";
         return 2;
     }
     if (compileOnly && sources.size() > 1 && !outPath.empty()) {
-        std::cerr << "mvx: -c with -o takes a single source file\n";
+        std::cerr << "mvx-basic: -c with -o takes a single source file\n";
         return 2;
     }
 
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
     for (const std::string &src : sources) {
         std::ifstream in(src);
         if (!in) {
-            std::cerr << "mvx: cannot open " << src << "\n";
+            std::cerr << "mvx-basic: cannot open " << src << "\n";
             return 1;
         }
         std::stringstream ss;
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
                 std::vector<char> buf(tmpl.begin(), tmpl.end());
                 buf.push_back('\0');
                 if (!mkdtemp(buf.data())) {
-                    std::cerr << "mvx: cannot create temp directory\n";
+                    std::cerr << "mvx-basic: cannot create temp directory\n";
                     return 1;
                 }
                 tmpDir = buf.data();
@@ -223,7 +223,7 @@ int main(int argc, char **argv) {
         fs::remove_all(tmpDir, ec);
     }
     if (rc != 0) {
-        std::cerr << "mvx: link failed\n";
+        std::cerr << "mvx-basic: link failed\n";
         return 1;
     }
     return 0;

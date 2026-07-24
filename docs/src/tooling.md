@@ -1,14 +1,14 @@
 # Tooling
 
-## The mvx compiler driver
+## The mvx-basic compiler driver
 
 ```sh
-mvx prog.b -o prog                 # compile and link an executable
-mvx -c prog.b -o prog.o            # compile only
-mvx -shared sub.b -o libsub        # subroutine shared library
-mvx main.b sub1.b sub2.b -o prog   # multi-source build
-mvx -O0|-O1|-O2 ...                # optimisation (default -O2)
-mvx --emit-llvm ...                # also write textual IR
+mvx-basic prog.b -o prog                 # compile and link an executable
+mvx-basic -c prog.b -o prog.o            # compile only
+mvx-basic -shared sub.b -o libsub        # subroutine shared library
+mvx-basic main.b sub1.b sub2.b -o prog   # multi-source build
+mvx-basic -O0|-O1|-O2 ...                # optimisation (default -O2)
+mvx-basic --emit-llvm ...                # also write textual IR
 ```
 
 Errors: `item:line: message` on stderr. DWARF debug info is always

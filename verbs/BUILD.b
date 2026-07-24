@@ -21,7 +21,7 @@
 *   3. imports each tracked dictionary into the new file;
 *   4. catalogs BP source into runnable verbs;
 *   5. links the packages listed in PACKAGES.
-* Run it in a freshly cloned directory: mvx-tcl -a . -c BUILD (developer
+* Run it in a freshly cloned directory: mvx -a . -c BUILD (developer
 * privilege, for cataloging).
 JUNK = CREATEFILE("VOC")
 * the .mvx descriptor marks this as an account (the VOC is not a

@@ -40,8 +40,8 @@ Highlights:
 
 | | |
 |---|---|
-| `mvx` | compiler and link driver |
-| `mvx-tcl` | the classic TCL shell |
+| `mvx-basic` | compiler and link driver |
+| `mvx` | the classic TCL shell |
 | `mvxd` | the networked storage daemon |
 | `verbs/` | standard verbs (BASIC source) |
 | `packages/` | shipped packages: `cmd`, `git`, `sample` |

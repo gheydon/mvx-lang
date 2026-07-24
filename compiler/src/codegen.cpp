@@ -1778,7 +1778,7 @@ private:
         // vendor-reserved range.  Debuggers step by line table regardless.
         DICompileUnit *cu = dib_.createCompileUnit(
             DISourceLanguageName(dwarf::DW_LANG_lo_user), diFile_,
-            "mvx 0.1.0", opts_.optLevel > 0, "", 0);
+            "mvx-basic 0.1.0", opts_.optLevel > 0, "", 0);
         (void)cu;
 
         DIType *i64d = dib_.createBasicType("INT64", 64,

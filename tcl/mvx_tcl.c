@@ -277,7 +277,7 @@ static int voc_lookup(const char *verb, char *path, size_t cap) {
 static void run_verb(const char *path, const char *line) {
     pid_t pid = fork();
     if (pid < 0) {
-        perror("mvx-tcl: fork");
+        perror("mvx: fork");
         return;
     }
     if (pid == 0) {
@@ -290,7 +290,7 @@ static void run_verb(const char *path, const char *line) {
             argv[n++] = t;
         argv[n] = NULL;
         execv(path, argv);
-        fprintf(stderr, "mvx-tcl: cannot execute %s\n", path);
+        fprintf(stderr, "mvx: cannot execute %s\n", path);
         _exit(127);
     }
     int st;
@@ -360,7 +360,7 @@ static void command(char *line) {
         return;
     }
     if (r < 0)
-        fprintf(stderr, "mvx-tcl: no VOC found in this account or the "
+        fprintf(stderr, "mvx: no VOC found in this account or the "
                         "system account (%s); only builtins are "
                         "available\n", system_dir());
     else
@@ -377,7 +377,7 @@ int main(int argc, char **argv) {
         else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc)
             one_cmd = argv[++i];
         else {
-            fprintf(stderr, "usage: mvx-tcl [-a account] [-c command]\n");
+            fprintf(stderr, "usage: mvx [-a account] [-c command]\n");
             return 2;
         }
     }
@@ -387,7 +387,7 @@ int main(int argc, char **argv) {
     if (!acct) acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
     if (chdir(acct) != 0) {
-        fprintf(stderr, "mvx-tcl: cannot enter account %s\n", acct);
+        fprintf(stderr, "mvx: cannot enter account %s\n", acct);
         return 1;
     }
     setenv("MVXACCOUNT", ".", 1);       /* children resolve from cwd */

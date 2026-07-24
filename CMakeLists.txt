@@ -65,16 +65,16 @@ set_target_properties(mvxd PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- classic TCL shell -------------------------------------------------
-add_executable(mvx-tcl tcl/mvx_tcl.c)
-target_link_libraries(mvx-tcl PRIVATE mvxrt ${CMAKE_DL_LIBS})
+add_executable(mvx tcl/mvx_tcl.c)
+target_link_libraries(mvx PRIVATE mvxrt ${CMAKE_DL_LIBS})
 find_library(EDITLINE_LIBRARY edit)
 if(EDITLINE_LIBRARY)
-  target_compile_definitions(mvx-tcl PRIVATE HAVE_EDITLINE)
-  target_link_libraries(mvx-tcl PRIVATE ${EDITLINE_LIBRARY})
+  target_compile_definitions(mvx PRIVATE HAVE_EDITLINE)
+  target_link_libraries(mvx PRIVATE ${EDITLINE_LIBRARY})
 endif()
-target_compile_definitions(mvx-tcl PRIVATE
+target_compile_definitions(mvx PRIVATE
   MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
-set_target_properties(mvx-tcl PROPERTIES
+set_target_properties(mvx PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- system account: the source of truth for standard verbs ------------
@@ -88,8 +88,8 @@ foreach(vsrc ${MVX_VERB_SOURCES})
   get_filename_component(vname ${vsrc} NAME_WE)
   add_custom_command(OUTPUT ${MVX_SYS_DIR}/CATALOG/${vname}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${MVX_SYS_DIR}/CATALOG
-    COMMAND $<TARGET_FILE:mvx> ${vsrc} -o ${MVX_SYS_DIR}/CATALOG/${vname}
-    DEPENDS mvx mvxrt mvx_crt mvxdrv_dir mvxdrv_lmdb ${vsrc}
+    COMMAND $<TARGET_FILE:mvx-basic> ${vsrc} -o ${MVX_SYS_DIR}/CATALOG/${vname}
+    DEPENDS mvx-basic mvxrt mvx_crt mvxdrv_dir mvxdrv_lmdb ${vsrc}
     COMMENT "Cataloging ${vname}")
   list(APPEND MVX_SYS_VERBS ${MVX_SYS_DIR}/CATALOG/${vname})
 endforeach()
@@ -102,7 +102,7 @@ add_custom_target(system-account ALL
 # --- tests -------------------------------------------------------------
 add_custom_target(check
   COMMAND ${CMAKE_SOURCE_DIR}/scripts/test.sh
-  DEPENDS mvx mvx-tcl system-account mvxdrv_dir mvxdrv_lmdb mvx_crt
+  DEPENDS mvx-basic mvx system-account mvxdrv_dir mvxdrv_lmdb mvx_crt
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   USES_TERMINAL)
 
@@ -119,17 +119,17 @@ add_custom_command(
 add_custom_target(mvx_crt ALL DEPENDS ${CMAKE_BINARY_DIR}/lib/mvx_crt.o)
 
 # --- compiler ----------------------------------------------------------
-add_executable(mvx
+add_executable(mvx-basic
   compiler/src/main.cpp
   compiler/src/lexer.cpp
   compiler/src/parser.cpp
   compiler/src/codegen.cpp)
-target_include_directories(mvx SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
-target_compile_definitions(mvx PRIVATE ${LLVM_DEFINITIONS_LIST})
-set_target_properties(mvx PROPERTIES
+target_include_directories(mvx-basic SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
+target_compile_definitions(mvx-basic PRIVATE ${LLVM_DEFINITIONS_LIST})
+set_target_properties(mvx-basic PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-add_dependencies(mvx mvxrt mvx_crt)
+add_dependencies(mvx-basic mvxrt mvx_crt)
 
 llvm_map_components_to_libnames(LLVM_LIBS
   core support passes native irreader targetparser)
-target_link_libraries(mvx PRIVATE ${LLVM_LIBS})
+target_link_libraries(mvx-basic PRIVATE ${LLVM_LIBS})

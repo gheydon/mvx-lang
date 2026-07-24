@@ -4,7 +4,7 @@
     {
       "label": "mvx: compile current file",
       "type": "shell",
-      "command": "${workspaceFolder}/build/bin/mvx",
+      "command": "${workspaceFolder}/build/bin/mvx-basic",
       "args": ["-c", "${file}", "-o", "/tmp/${fileBasename}.o"],
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": "$mvx"

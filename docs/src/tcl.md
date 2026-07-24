@@ -1,11 +1,11 @@
 # TCL and Verbs
 
-`mvx-tcl` is the classic shell: a prompt, a builtin table, VOC
+`mvx` is the classic shell: a prompt, a builtin table, VOC
 dispatch, and nothing else. Verbs are compiled BASIC programs.
 
 ```sh
-mvx-tcl -a /path/to/account          # log on to an account
-mvx-tcl -a acct -c "LIST PARTS"      # one command (ssh/cron style)
+mvx -a /path/to/account          # log on to an account
+mvx -a acct -c "LIST PARTS"      # one command (ssh/cron style)
 ```
 
 Interactive sessions have arrow-key history (persisted in

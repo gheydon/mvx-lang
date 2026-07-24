@@ -108,7 +108,7 @@
 
 ## Slice 3 — TCL
 
-- **The C shell is dispatch only.** `mvx-tcl` implements the prompt,
+- **The C shell is dispatch only.** `mvx` implements the prompt,
   the builtin table (OFF/QUIT/BYE, `!`), VOC lookup, and fork/exec of
   cataloged executables — nothing else. Verbs are compiled BASIC
   programs in `CATALOG/`, named by VOC records (attr 1 `V`, attr 2
@@ -161,12 +161,12 @@
   every tier; raw Unix needs unrestricted; compiling needs developer.
   All spawns are argv-style (`execv`), never through a shell, except
   the explicitly-unrestricted raw passthrough.
-- **EXECUTE spawns `mvx-tcl -c`** so there is exactly one dispatcher in
+- **EXECUTE spawns `mvx -c`** so there is exactly one dispatcher in
   the system. CAPTURING collects stdout as a dynamic array (line ↔
   attribute); RETURNING receives the exit status (deviation from
   classic error-number lists, documented). Select-list passing across
   EXECUTE is deferred until session-state classification (6.6) exists.
-- **Select lists cross processes through the session file.** `mvx-tcl`
+- **Select lists cross processes through the session file.** `mvx`
   owns `$MVXSESSION` (created only when not inherited, so nested
   EXECUTE shares the outer session). A program exiting with an
   unconsumed select list persists the remainder there; the next
@@ -339,6 +339,6 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
 - **DWARF**: emitted always (no `-g` flag needed to opt in),
   `DW_LANG_BASIC`, one `DISubprogram` per program/subroutine, line table
   against the `.b` source.
-- **Driver**: `mvx -c prog.b -o prog.o` (object), `mvx prog.b -o prog`
-  (compile+link executable), `mvx -shared sub.b -o libsub.dylib`.
+- **Driver**: `mvx-basic -c prog.b -o prog.o` (object), `mvx-basic prog.b -o prog`
+  (compile+link executable), `mvx-basic -shared sub.b -o libsub.dylib`.
   Errors to stderr as `item:line: message`.

@@ -20,7 +20,7 @@
 * dictionaries, BP source is cataloged, and packages are linked.  A
 * file the manifest marks "dir" is left as a directory file on purpose.
 * Run in the clone with developer privilege:
-*    scripts/mvx-convert.sh <account>   (or: mvx-tcl -a . -c CONVERT-ACCOUNT)
+*    scripts/mvx-convert.sh <account>   (or: mvx -a . -c CONVERT-ACCOUNT)
 OPEN "." TO ACC ELSE
    PRINT "cannot open the account directory"
    STOP

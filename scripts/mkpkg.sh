@@ -58,14 +58,14 @@ for src in "$PKG"/BP/*; do
     SUBS="$SUBS $src"
     echo "  bundling $name"
   else
-    "$ROOT/build/bin/mvx" "$src" -o "$PKG/CATALOG/$name"
+    "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
     echo "  cataloged $name"
   fi
 done
 if [ -n "$SUBS" ]; then
   mkdir -p "$PKG/LIB"
   # shellcheck disable=SC2086
-  "$ROOT/build/bin/mvx" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
+  "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
   echo "  built LIB/lib$PKGNAME.$EXT"
 fi
 

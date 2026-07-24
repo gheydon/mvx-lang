@@ -21,5 +21,5 @@ ACCT="${1:?usage: mvx-convert.sh <account-directory>}"
 
 [ -d "$ACCT" ] || { echo "mvx-convert: $ACCT does not exist" >&2; exit 1; }
 
-MVXPRIV=developer "$ROOT/build/bin/mvx-tcl" -a "$ACCT" -c "CONVERT-ACCOUNT"
+MVXPRIV=developer "$ROOT/build/bin/mvx" -a "$ACCT" -c "CONVERT-ACCOUNT"
 echo "converted: $ACCT"

@@ -136,7 +136,7 @@ files. `BUILD` provisions a working account from what is there:
 
 ```sh
 git clone <account-repo> mysite && cd mysite
-mvx-tcl -a . -c BUILD          # developer privilege (it catalogs)
+mvx -a . -c BUILD          # developer privilege (it catalogs)
 ```
 
 `BUILD`:

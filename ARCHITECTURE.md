@@ -33,7 +33,7 @@ runtime) is the only part currently in scope for implementation.
 ```
   BASIC source
        |
-  [ mvx compiler ]  frontend -> AST -> LLVM IR -> object
+  [ mvx-basic compiler ]  frontend -> AST -> LLVM IR -> object
        |
   [ runtime library ]  dynamic strings, arrays, I/O, EXECUTE, locks
        |
@@ -172,7 +172,7 @@ No storage, no locks, no `EXECUTE`.
 - **Debug info**: emit DWARF via `DIBuilder` from the start, mapping to
   BASIC source lines. Retrofitting debug info is far harder than emitting
   it as you go.
-- **Driver CLI**: `mvx -c prog.b -o prog.o`, plus linking to executable or
+- **Driver CLI**: `mvx-basic -c prog.b -o prog.o`, plus linking to executable or
   `-shared` for subroutine libraries. Errors on stderr in a parseable form
   (item, line, message) — the `BASIC` verb will depend on this contract
   later.
@@ -381,7 +381,7 @@ commands.
 ### 6.4 The `BASIC` verb
 
 A short BASIC program: resolve `filename itemname` to a source record,
-spawn the `mvx` compiler, parse the result, report errors in classic
+spawn the `mvx-basic` compiler, parse the result, report errors in classic
 format. It reimplements nothing.
 
 Preserve the classic split: **`BASIC` compiles to an object; `CATALOG`
@@ -430,7 +430,7 @@ on to an account, Pick-style. Requirements commonly missed:
 
 ### 7.2 Admin invocation
 
-`cd` to an account directory and run `mvx-tcl`. Account context comes from
+`cd` to an account directory and run `mvx`. Account context comes from
 the working directory rather than a logon prompt.
 
 Resolution order: explicit `-a account` flag, then `MVXACCOUNT` env var,
@@ -629,10 +629,10 @@ common core; treat exotic conversions as a long tail.
 
 ## 11. Naming
 
-- `mvx` — compiler and CLI
+- `mvx-basic` — compiler and CLI
+- `mvx` — classic TCL shell (the interactive environment; MVX TCL)
 - `mvxd` — LMDB daemon
 - MVX BASIC — the language implementation
-- MVX TCL — classic shell
 - XTCL — extended shell
 
 Note: "MVX" is used elsewhere (MvvmCross shorthand in the .NET community,

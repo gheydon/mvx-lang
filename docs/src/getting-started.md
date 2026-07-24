@@ -10,7 +10,7 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/llvm
 ninja -C build
 ```
 
-This produces `build/bin/{mvx,mvx-tcl,mvxd}`, the runtime and storage
+This produces `build/bin/{mvx-basic,mvx,mvxd}`, the runtime and storage
 drivers in `build/lib/`, and the **system account** — the compiled
 standard verbs and master VOC — in `build/system/`.
 
@@ -32,7 +32,7 @@ FOR I = 1 TO 3
    PRINT "counting ":I
 NEXT I
 EOF
-build/bin/mvx hello.b -o hello && ./hello
+build/bin/mvx-basic hello.b -o hello && ./hello
 ```
 
 Compile errors arrive on stderr as `item:line: message`. Debugging
@@ -43,7 +43,7 @@ works out of the box: `lldb ./hello`, then `b hello.b:5`, `run`.
 An account is a directory holding MV files. Log on to a directory:
 
 ```sh
-build/bin/mvx-tcl -a myaccount
+build/bin/mvx -a myaccount
 ```
 
 If the directory is not yet an MVX account, an interactive session
@@ -84,7 +84,7 @@ Edit `myaccount/BP/MYPROG` with any editor (it is a plain text file),
 then — with developer privilege — compile and publish it as a verb:
 
 ```sh
-MVXPRIV=developer build/bin/mvx-tcl -a myaccount
+MVXPRIV=developer build/bin/mvx -a myaccount
 myaccount> BASIC BP MYPROG        (compile only - syntax check)
 myaccount> CATALOG BP MYPROG      (compile, link, add to the VOC)
 myaccount> MYPROG SOME ARGS

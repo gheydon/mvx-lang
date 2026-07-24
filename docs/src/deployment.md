@@ -20,7 +20,7 @@ Clients switch with one variable — the promised config swap:
 
 ```sh
 export MVXDAEMON=/run/mvxd.sock             # or host:4700
-mvx-tcl -a /path/to/account
+mvx -a /path/to/account
 ```
 
 With only `$MVXDAEMON` set, every LMDB-backed file — data,

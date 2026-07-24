@@ -91,7 +91,7 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/llvm
 ninja -C build
 ```
 
-Produces `build/bin/mvx`, `build/bin/mvx-tcl`, the runtime in
+Produces `build/bin/mvx-basic`, `build/bin/mvx`, the runtime in
 `build/lib/`, and the system account (standard verbs) in
 `build/system/`.
 
@@ -109,10 +109,10 @@ and review the diff.
 ## Use
 
 ```sh
-build/bin/mvx prog.b -o prog          # compile + link executable
-build/bin/mvx -c prog.b -o prog.o     # compile to object only
-build/bin/mvx -shared subs.b -o libsubs.dylib   # subroutine library
-build/bin/mvx prog.b subs.b -o prog   # main + subroutines together
+build/bin/mvx-basic prog.b -o prog          # compile + link executable
+build/bin/mvx-basic -c prog.b -o prog.o     # compile to object only
+build/bin/mvx-basic -shared subs.b -o libsubs.dylib   # subroutine library
+build/bin/mvx-basic prog.b subs.b -o prog   # main + subroutines together
 ```
 
 Compile errors go to stderr as `item:line: message`.
@@ -128,8 +128,8 @@ lldb prog
 ## Trying it
 
 ```sh
-build/bin/mvx tests/smoke.b -o /tmp/smoke && /tmp/smoke
-build/bin/mvx bench/sieve.b -o /tmp/sieve && /tmp/sieve
+build/bin/mvx-basic tests/smoke.b -o /tmp/smoke && /tmp/smoke
+build/bin/mvx-basic bench/sieve.b -o /tmp/sieve && /tmp/sieve
 ```
 
 ## Examples
@@ -147,8 +147,8 @@ terminal support (KEYIN, cursor/screen control, colour):
   `LOCATE` / `INSERT` / `DELETE`.
 
 ```sh
-build/bin/mvx examples/SNAKE.b -o /tmp/snake && /tmp/snake
-build/bin/mvx examples/FSDEMO.b -o /tmp/fsdemo && /tmp/fsdemo
+build/bin/mvx-basic examples/SNAKE.b -o /tmp/snake && /tmp/snake
+build/bin/mvx-basic examples/FSDEMO.b -o /tmp/fsdemo && /tmp/fsdemo
 ```
 
 ## The environment
@@ -157,7 +157,7 @@ Create an account and log on to the classic shell:
 
 ```sh
 scripts/mkaccount.sh myaccount
-build/bin/mvx-tcl -a myaccount
+build/bin/mvx -a myaccount
 ```
 
 ```
@@ -172,11 +172,11 @@ book.
 
 ## Layout
 
-- `compiler/` — lexer, parser, LLVM codegen, `mvx` driver (C++17)
+- `compiler/` — lexer, parser, LLVM codegen, `mvx-basic` driver (C++17)
 - `runtime/` — value type, arrays, storage, intrinsics (C11);
   `mvx_runtime.h` is the permanent ABI surface
 - `daemon/` — `mvxd`, the networked LMDB storage daemon
-- `tcl/` — `mvx-tcl`, the classic shell
+- `tcl/` — `mvx`, the classic shell
 - `verbs/` — the standard verb set (MVX BASIC)
 - `packages/` — shipped packages (`cmd`, `git`, `sample`)
 - `docs/` — the MVX book (mdBook)

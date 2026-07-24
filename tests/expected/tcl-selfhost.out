@@ -2,6 +2,6 @@ not allowed: compiling requires developer privilege
 [247] compilation of HELLO failed
 ld: open() failed, errno=2 (No such file or directory) for 'CATALOG/HELLO'
 clang: error: linker command failed with exit code 1 (use -v to see invocation)
-mvx: link failed
+mvx-basic: link failed
 [247] compilation of HELLO failed
 verb "HELLO" not found

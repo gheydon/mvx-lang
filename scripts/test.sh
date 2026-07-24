@@ -22,8 +22,8 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MVX="$ROOT/build/bin/mvx"
-TCL="$ROOT/build/bin/mvx-tcl"
+MVX="$ROOT/build/bin/mvx-basic"
+TCL="$ROOT/build/bin/mvx"
 EXP="$ROOT/tests/expected"
 
 BLESS=0
