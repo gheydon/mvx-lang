@@ -84,6 +84,8 @@ void      mv_arr_destroy(mv_array *a);
 mv_value *mv_arr_elem(mv_array *a, int64_t i, int64_t j); /* 1-based, checked */
 void      mv_arr_fill(mv_array *a, const mv_value *val);
 void      mv_arr_copy(mv_array *dst, const mv_array *src); /* dims must match */
+void      mv_matparse(mv_array *a, const mv_value *rec);   /* MATREAD split */
+void      mv_matbuild(const mv_array *a, mv_value *dst);    /* MATWRITE join */
 
 /* --- string intrinsics ------------------------------------------------- */
 void    mv_char_fn(mv_value *dst, int64_t code);

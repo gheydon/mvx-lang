@@ -73,6 +73,8 @@ struct Stmt {
         Open,       // args: [dict,] spec; name: file var; THEN/ELSE
         ReadF,      // target: record var; args: file, id; name: "U" locks
         WriteF,     // value: record; args: file, id; name: "U" keeps lock
+        MatRead,    // name: array; args: file, id; name2: "U" locks; THEN/ELSE
+        MatWrite,   // name: array; args: file, id; name2: "U" keeps lock
         DeleteF,    // args: file, id
         Release,    // args: [file, id] — bare releases all
         Select,     // args: file

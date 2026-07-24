@@ -641,6 +641,29 @@ void mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
     }
 }
 
+/* MATREAD arr FROM file, id: read the record and distribute its fields
+   across the dimensioned array.  Returns found (drives THEN/ELSE); the
+   array is left untouched when the record is absent. */
+int64_t mvx_matread(mvx_ctx *ctx, mv_array *arr, const mv_value *fvar,
+                    const mv_value *id, int64_t lock) {
+    mv_value rec;
+    mv_init(&rec);
+    int64_t found = mvx_read(ctx, &rec, fvar, id, lock);
+    if (found) mv_matparse(arr, &rec);
+    mv_clear(&rec);
+    return found;
+}
+
+/* MATWRITE arr ON file, id: join the array into a record and write it. */
+void mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
+                  const mv_value *id, int64_t keep_lock) {
+    mv_value rec;
+    mv_init(&rec);
+    mv_matbuild(arr, &rec);
+    mvx_write(ctx, &rec, fvar, id, keep_lock);
+    mv_clear(&rec);
+}
+
 int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *id) {
     mvx_file *f = file_of(fvar, "DELETE");

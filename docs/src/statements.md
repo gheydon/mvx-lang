@@ -136,6 +136,10 @@ READ var FROM fvar, id THEN/ELSE
 READU var FROM fvar, id THEN/ELSE     read with record lock
 WRITE expr ON fvar, id                releases the lock
 WRITEU expr ON fvar, id               keeps the lock
+MATREAD  arr FROM fvar, id THEN/ELSE  fields (@FM) -> array elements
+MATREADU arr FROM fvar, id THEN/ELSE  same, with a record lock
+MATWRITE  arr ON fvar, id             elements -> record; releases the lock
+MATWRITEU arr ON fvar, id             keeps the lock
 DELETE fvar, id
 RELEASE {fvar, id}                    bare form releases all
 SELECT fvar                           form the active select list

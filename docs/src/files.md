@@ -71,6 +71,19 @@ from the dictionary.
 the daemon, the daemon is the lock authority and locks are leased to
 the connection: a client that dies loses its locks immediately.
 
+## MATREAD / MATWRITE
+
+`MATREAD arr FROM fvar, id` reads a record and spreads its fields (`@FM`
+separated) across a `DIM`'d array in storage order — element 1 the first
+field, and so on. If the record has more fields than the array holds, the
+**last element absorbs the remainder**, field marks and all; if it has
+fewer, the trailing elements come back empty. A missing record takes the
+`ELSE` and leaves the array untouched. `MATREADU` adds a record lock.
+
+`MATWRITE arr ON fvar, id` is the inverse: it joins the elements with
+`@FM` into one record and writes it, **dropping trailing empty elements**.
+`MATWRITEU` keeps the lock.
+
 ## Secondary indexes
 
 ```

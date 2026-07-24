@@ -341,6 +341,68 @@ void mv_arr_copy(mv_array *dst, const mv_array *src) {
         mv_copy(&dst->elems[k], &src->elems[k]);
 }
 
+/* Silent char view of an array element (val_chars warns on unassigned,
+   which DIM elements legitimately are). */
+static const char *elem_chars(const mv_value *v, char *buf, size_t cap,
+                              int64_t *len) {
+    switch (v->tag) {
+    case MV_STR: *len = v->s->len; return v->s->data;
+    case MV_INT:
+    case MV_DBL: *len = num_to_buf(v, buf, cap); return buf;
+    default:     *len = 0; return "";
+    }
+}
+
+/* MATREAD: distribute a record's fields (@FM = 0xFE) across the array's
+   elements in storage order.  The last element absorbs any overflow
+   fields (marks and all); short records leave trailing elements empty. */
+void mv_matparse(mv_array *a, const mv_value *rec) {
+    int64_t n = a->d1 * (a->d2 ? a->d2 : 1);
+    char nb[40];
+    int64_t len;
+    const char *p = val_chars(rec, nb, sizeof nb, &len);
+    const char *cur = p, *end = p + len;
+    for (int64_t k = 0; k < n; k++) {
+        const char *fs = cur, *fe;
+        if (k == n - 1) { fe = end; cur = end; }
+        else {
+            const char *fm = memchr(cur, 0xFE, (size_t)(end - cur));
+            fe = fm ? fm : end;
+            cur = fm ? fm + 1 : end;
+        }
+        mv_set_str(&a->elems[k], fs, fe - fs);
+    }
+}
+
+/* MATWRITE: join the array's elements with @FM into one record,
+   dropping trailing empty elements (UniVerse MATWRITE/MATBUILD). */
+void mv_matbuild(const mv_array *a, mv_value *dst) {
+    int64_t n = a->d1 * (a->d2 ? a->d2 : 1);
+    char b[40];
+    const char *p;
+    int64_t l, last = -1;
+    for (int64_t k = 0; k < n; k++) {
+        elem_chars(&a->elems[k], b, sizeof b, &l);
+        if (l > 0) last = k;
+    }
+    int64_t total = last < 0 ? 0 : last;            /* field marks */
+    for (int64_t k = 0; k <= last; k++) {
+        elem_chars(&a->elems[k], b, sizeof b, &l);
+        total += l;
+    }
+    mv_string *s = str_alloc(total);
+    int64_t off = 0;
+    for (int64_t k = 0; k <= last; k++) {
+        if (k) s->data[off++] = (char)0xFE;
+        p = elem_chars(&a->elems[k], b, sizeof b, &l);
+        memcpy(s->data + off, p, (size_t)l);
+        off += l;
+    }
+    if (dst->tag == MV_STR) str_release(dst->s);
+    dst->tag = MV_STR;
+    dst->s = s;
+}
+
 mv_value *mv_arr_elem(mv_array *a, int64_t i, int64_t j) {
     if (a->d2 == 0) {
         if (i < 1 || i > a->d1 || j != 0)

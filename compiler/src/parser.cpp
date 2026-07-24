@@ -178,6 +178,35 @@ private:
             endStatementSoft();
             break;
         }
+        case Tok::KwMatread:
+        case Tok::KwMatreadu: {
+            bool lock = cur().kind == Tok::KwMatreadu;
+            advance();
+            s = mk(Stmt::K::MatRead);
+            if (lock) s->name2 = "U";
+            s->name = expect(Tok::Ident, "array name after MATREAD").text;
+            expect(Tok::KwFrom, "FROM in MATREAD");
+            s->args.push_back(expression());        // file
+            expect(Tok::Comma, "','");
+            s->args.push_back(expression());        // id
+            thenElse(*s);
+            break;
+        }
+        case Tok::KwMatwrite:
+        case Tok::KwMatwriteu: {
+            bool keep = cur().kind == Tok::KwMatwriteu;
+            advance();
+            s = mk(Stmt::K::MatWrite);
+            if (keep) s->name2 = "U";
+            s->name = expect(Tok::Ident, "array name after MATWRITE").text;
+            if (at(Tok::KwOn) || at(Tok::KwTo)) advance();
+            else err("expected ON in MATWRITE");
+            s->args.push_back(expression());        // file
+            expect(Tok::Comma, "','");
+            s->args.push_back(expression());        // id
+            endStatementSoft();
+            break;
+        }
         case Tok::KwDelete: {
             advance();
             s = mk(Stmt::K::DeleteF);

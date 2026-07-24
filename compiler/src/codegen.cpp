@@ -225,6 +225,8 @@ private:
                     byteUnsafe_.insert(s.name);
                 if (!s.name2.empty()) byteUnsafe_.insert(s.name2);
             }
+            if (s.kind == Stmt::K::MatRead || s.kind == Stmt::K::MatWrite)
+                byteUnsafe_.insert(s.name);
             if (s.kind == Stmt::K::Common) {
                 // COMMON storage is shared across programs: always boxed.
                 for (const auto &item : s.args) {
@@ -292,6 +294,11 @@ private:
                 } else {
                     joinArr(s.name, kindOf(*s.value), changed);
                 }
+                break;
+            case Stmt::K::MatRead:
+            case Stmt::K::MatWrite:
+                // Record I/O runs through the boxed representation.
+                joinArr(s.name, NK::NotNum, changed);
                 break;
             case Stmt::K::Open:
             case Stmt::K::Readnext:
@@ -1175,6 +1182,8 @@ private:
         case Stmt::K::Open:     emitOpen(s);     break;
         case Stmt::K::ReadF:    emitReadF(s);    break;
         case Stmt::K::WriteF:   emitWriteF(s);   break;
+        case Stmt::K::MatRead:  emitMatRead(s);  break;
+        case Stmt::K::MatWrite: emitMatWrite(s); break;
         case Stmt::K::DeleteF:
             callRt("mvx_delete_rec", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
                    {ctxArg_, evalPtr(*s.args[0]), evalPtr(*s.args[1])});
@@ -1322,6 +1331,28 @@ private:
                {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
                {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
                 evalPtr(*s.args[1]), keep});
+    }
+
+    void emitMatRead(const Stmt &s) {
+        if (!arrayNames_.count(s.name))
+            err(s.line, "MATREAD target " + s.name + " is not DIM'd");
+        // Analysis demotes MATREAD arrays to the boxed representation.
+        Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
+        Value *lock = ConstantInt::get(i64Ty_, s.name2 == "U" ? 1 : 0);
+        Value *found = callRt(
+            "mvx_matread", i64Ty_, {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+            {ctxArg_, arr, evalPtr(*s.args[0]), evalPtr(*s.args[1]), lock});
+        emitThenElse(found, s, "matread");
+    }
+
+    void emitMatWrite(const Stmt &s) {
+        if (!arrayNames_.count(s.name))
+            err(s.line, "MATWRITE source " + s.name + " is not DIM'd");
+        Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
+        Value *keep = ConstantInt::get(i64Ty_, s.name2 == "U" ? 1 : 0);
+        callRt("mvx_matwrite", voidTy_,
+               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+               {ctxArg_, arr, evalPtr(*s.args[0]), evalPtr(*s.args[1]), keep});
     }
 
     void emitInput(const Stmt &s) {
