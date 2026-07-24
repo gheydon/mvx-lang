@@ -26,6 +26,14 @@ D3, Reality, or similar) that you would be willing to let me test
 against, please get in touch. **I am happy to sign an NDA** to get
 access to code for testing.
 
+**Infrastructure and development tools are the priority to start
+with** — application frameworks and toolsets such as **Cubic** and
+**SB+ (SystemBuilder)** — because porting the platforms that products
+are *built on* creates the foundation to build and run those products
+on MVX. Runtime/application frameworks, screen and report generators,
+and similar toolkits are exactly what I would like to test against
+first.
+
 To reach me, either:
 
 - **Open a GitHub issue** at
