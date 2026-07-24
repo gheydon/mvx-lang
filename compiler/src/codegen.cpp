@@ -225,7 +225,8 @@ private:
                     byteUnsafe_.insert(s.name);
                 if (!s.name2.empty()) byteUnsafe_.insert(s.name2);
             }
-            if (s.kind == Stmt::K::MatRead || s.kind == Stmt::K::MatWrite)
+            if (s.kind == Stmt::K::MatRead || s.kind == Stmt::K::MatWrite ||
+                s.kind == Stmt::K::MatParse || s.kind == Stmt::K::MatBuild)
                 byteUnsafe_.insert(s.name);
             if (s.kind == Stmt::K::Common) {
                 // COMMON storage is shared across programs: always boxed.
@@ -298,8 +299,16 @@ private:
                 break;
             case Stmt::K::MatRead:
             case Stmt::K::MatWrite:
+            case Stmt::K::MatParse:
                 // Record I/O runs through the boxed representation.
                 joinArr(s.name, NK::NotNum, changed);
+                break;
+            case Stmt::K::MatBuild:
+                joinArr(s.name, NK::NotNum, changed);
+                if (s.target->kind == Expr::K::Var)
+                    joinVar(s.target->sval, NK::NotNum, changed);
+                else
+                    joinArr(s.target->sval, NK::NotNum, changed);
                 break;
             case Stmt::K::Open:
             case Stmt::K::Readnext:
@@ -1188,6 +1197,8 @@ private:
         case Stmt::K::WriteF:   emitWriteF(s);   break;
         case Stmt::K::ReadV:    emitReadV(s);    break;
         case Stmt::K::WriteV:   emitWriteV(s);   break;
+        case Stmt::K::MatParse: emitMatParse(s); break;
+        case Stmt::K::MatBuild: emitMatBuild(s); break;
         case Stmt::K::MatRead:  emitMatRead(s);  break;
         case Stmt::K::MatWrite: emitMatWrite(s); break;
         case Stmt::K::DeleteF:
@@ -1402,6 +1413,35 @@ private:
                {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
                {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
                 evalPtr(*s.args[1]), attr, keep});
+    }
+
+    void emitMatParse(const Stmt &s) {
+        if (!arrayNames_.count(s.name))
+            err(s.line, "MATPARSE target " + s.name + " is not DIM'd");
+        Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
+        Value *src = evalPtr(*s.args[0]);
+        Value *delim = s.value ? evalPtr(*s.value)
+                               : (Value *)ConstantPointerNull::get(ptrTy_);
+        callRt("mv_mat_parse", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+               {arr, src, delim});
+    }
+
+    void emitMatBuild(const Stmt &s) {
+        if (!arrayNames_.count(s.name))
+            err(s.line, "MATBUILD source " + s.name + " is not DIM'd");
+        const Expr &t = *s.target;
+        Value *dst;
+        if (t.kind == Expr::K::Var)
+            dst = getScalar(t.sval, t.line);
+        else if (arrayNames_.count(t.sval) && !num_.numericArray(t.sval))
+            dst = arrayElemPtr(t);
+        else
+            err(t.line, "MATBUILD target must be a variable or array element");
+        Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
+        Value *delim = s.value ? evalPtr(*s.value)
+                               : (Value *)ConstantPointerNull::get(ptrTy_);
+        callRt("mv_mat_build", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+               {arr, dst, delim});
     }
 
     void emitMatRead(const Stmt &s) {

@@ -259,6 +259,36 @@ private:
             endStatementSoft();
             break;
         }
+        case Tok::KwMatparse: {
+            // MATPARSE arr FROM strexpr {USING delim}: split a string
+            // across the array's elements in memory (no file).
+            advance();
+            s = mk(Stmt::K::MatParse);
+            s->name = expect(Tok::Ident, "array name after MATPARSE").text;
+            expect(Tok::KwFrom, "FROM in MATPARSE");
+            s->args.push_back(expression());        // source string
+            if (at(Tok::KwUsing)) {
+                advance();
+                s->value = expression();            // delimiter
+            }
+            endStatementSoft();
+            break;
+        }
+        case Tok::KwMatbuild: {
+            // MATBUILD strvar FROM arr {USING delim}: join the array's
+            // elements into a string in memory (no file).
+            advance();
+            s = mk(Stmt::K::MatBuild);
+            s->target = primaryRef();               // string lvalue
+            expect(Tok::KwFrom, "FROM in MATBUILD");
+            s->name = expect(Tok::Ident, "array name in MATBUILD").text;
+            if (at(Tok::KwUsing)) {
+                advance();
+                s->value = expression();            // delimiter
+            }
+            endStatementSoft();
+            break;
+        }
         case Tok::KwDelete: {
             advance();
             s = mk(Stmt::K::DeleteF);

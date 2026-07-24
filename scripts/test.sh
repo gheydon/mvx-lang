@@ -102,6 +102,7 @@ lang strfns world
 lang strmath
 lang ifdef
 lang equate
+lang matparse
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)

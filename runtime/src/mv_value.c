@@ -353,38 +353,61 @@ static const char *elem_chars(const mv_value *v, char *buf, size_t cap,
     }
 }
 
-/* MATREAD: distribute a record's fields (@FM = 0xFE) across the array's
-   elements in storage order.  The last element absorbs any overflow
-   fields (marks and all); short records leave trailing elements empty. */
-void mv_matparse(mv_array *a, const mv_value *rec) {
+/* First occurrence of the dl-byte delimiter d in [cur,end), or NULL. */
+static const char *find_bytes(const char *cur, const char *end,
+                              const char *d, int64_t dl) {
+    for (const char *p = cur; p + dl <= end; p++)
+        if (memcmp(p, d, (size_t)dl) == 0) return p;
+    return NULL;
+}
+
+/* Delimiter bytes from an optional value; NULL or empty means a single
+   @FM (0xFE).  buf backs a numeric delimiter's rendering. */
+static const char *delim_chars(const mv_value *delim, char *buf, size_t cap,
+                               int64_t *dl) {
+    static const char fm = (char)0xFE;
+    if (delim) {
+        const char *d = val_chars(delim, buf, cap, dl);
+        if (*dl > 0) return d;
+    }
+    *dl = 1;
+    return &fm;
+}
+
+/* Split `src` on `delim` (default @FM) across the array's elements in
+   order; the last element absorbs any overflow, short input leaves
+   trailing elements empty.  Drives MATREAD and the MATPARSE statement. */
+void mv_mat_parse(mv_array *a, const mv_value *src, const mv_value *delim) {
     int64_t n = a->d1 * (a->d2 ? a->d2 : 1);
-    char nb[40];
-    int64_t len;
-    const char *p = val_chars(rec, nb, sizeof nb, &len);
+    char nb[40], db[40];
+    int64_t len, dl;
+    const char *p = val_chars(src, nb, sizeof nb, &len);
+    const char *d = delim_chars(delim, db, sizeof db, &dl);
     const char *cur = p, *end = p + len;
     for (int64_t k = 0; k < n; k++) {
         const char *fs = cur, *fe;
         if (k == n - 1) { fe = end; cur = end; }
         else {
-            const char *fm = memchr(cur, 0xFE, (size_t)(end - cur));
-            fe = fm ? fm : end;
-            cur = fm ? fm + 1 : end;
+            const char *m = find_bytes(cur, end, d, dl);
+            fe = m ? m : end;
+            cur = m ? m + dl : end;
         }
         mv_set_str(&a->elems[k], fs, fe - fs);
     }
 }
 
-/* MATWRITE: join the array's elements with @FM into one record, then
-   strip trailing attribute marks from the result (classic MATWRITE
-   removes trailing empty attributes).  Doing it on the finished record
-   catches both trailing empty elements and a last element that itself
-   ends in @FM — e.g. one that absorbed overflow on MATREAD. */
-void mv_matbuild(const mv_array *a, mv_value *dst) {
+/* Join the array's elements with `delim` (default @FM), then strip any
+   trailing delimiter runs (so trailing empty elements — and a last
+   element that ends in the delimiter — fall away).  Drives MATWRITE and
+   the MATBUILD statement. */
+void mv_mat_build(const mv_array *a, mv_value *dst, const mv_value *delim) {
     int64_t n = a->d1 * (a->d2 ? a->d2 : 1);
     if (n < 1) n = 1;
-    char b[40];
+    char b[40], db[40];
     const char *p;
-    int64_t l, total = n - 1;                       /* field marks */
+    int64_t l, dl;
+    const char *d = delim_chars(delim, db, sizeof db, &dl);
+    int64_t total = (n - 1) * dl;
     for (int64_t k = 0; k < n; k++) {
         elem_chars(&a->elems[k], b, sizeof b, &l);
         total += l;
@@ -392,17 +415,26 @@ void mv_matbuild(const mv_array *a, mv_value *dst) {
     mv_string *s = str_alloc(total);
     int64_t off = 0;
     for (int64_t k = 0; k < n; k++) {
-        if (k) s->data[off++] = (char)0xFE;
+        if (k) { memcpy(s->data + off, d, (size_t)dl); off += dl; }
         p = elem_chars(&a->elems[k], b, sizeof b, &l);
         memcpy(s->data + off, p, (size_t)l);
         off += l;
     }
-    while (off > 0 && (unsigned char)s->data[off - 1] == 0xFE) off--;
+    while (off >= dl && memcmp(s->data + off - dl, d, (size_t)dl) == 0)
+        off -= dl;
     s->len = off;
     s->data[off] = '\0';
     if (dst->tag == MV_STR) str_release(dst->s);
     dst->tag = MV_STR;
     dst->s = s;
+}
+
+/* @FM record split/join used by MATREAD/MATWRITE. */
+void mv_matparse(mv_array *a, const mv_value *rec) {
+    mv_mat_parse(a, rec, NULL);
+}
+void mv_matbuild(const mv_array *a, mv_value *dst) {
+    mv_mat_build(a, dst, NULL);
 }
 
 mv_value *mv_arr_elem(mv_array *a, int64_t i, int64_t j) {

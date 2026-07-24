@@ -133,6 +133,18 @@ MAT A = expr                 fill every element
 MAT A = MAT B                copy (dimensions must match)
 ```
 
+### MATPARSE / MATBUILD
+```
+MATPARSE arr FROM strexpr {USING delim}
+MATBUILD strvar FROM arr {USING delim}
+```
+The in-memory pair to `MATREAD`/`MATWRITE`, with no file. `MATPARSE`
+splits a string across a `DIM`'d array — the last element absorbs any
+overflow, short input leaves trailing elements empty. `MATBUILD` joins
+the elements back into a string, dropping trailing empties. The delimiter
+defaults to `@FM`; `USING` gives any string (`MATBUILD S FROM P USING
+","`).
+
 ### PRINT / CRT
 ```
 PRINT expr {: expr ...} {,} {:}

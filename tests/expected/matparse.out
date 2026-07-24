@@ -1,0 +1,9 @@
+p1=one
+p2=two
+p3=threeþfour
+s1=[solo]
+s2=[]
+built fields=2
+csv=abcd
+joined=a-b-c-d
+trim=[m|n]

@@ -78,6 +78,8 @@ struct Stmt {
         WriteV,     // value: expr; args: file, id, attr; name: "U" keeps lock
         MatRead,    // name: array; args: file, id; name2: "U" locks; THEN/ELSE
         MatWrite,   // name: array; args: file, id; name2: "U" keeps lock
+        MatParse,   // name: array; args[0]: source str; value: opt delimiter
+        MatBuild,   // target: str lvalue; name: array; value: opt delimiter
         DeleteF,    // args: file, id
         Release,    // args: [file, id] — bare releases all
         Select,     // args: file
