@@ -290,6 +290,29 @@ check tcl-account-dict "$( \
   { [ -d "$RDC/ORDERS" ] && echo 'ORDERS still directory' || echo 'ORDERS is a hash file'; }; \
   { [ -d "$RDC/ARCHIVE" ] && echo 'ARCHIVE stays a directory file' || echo 'ARCHIVE lost'; })"
 
+# CONVERT-FILE: change one file's backend, records + dictionary intact
+CFA="$TESTROOT/cfacct"
+"$ROOT/scripts/mkaccount.sh" "$CFA" >/dev/null
+cfseed="$TESTROOT/cfseed.b"
+cat > "$cfseed" <<'EOF'
+X = CREATEFILE("PARTS")
+OPEN "PARTS" TO F ELSE STOP
+WRITE "Widget":@AM:"999" ON F, "W100"
+WRITE "Gadget":@AM:"450" ON F, "G200"
+OPEN "DICT", "PARTS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+PRINT "seeded"
+EOF
+"$MVX" "$cfseed" -o "$TESTROOT/cfseedbin" 2>/dev/null
+(cd "$CFA" && MVXACCOUNT=. "$TESTROOT/cfseedbin") >/dev/null
+check tcl-convert-file "$( \
+  "$TCL" -a "$CFA" -c 'CONVERT-FILE PARTS dir' 2>&1; \
+  { [ -d "$CFA/PARTS" ] && echo 'PARTS is now a directory file' || echo 'not a dir'; }; \
+  "$TCL" -a "$CFA" -c 'COUNT PARTS' 2>&1; \
+  "$TCL" -a "$CFA" -c 'CONVERT-FILE PARTS lmdb' 2>&1; \
+  { [ -d "$CFA/PARTS" ] && echo 'still a dir' || echo 'PARTS is a hash file again'; }; \
+  "$TCL" -a "$CFA" -c 'LIST PARTS NAME BY NAME' 2>&1 | normalise)"
+
 # mvx-git: the git-wrapper bin command (built by the git package) clones
 # an account's legible form and rebuilds its hash files.  Needs the real
 # git CLI and the built wrapper, so it is skipped where either is absent.

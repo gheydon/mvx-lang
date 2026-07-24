@@ -56,6 +56,20 @@ With no `BINDINGS` record, bare `$MVXDAEMON` binds the whole account
 to `lmdbnet` — the simple all-networked deployment. Binding is
 resolution only; existing data does not move when it changes.
 
+To actually move a file to a different backend, use **`CONVERT-FILE`**:
+
+```
+> CONVERT-FILE ORDERS dir                         hash file -> directory file
+> CONVERT-FILE ORDERS lmdb                        directory file -> hash file
+> CONVERT-FILE ORDERS USING lmdbnet /run/mvx.sock   local -> networked
+```
+
+`CONVERT-FILE file newtype {connection}` re-keys the file's records —
+and its dictionary — into the new backend verbatim, so a hash file
+round-trips to a directory file and back without loss, and the `%FILE%`
+control record is restamped to the new type. It is the per-file
+companion to `CONVERT-ACCOUNT` (which rebuilds a whole account).
+
 What the daemon guarantees:
 
 - **Single lock authority.** `READU` locks are granted by the daemon
