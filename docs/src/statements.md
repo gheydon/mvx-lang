@@ -45,6 +45,18 @@ ECHO ON | ECHO OFF
 ```
 Terminal echo for `INPUT` (password entry).
 
+### EQUATE
+```
+EQUATE name TO expr
+EQUATE name LITERALLY expr      (LIT is accepted for LITERALLY)
+```
+A compile-time constant: every later use of `name` in expression context
+expands to `expr` — so `EQUATE AM TO CHAR(254)` then `X<1> = AM` needs no
+runtime lookup, and a numeric equate stays eligible for specialisation
+(`EQUATE SIZE TO 5 ; DIM V(SIZE)`). The right-hand side is any expression
+and may reference earlier equates. Names must be declared before use and
+cannot be redefined or assigned to.
+
 ### END / STOP / RETURN
 `END` ends the program text. `STOP` ends the program immediately —
 even from inside a subroutine. `RETURN` returns from a `GOSUB`, or

@@ -1145,6 +1145,7 @@ private:
         tempUsed_ = 0;
         b_.SetCurrentDebugLocation(loc(s.line));
         switch (s.kind) {
+        case Stmt::K::Nop:    break;         // EQUATE: compile-time only
         case Stmt::K::Assign: emitAssign(s); break;
         case Stmt::K::Dim:    emitDim(s);    break;
         case Stmt::K::If:     emitIf(s);     break;

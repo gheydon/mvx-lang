@@ -14,6 +14,7 @@
 #include "lexer.h"
 
 #include <filesystem>
+#include <unordered_map>
 
 namespace mvx {
 
@@ -67,6 +68,24 @@ private:
     std::vector<Token> toks_;
     std::string item_;
     size_t pos_ = 0;
+
+    // EQUATE bindings: a name expands to a clone of its expression at
+    // every use site (compile-time; must be declared before use).
+    std::unordered_map<std::string, ExprP> equates_;
+
+    static ExprP cloneExpr(const Expr &e) {
+        auto c = std::make_unique<Expr>();
+        c->kind = e.kind;
+        c->line = e.line;
+        c->ival = e.ival;
+        c->fval = e.fval;
+        c->sval = e.sval;
+        c->op = e.op;
+        for (const auto &a : e.args) c->args.push_back(cloneExpr(*a));
+        if (e.lhs) c->lhs = cloneExpr(*e.lhs);
+        if (e.rhs) c->rhs = cloneExpr(*e.rhs);
+        return c;
+    }
 
     const Token &cur() const { return toks_[pos_]; }
     const Token &peek(size_t k = 1) const {
@@ -296,6 +315,19 @@ private:
             s->value = expression();
             endStatementSoft();
             break;
+        case Tok::KwEquate: {
+            // EQUATE name TO expr  (LITERALLY/LIT are accepted for TO):
+            // a compile-time constant, expanded wherever the name is used.
+            advance();
+            s = mk(Stmt::K::Nop);
+            std::string nm = expect(Tok::Ident, "name after EQUATE").text;
+            if (at(Tok::KwTo) || at(Tok::KwLit)) advance();
+            else err("expected TO or LITERALLY in EQUATE");
+            if (equates_.count(nm)) err("EQUATE " + nm + " redefined");
+            equates_[nm] = expression();
+            endStatementSoft();
+            break;
+        }
         case Tok::KwExecute: {
             advance();
             s = mk(Stmt::K::Execute);
@@ -403,6 +435,9 @@ private:
     }
 
     StmtP assignStmt() {
+        if (at(Tok::Ident) && equates_.count(cur().text) &&
+            peek().kind != Tok::LParen)
+            err("cannot assign to EQUATE name " + cur().text);
         auto s = mk(Stmt::K::Assign);
         s->target = maybeExtract(primaryRef());
         expect(Tok::Eq, "'=' in assignment");
@@ -918,8 +953,16 @@ private:
             expect(Tok::RParen, "')'");
             return maybeExtract(std::move(e));
         }
-        case Tok::Ident:
+        case Tok::Ident: {
+            // Expand an EQUATE constant in expression context (a bare
+            // name, not a name( ... ) call/subscript).
+            auto it = equates_.find(cur().text);
+            if (it != equates_.end() && peek().kind != Tok::LParen) {
+                advance();
+                return maybeExtract(cloneExpr(*it->second));
+            }
             return maybeExtract(primaryRef());
+        }
         default:
             err("expected expression");
         }

@@ -53,6 +53,7 @@ struct Expr {
 
 struct Stmt {
     enum class K {
+        Nop,        // no-op (EQUATE, a compile-time binding)
         Assign,     // target (Var or Paren) = value
         Dim,        // name, dims (1 or 2)
         If,         // cond, thenS, elseS

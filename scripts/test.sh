@@ -101,6 +101,7 @@ lang conv
 lang strfns world
 lang strmath
 lang ifdef
+lang equate
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)
