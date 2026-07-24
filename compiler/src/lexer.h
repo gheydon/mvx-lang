@@ -36,7 +36,7 @@ enum class Tok {
     KwBegin, KwCase, KwLocate, KwInput, KwMat, KwCommon,
     KwOpen, KwRead, KwReadu, KwWrite, KwWriteu, KwDelete, KwRelease,
     KwReadv, KwReadvu, KwWritev, KwWritevu,
-    KwMatread, KwMatreadu, KwMatwrite, KwMatwriteu,
+    KwMatread, KwMatreadu, KwMatwrite, KwMatwriteu, KwLocked,
     KwSelect, KwReadnext, KwFrom, KwOn,
     KwExecute, KwCapturing, KwReturning, KwFormlist, KwEcho,
     KwAnd, KwOr, KwNot,

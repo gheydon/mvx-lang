@@ -160,7 +160,7 @@ private:
             s->args.push_back(expression());        // file
             expect(Tok::Comma, "','");
             s->args.push_back(expression());        // id
-            thenElse(*s);
+            lockedThenElse(*s);
             break;
         }
         case Tok::KwWrite:
@@ -191,7 +191,7 @@ private:
             s->args.push_back(expression());        // id
             expect(Tok::Comma, "',' before attribute");
             s->args.push_back(expression());        // attribute number
-            thenElse(*s);
+            lockedThenElse(*s);
             break;
         }
         case Tok::KwWritev:
@@ -222,7 +222,7 @@ private:
             s->args.push_back(expression());        // file
             expect(Tok::Comma, "','");
             s->args.push_back(expression());        // id
-            thenElse(*s);
+            lockedThenElse(*s);
             break;
         }
         case Tok::KwMatwrite:
@@ -396,7 +396,8 @@ private:
     // Statement terminator inside single-line IF bodies: ELSE and EOL are
     // left for the caller; ';' is consumed by the caller loop.
     void endStatementSoft() {
-        if (at(Tok::Eol) || at(Tok::Semi) || at(Tok::Eof) || at(Tok::KwElse))
+        if (at(Tok::Eol) || at(Tok::Semi) || at(Tok::Eof) ||
+            at(Tok::KwElse) || at(Tok::KwThen) || at(Tok::KwLocked))
             return;
         err("unexpected token at end of statement");
     }
@@ -530,6 +531,31 @@ private:
         } else {
             s.elseBody = lineStmts();
         }
+    }
+
+    // READU/READVU/MATREADU may carry a LOCKED clause before THEN/ELSE
+    // (classic Pick): it runs when another session holds the record, so
+    // the read neither blocks nor takes the lock.  THEN/ELSE stay
+    // optional once LOCKED is present.
+    void lockedThenElse(Stmt &s) {
+        if (at(Tok::KwLocked)) {
+            advance();
+            s.hasLocked = true;
+            if (at(Tok::Eol) || at(Tok::Semi)) {
+                advance();
+                s.lockedBody = block({Tok::KwEnd});
+                advance();                          // END
+            } else {
+                // single-line: statements up to THEN/ELSE/eol
+                while (!at(Tok::KwThen) && !at(Tok::KwElse) &&
+                       !at(Tok::Eol) && !at(Tok::Eof)) {
+                    s.lockedBody.push_back(statement());
+                    if (at(Tok::Semi)) advance();
+                }
+            }
+        }
+        if (at(Tok::KwThen) || at(Tok::KwElse)) thenElse(s);
+        else endStatementSoft();
     }
 
     void thenElse(Stmt &s) {

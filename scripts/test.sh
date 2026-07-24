@@ -122,7 +122,7 @@ out="$TESTROOT/callmain"
 # storage tests run inside their own account directory
 STACCT="$TESTROOT/stacct"
 mkdir -p "$STACCT/DIRDATA"
-for t in store storedir dict matread readv; do
+for t in store storedir dict matread readv locked; do
   out="$TESTROOT/$t"
   if "$MVX" "$ROOT/tests/$t.b" -o "$out" 2>"$TESTROOT/cerr"; then
     actual="$(cd "$STACCT" && MVXACCOUNT=. "$out" 2>&1 | normalise)"

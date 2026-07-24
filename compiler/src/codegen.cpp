@@ -239,6 +239,7 @@ private:
                 }
             }
             collect(s.body); collect(s.elseBody);
+            collect(s.lockedBody);
             collect(s.pre);  collect(s.post);
         }
     }
@@ -319,6 +320,7 @@ private:
                 break;
             }
             scan(s.body, changed); scan(s.elseBody, changed);
+            scan(s.lockedBody, changed);
             scan(s.pre, changed);  scan(s.post, changed);
         }
         // byteOnly_ is derived, not part of the fixed point
@@ -1279,6 +1281,7 @@ private:
             }
             emitCommonBindings(s.body, counters);
             emitCommonBindings(s.elseBody, counters);
+            emitCommonBindings(s.lockedBody, counters);
             emitCommonBindings(s.pre, counters);
             emitCommonBindings(s.post, counters);
         }
@@ -1298,6 +1301,42 @@ private:
         emitBlock(s.elseBody);
         b_.CreateBr(doneBB);
         b_.SetInsertPoint(doneBB);
+    }
+
+    // Three-way branch for a locking read carrying a LOCKED clause:
+    // result <0 means another session holds the record (run lockedBody),
+    // >0 found (THEN), 0 not found (ELSE).
+    void emitLockedThenElse(Value *result, const Stmt &s, const char *tag) {
+        Value *zero = ConstantInt::get(i64Ty_, 0);
+        BasicBlock *lockedBB = newBB((std::string(tag) + ".locked").c_str());
+        BasicBlock *chkBB = newBB((std::string(tag) + ".chk").c_str());
+        BasicBlock *thenBB = newBB((std::string(tag) + ".then").c_str());
+        BasicBlock *elseBB = newBB((std::string(tag) + ".else").c_str());
+        BasicBlock *doneBB = newBB((std::string(tag) + ".done").c_str());
+        b_.CreateCondBr(b_.CreateICmpSLT(result, zero), lockedBB, chkBB);
+        b_.SetInsertPoint(lockedBB);
+        emitBlock(s.lockedBody);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(chkBB);
+        b_.CreateCondBr(b_.CreateICmpNE(result, zero), thenBB, elseBB);
+        b_.SetInsertPoint(thenBB);
+        emitBlock(s.body);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(elseBB);
+        emitBlock(s.elseBody);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(doneBB);
+    }
+
+    // Lock mode passed to the runtime read: 2 = try (LOCKED clause,
+    // non-blocking), 1 = blocking READU, 0 = no lock.
+    Value *lockMode(const Stmt &s, bool isU) {
+        return ConstantInt::get(i64Ty_, s.hasLocked ? 2 : (isU ? 1 : 0));
+    }
+
+    void emitReadResult(Value *found, const Stmt &s, const char *tag) {
+        if (s.hasLocked) emitLockedThenElse(found, s, tag);
+        else emitThenElse(found, s, tag);
     }
 
     void emitOpen(const Stmt &s) {
@@ -1321,11 +1360,11 @@ private:
             dst = arrayElemPtr(t);
         else
             err(t.line, "READ target must be a variable or array element");
-        Value *lock = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
+        Value *lock = lockMode(s, s.name == "U");
         Value *found = callRt(
             "mvx_read", i64Ty_, {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
             {ctxArg_, dst, evalPtr(*s.args[0]), evalPtr(*s.args[1]), lock});
-        emitThenElse(found, s, "read");
+        emitReadResult(found, s, "read");
     }
 
     void emitWriteF(const Stmt &s) {
@@ -1346,13 +1385,13 @@ private:
         else
             err(t.line, "READV target must be a variable or array element");
         Value *attr = numIndex(*s.args[2]);
-        Value *lock = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
+        Value *lock = lockMode(s, s.name == "U");
         Value *found = callRt(
             "mvx_readv", i64Ty_,
             {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
             {ctxArg_, dst, evalPtr(*s.args[0]), evalPtr(*s.args[1]), attr,
              lock});
-        emitThenElse(found, s, "readv");
+        emitReadResult(found, s, "readv");
     }
 
     void emitWriteV(const Stmt &s) {
@@ -1369,11 +1408,11 @@ private:
             err(s.line, "MATREAD target " + s.name + " is not DIM'd");
         // Analysis demotes MATREAD arrays to the boxed representation.
         Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
-        Value *lock = ConstantInt::get(i64Ty_, s.name2 == "U" ? 1 : 0);
+        Value *lock = lockMode(s, s.name2 == "U");
         Value *found = callRt(
             "mvx_matread", i64Ty_, {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
             {ctxArg_, arr, evalPtr(*s.args[0]), evalPtr(*s.args[1]), lock});
-        emitThenElse(found, s, "matread");
+        emitReadResult(found, s, "matread");
     }
 
     void emitMatWrite(const Stmt &s) {
@@ -1844,6 +1883,7 @@ private:
                     }
             collectArrayNames(s.body);
             collectArrayNames(s.elseBody);
+            collectArrayNames(s.lockedBody);
             collectArrayNames(s.pre);
             collectArrayNames(s.post);
         }
@@ -1861,6 +1901,7 @@ private:
             if (s.kind == Stmt::K::Gosub) hasGosub_ = true;
             collectLabels(s.body);
             collectLabels(s.elseBody);
+            collectLabels(s.lockedBody);
             collectLabels(s.pre);
             collectLabels(s.post);
         }
@@ -1874,6 +1915,7 @@ private:
                 err(s.line, "label " + s.name + " is not defined");
             checkLabelRefs(s.body);
             checkLabelRefs(s.elseBody);
+            checkLabelRefs(s.lockedBody);
             checkLabelRefs(s.pre);
             checkLabelRefs(s.post);
         }

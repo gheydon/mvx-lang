@@ -97,6 +97,8 @@ struct Stmt {
     bool noNewline = false;              // Print trailing ':'
     ExprP cond, from, to, step;
     std::vector<StmtP> body, elseBody;   // For/If-then; If-else
+    std::vector<StmtP> lockedBody;       // READU ... LOCKED clause
+    bool hasLocked = false;              // READU had a LOCKED clause
     std::vector<StmtP> pre, post;        // Loop
     LoopCond loopCond = LoopCond::None;
 };

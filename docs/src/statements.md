@@ -138,6 +138,7 @@ WRITE expr ON fvar, id                releases the lock
 WRITEU expr ON fvar, id               keeps the lock
 READV  var FROM fvar, id, n THEN/ELSE read attribute n of a record
 READVU var FROM fvar, id, n THEN/ELSE same, with a record lock
+READU  var FROM fvar, id LOCKED ... END THEN/ELSE   (LOCKED: held elsewhere)
 WRITEV  expr ON fvar, id, n           replace attribute n, keep the rest
 WRITEVU expr ON fvar, id, n           same, keeps the lock
 MATREAD  arr FROM fvar, id THEN/ELSE  fields (@FM) -> array elements

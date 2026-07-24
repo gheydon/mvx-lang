@@ -71,6 +71,25 @@ from the dictionary.
 the daemon, the daemon is the lock authority and locks are leased to
 the connection: a client that dies loses its locks immediately.
 
+A locking read (`READU`, `READVU`, `MATREADU`) may carry a **`LOCKED`**
+clause, which runs when another session already holds the record — the
+read then neither blocks nor takes the lock:
+
+```
+READU R FROM F, ID LOCKED
+   PRINT "busy, try later"
+END THEN
+   ... got the record and the lock ...
+END ELSE
+   ... no such record ...
+END
+```
+
+Without a `LOCKED` clause a locking read blocks until the holder
+releases (classic `READU`). `LOCKED` only fires against the daemon, the
+cross-session lock authority; a purely local file has no other session
+to contend with, so the clause is inert there.
+
 ## READV / WRITEV
 
 `READV var FROM fvar, id, n` reads just attribute `n` of a record (1-based,

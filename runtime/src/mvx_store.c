@@ -594,9 +594,18 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
         char *key = lock_key(f, ip, idlen);
         lock_drop(st, key);             /* re-lock by same session is fine */
         if (b->driver->lock) {
-            /* Backend is the lock authority: classic READU blocks
-               until the holder releases (or its connection drops). */
-            while (!b->driver->lock(f, ip, idlen)) usleep(50000);
+            if (lock == 2) {
+                /* READU ... LOCKED: try once; on contention report -1
+                   without reading or taking the lock. */
+                if (!b->driver->lock(f, ip, idlen)) {
+                    free(key);
+                    return -1;
+                }
+            } else {
+                /* Backend is the lock authority: classic READU blocks
+                   until the holder releases (or its connection drops). */
+                while (!b->driver->lock(f, ip, idlen)) usleep(50000);
+            }
         }
         lock_ent *l = malloc(sizeof(lock_ent));
         if (!l) mvx_fatal("out of memory in lock table");
@@ -649,7 +658,7 @@ int64_t mvx_matread(mvx_ctx *ctx, mv_array *arr, const mv_value *fvar,
     mv_value rec;
     mv_init(&rec);
     int64_t found = mvx_read(ctx, &rec, fvar, id, lock);
-    if (found) mv_matparse(arr, &rec);
+    if (found > 0) mv_matparse(arr, &rec);
     mv_clear(&rec);
     return found;
 }
@@ -671,7 +680,7 @@ int64_t mvx_readv(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
     mv_value rec;
     mv_init(&rec);
     int64_t found = mvx_read(ctx, &rec, fvar, id, lock);
-    if (found) mv_extract_fn(dst, &rec, attr, 0, 0);
+    if (found > 0) mv_extract_fn(dst, &rec, attr, 0, 0);
     mv_clear(&rec);
     return found;
 }
