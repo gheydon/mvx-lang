@@ -24,8 +24,15 @@ operational edges that matter.
 If you have a Pick/MultiValue application (UniVerse, UniData, jBASE,
 D3, Reality, or similar) that you would be willing to let me test
 against, please get in touch. **I am happy to sign an NDA** to get
-access to code for testing. Contact **Gordon Heydon —
-gordon@heydon.com.au**.
+access to code for testing.
+
+To reach me, either:
+
+- **Open a GitHub issue** on this repository, or
+- **Email Gordon Heydon — gordon@heydon.com.au**.
+
+Bug reports, feature requests, and dialect-compatibility notes are also
+welcome the same way.
 
 ## Status
 
