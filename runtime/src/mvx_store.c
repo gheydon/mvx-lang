@@ -617,8 +617,12 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
     return b->driver->read(f, ip, idlen, rec);
 }
 
-void mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
-               const mv_value *id, int64_t keep_lock) {
+/* Returns 0 on success, or -2 on a backend write failure when the caller
+   has an ON ERROR handler (onerr != 0); without a handler a failure is
+   fatal, as classic MV aborts to the debugger.  On error the record is
+   not written and the lock is left as it was. */
+int64_t mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
+                  const mv_value *id, int64_t keep_lock, int64_t onerr) {
     mvx_file *f = file_of(fvar, "WRITE");
     mvx_file_base *b = (mvx_file_base *)f;
     store_state *st = state(ctx);
@@ -641,13 +645,16 @@ void mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
     } else {
         ok = b->driver->write(f, ip, idlen, rec);
     }
-    if (!ok)
+    if (!ok) {
+        if (onerr) return -2;
         mvx_fatal("WRITE failed on %s id %.*s", b->spec, (int)idlen, ip);
+    }
     if (!keep_lock) {                   /* WRITE releases; WRITEU keeps */
         char *key = lock_key(f, ip, idlen);
         lock_drop(st, key);
         free(key);
     }
+    return 0;
 }
 
 /* MATREAD arr FROM file, id: read the record and distribute its fields
@@ -664,13 +671,14 @@ int64_t mvx_matread(mvx_ctx *ctx, mv_array *arr, const mv_value *fvar,
 }
 
 /* MATWRITE arr ON file, id: join the array into a record and write it. */
-void mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
-                  const mv_value *id, int64_t keep_lock) {
+int64_t mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
+                     const mv_value *id, int64_t keep_lock, int64_t onerr) {
     mv_value rec;
     mv_init(&rec);
     mv_matbuild(arr, &rec);
-    mvx_write(ctx, &rec, fvar, id, keep_lock);
+    int64_t st = mvx_write(ctx, &rec, fvar, id, keep_lock, onerr);
     mv_clear(&rec);
+    return st;
 }
 
 /* READV var FROM file, id, attr: read one attribute of a record.
@@ -687,14 +695,16 @@ int64_t mvx_readv(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
 
 /* WRITEV expr ON file, id, attr: replace one attribute, preserving the
    rest of the record (creating it if absent). */
-void mvx_writev(mvx_ctx *ctx, const mv_value *val, const mv_value *fvar,
-                const mv_value *id, int64_t attr, int64_t keep_lock) {
+int64_t mvx_writev(mvx_ctx *ctx, const mv_value *val, const mv_value *fvar,
+                   const mv_value *id, int64_t attr, int64_t keep_lock,
+                   int64_t onerr) {
     mv_value rec;
     mv_init(&rec);
     if (!mvx_read(ctx, &rec, fvar, id, 0)) mv_set_str(&rec, "", 0);
     mv_replace_fn(&rec, &rec, attr, 0, 0, val);
-    mvx_write(ctx, &rec, fvar, id, keep_lock);
+    int64_t st = mvx_write(ctx, &rec, fvar, id, keep_lock, onerr);
     mv_clear(&rec);
+    return st;
 }
 
 int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,

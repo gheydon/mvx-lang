@@ -102,6 +102,8 @@ struct Stmt {
     std::vector<StmtP> body, elseBody;   // For/If-then; If-else
     std::vector<StmtP> lockedBody;       // READU ... LOCKED clause
     bool hasLocked = false;              // READU had a LOCKED clause
+    std::vector<StmtP> errorBody;        // ... ON ERROR clause
+    bool hasError = false;               // statement had an ON ERROR clause
     std::vector<StmtP> pre, post;        // Loop
     LoopCond loopCond = LoopCond::None;
 };

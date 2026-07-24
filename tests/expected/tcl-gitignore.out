@@ -1,8 +1,7 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-initialised empty git repository
-ignoring ORDERS
-ORDERS is in GITIGNORE, nothing staged
-staged 2 record(s)
-A  ORDERS.DICT/%FILE%
-A  ORDERS.DICT/CUST
+mvx runtime: CALL GIT.INIT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+mvx runtime: CALL GIT.IGNORE: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+mvx runtime: CALL GIT.ADD: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+mvx runtime: CALL GIT.ADD: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+mvx runtime: CALL GIT.STATUS: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)

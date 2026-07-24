@@ -88,7 +88,7 @@ static void pour(mvx_ctx *ctx, mv_value *f, const stash *s) {
         mv_value id, rec;
         set(&id, s->v[i].id, s->v[i].idlen);
         set(&rec, s->v[i].rec, s->v[i].reclen);
-        mvx_write(ctx, &rec, f, &id, 0);
+        mvx_write(ctx, &rec, f, &id, 0, 0);
         mv_clear(&id); mv_clear(&rec);
     }
 }
@@ -173,7 +173,7 @@ static void ensure_dir_meta(mvx_ctx *ctx, const char *nm) {
     if (!mvx_read(ctx, &rec, &f, &id, 0)) {
         char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
         mv_value v; set(&v, meta, sizeof meta);
-        mvx_write(ctx, &v, &f, &id, 0);
+        mvx_write(ctx, &v, &f, &id, 0, 0);
         mv_clear(&v);
     }
     mv_clear(&id); mv_clear(&rec); mv_clear(&f);

@@ -194,6 +194,7 @@ private:
             s->args.push_back(expression());        // file
             expect(Tok::Comma, "','");
             s->args.push_back(expression());        // id
+            onErrorClause(*s);
             endStatementSoft();
             break;
         }
@@ -227,6 +228,7 @@ private:
             s->args.push_back(expression());        // id
             expect(Tok::Comma, "',' before attribute");
             s->args.push_back(expression());        // attribute number
+            onErrorClause(*s);
             endStatementSoft();
             break;
         }
@@ -256,6 +258,7 @@ private:
             s->args.push_back(expression());        // file
             expect(Tok::Comma, "','");
             s->args.push_back(expression());        // id
+            onErrorClause(*s);
             endStatementSoft();
             break;
         }
@@ -295,6 +298,7 @@ private:
             s->args.push_back(expression());
             expect(Tok::Comma, "',' in DELETE");
             s->args.push_back(expression());
+            onErrorClause(*s);
             endStatementSoft();
             break;
         }
@@ -602,7 +606,31 @@ private:
     // (classic Pick): it runs when another session holds the record, so
     // the read neither blocks nor takes the lock.  THEN/ELSE stay
     // optional once LOCKED is present.
+    // Optional ON ERROR clause: runs on a backend fault (a WRITE the
+    // driver rejects), instead of aborting the program.  "ERROR" is not
+    // a reserved word — it is the identifier following the ON preposition.
+    void onErrorClause(Stmt &s) {
+        if (!(at(Tok::KwOn) && peek().kind == Tok::Ident &&
+              peek().text == "ERROR"))
+            return;
+        advance();                                  // ON
+        advance();                                  // ERROR
+        s.hasError = true;
+        if (at(Tok::Eol) || at(Tok::Semi)) {
+            advance();
+            s.errorBody = block({Tok::KwEnd});
+            advance();                              // END
+        } else {
+            while (!at(Tok::KwThen) && !at(Tok::KwElse) &&
+                   !at(Tok::KwLocked) && !at(Tok::Eol) && !at(Tok::Eof)) {
+                s.errorBody.push_back(statement());
+                if (at(Tok::Semi)) advance();
+            }
+        }
+    }
+
     void lockedThenElse(Stmt &s) {
+        onErrorClause(s);                           // ON ERROR before LOCKED
         if (at(Tok::KwLocked)) {
             advance();
             s.hasLocked = true;

@@ -240,7 +240,7 @@ private:
                 }
             }
             collect(s.body); collect(s.elseBody);
-            collect(s.lockedBody);
+            collect(s.lockedBody); collect(s.errorBody);
             collect(s.pre);  collect(s.post);
         }
     }
@@ -329,7 +329,7 @@ private:
                 break;
             }
             scan(s.body, changed); scan(s.elseBody, changed);
-            scan(s.lockedBody, changed);
+            scan(s.lockedBody, changed); scan(s.errorBody, changed);
             scan(s.pre, changed);  scan(s.post, changed);
         }
         // byteOnly_ is derived, not part of the fixed point
@@ -1201,10 +1201,13 @@ private:
         case Stmt::K::MatBuild: emitMatBuild(s); break;
         case Stmt::K::MatRead:  emitMatRead(s);  break;
         case Stmt::K::MatWrite: emitMatWrite(s); break;
-        case Stmt::K::DeleteF:
-            callRt("mvx_delete_rec", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
-                   {ctxArg_, evalPtr(*s.args[0]), evalPtr(*s.args[1])});
+        case Stmt::K::DeleteF: {
+            Value *st =
+                callRt("mvx_delete_rec", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
+                       {ctxArg_, evalPtr(*s.args[0]), evalPtr(*s.args[1])});
+            emitErrorClause(st, s, "delete");
             break;
+        }
         case Stmt::K::Release:
             if (s.args.empty())
                 callRt("mvx_release", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
@@ -1294,6 +1297,7 @@ private:
             emitCommonBindings(s.body, counters);
             emitCommonBindings(s.elseBody, counters);
             emitCommonBindings(s.lockedBody, counters);
+            emitCommonBindings(s.errorBody, counters);
             emitCommonBindings(s.pre, counters);
             emitCommonBindings(s.post, counters);
         }
@@ -1315,21 +1319,43 @@ private:
         b_.SetInsertPoint(doneBB);
     }
 
-    // Three-way branch for a locking read carrying a LOCKED clause:
-    // result <0 means another session holds the record (run lockedBody),
-    // >0 found (THEN), 0 not found (ELSE).
-    void emitLockedThenElse(Value *result, const Stmt &s, const char *tag) {
+    // Lock mode passed to the runtime read: 2 = try (LOCKED clause,
+    // non-blocking), 1 = blocking READU, 0 = no lock.
+    Value *lockMode(const Stmt &s, bool isU) {
+        return ConstantInt::get(i64Ty_, s.hasLocked ? 2 : (isU ? 1 : 0));
+    }
+
+    // Branch a read/write result across its optional clauses.  The
+    // runtime encodes: -2 = backend error (ON ERROR), -1 = held by
+    // another session (LOCKED), 0 = not found (ELSE), >0 = found (THEN).
+    // Only the sentinels whose clause is present can occur, so absent
+    // clauses fold away.
+    void emitReadResult(Value *result, const Stmt &s, const char *tag) {
+        if (!s.hasError && !s.hasLocked) { emitThenElse(result, s, tag); return; }
         Value *zero = ConstantInt::get(i64Ty_, 0);
-        BasicBlock *lockedBB = newBB((std::string(tag) + ".locked").c_str());
-        BasicBlock *chkBB = newBB((std::string(tag) + ".chk").c_str());
+        BasicBlock *doneBB = newBB((std::string(tag) + ".done").c_str());
+        if (s.hasError) {
+            BasicBlock *errBB = newBB((std::string(tag) + ".err").c_str());
+            BasicBlock *nBB = newBB((std::string(tag) + ".nerr").c_str());
+            b_.CreateCondBr(
+                b_.CreateICmpEQ(result, ConstantInt::get(i64Ty_, -2)),
+                errBB, nBB);
+            b_.SetInsertPoint(errBB);
+            emitBlock(s.errorBody);
+            b_.CreateBr(doneBB);
+            b_.SetInsertPoint(nBB);
+        }
+        if (s.hasLocked) {
+            BasicBlock *lkBB = newBB((std::string(tag) + ".locked").c_str());
+            BasicBlock *nBB = newBB((std::string(tag) + ".nlock").c_str());
+            b_.CreateCondBr(b_.CreateICmpSLT(result, zero), lkBB, nBB);
+            b_.SetInsertPoint(lkBB);
+            emitBlock(s.lockedBody);
+            b_.CreateBr(doneBB);
+            b_.SetInsertPoint(nBB);
+        }
         BasicBlock *thenBB = newBB((std::string(tag) + ".then").c_str());
         BasicBlock *elseBB = newBB((std::string(tag) + ".else").c_str());
-        BasicBlock *doneBB = newBB((std::string(tag) + ".done").c_str());
-        b_.CreateCondBr(b_.CreateICmpSLT(result, zero), lockedBB, chkBB);
-        b_.SetInsertPoint(lockedBB);
-        emitBlock(s.lockedBody);
-        b_.CreateBr(doneBB);
-        b_.SetInsertPoint(chkBB);
         b_.CreateCondBr(b_.CreateICmpNE(result, zero), thenBB, elseBB);
         b_.SetInsertPoint(thenBB);
         emitBlock(s.body);
@@ -1340,15 +1366,23 @@ private:
         b_.SetInsertPoint(doneBB);
     }
 
-    // Lock mode passed to the runtime read: 2 = try (LOCKED clause,
-    // non-blocking), 1 = blocking READU, 0 = no lock.
-    Value *lockMode(const Stmt &s, bool isU) {
-        return ConstantInt::get(i64Ty_, s.hasLocked ? 2 : (isU ? 1 : 0));
+    // A write/delete carrying only ON ERROR: run errorBody on -2.
+    void emitErrorClause(Value *result, const Stmt &s, const char *tag) {
+        if (!s.hasError) return;
+        BasicBlock *errBB = newBB((std::string(tag) + ".err").c_str());
+        BasicBlock *doneBB = newBB((std::string(tag) + ".done").c_str());
+        b_.CreateCondBr(
+            b_.CreateICmpEQ(result, ConstantInt::get(i64Ty_, -2)),
+            errBB, doneBB);
+        b_.SetInsertPoint(errBB);
+        emitBlock(s.errorBody);
+        b_.CreateBr(doneBB);
+        b_.SetInsertPoint(doneBB);
     }
 
-    void emitReadResult(Value *found, const Stmt &s, const char *tag) {
-        if (s.hasLocked) emitLockedThenElse(found, s, tag);
-        else emitThenElse(found, s, tag);
+    // ON ERROR flag passed to a write runtime call.
+    Value *errFlag(const Stmt &s) {
+        return ConstantInt::get(i64Ty_, s.hasError ? 1 : 0);
     }
 
     void emitOpen(const Stmt &s) {
@@ -1381,10 +1415,11 @@ private:
 
     void emitWriteF(const Stmt &s) {
         Value *keep = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
-        callRt("mvx_write", voidTy_,
-               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+        Value *st = callRt("mvx_write", i64Ty_,
+               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
                {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
-                evalPtr(*s.args[1]), keep});
+                evalPtr(*s.args[1]), keep, errFlag(s)});
+        emitErrorClause(st, s, "write");
     }
 
     void emitReadV(const Stmt &s) {
@@ -1409,10 +1444,11 @@ private:
     void emitWriteV(const Stmt &s) {
         Value *attr = numIndex(*s.args[2]);
         Value *keep = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
-        callRt("mvx_writev", voidTy_,
-               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
+        Value *st = callRt("mvx_writev", i64Ty_,
+               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_, i64Ty_},
                {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
-                evalPtr(*s.args[1]), attr, keep});
+                evalPtr(*s.args[1]), attr, keep, errFlag(s)});
+        emitErrorClause(st, s, "writev");
     }
 
     void emitMatParse(const Stmt &s) {
@@ -1461,9 +1497,11 @@ private:
             err(s.line, "MATWRITE source " + s.name + " is not DIM'd");
         Value *arr = b_.CreateLoad(ptrTy_, getArraySlot(s.name));
         Value *keep = ConstantInt::get(i64Ty_, s.name2 == "U" ? 1 : 0);
-        callRt("mvx_matwrite", voidTy_,
-               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
-               {ctxArg_, arr, evalPtr(*s.args[0]), evalPtr(*s.args[1]), keep});
+        Value *st = callRt("mvx_matwrite", i64Ty_,
+               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
+               {ctxArg_, arr, evalPtr(*s.args[0]), evalPtr(*s.args[1]), keep,
+                errFlag(s)});
+        emitErrorClause(st, s, "matwrite");
     }
 
     void emitInput(const Stmt &s) {
@@ -1925,6 +1963,7 @@ private:
             collectArrayNames(s.body);
             collectArrayNames(s.elseBody);
             collectArrayNames(s.lockedBody);
+            collectArrayNames(s.errorBody);
             collectArrayNames(s.pre);
             collectArrayNames(s.post);
         }
@@ -1943,6 +1982,7 @@ private:
             collectLabels(s.body);
             collectLabels(s.elseBody);
             collectLabels(s.lockedBody);
+            collectLabels(s.errorBody);
             collectLabels(s.pre);
             collectLabels(s.post);
         }
@@ -1957,6 +1997,7 @@ private:
             checkLabelRefs(s.body);
             checkLabelRefs(s.elseBody);
             checkLabelRefs(s.lockedBody);
+            checkLabelRefs(s.errorBody);
             checkLabelRefs(s.pre);
             checkLabelRefs(s.post);
         }

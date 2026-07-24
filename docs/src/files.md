@@ -90,6 +90,27 @@ releases (classic `READU`). `LOCKED` only fires against the daemon, the
 cross-session lock authority; a purely local file has no other session
 to contend with, so the clause is inert there.
 
+## ON ERROR
+
+A file statement may carry an **`ON ERROR`** clause that runs when the
+backend rejects the operation, instead of aborting the program (classic
+MV drops to the debugger on a fatal file fault):
+
+```
+WRITE REC ON F, ID ON ERROR
+   PRINT "could not write ":ID
+END
+```
+
+`ON ERROR` comes after the operands, and on a read before `LOCKED` and
+`THEN`/`ELSE`. It is honoured by the write path — `WRITE`, `WRITEV`,
+`MATWRITE` — where a driver can refuse the write (for instance the
+directory driver rejecting a record id that is not a valid file name).
+It parses on `READ`/`DELETE` too, for source portability, but the read
+and delete paths surface no recoverable fault today, so the clause is
+inert there. Without `ON ERROR`, a fatal file fault aborts the program
+as before.
+
 ## READV / WRITEV
 
 `READV var FROM fvar, id, n` reads just attribute `n` of a record (1-based,

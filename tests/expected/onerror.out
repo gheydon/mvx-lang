@@ -1,0 +1,7 @@
+GOOD=kept
+write error caught
+single-line error caught
+writev error caught
+matwrite error caught
+read ok
+ru ok

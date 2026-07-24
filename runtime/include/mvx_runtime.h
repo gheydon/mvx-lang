@@ -92,12 +92,13 @@ void      mv_mat_build(const mv_array *a, mv_value *dst,    /* MATBUILD stmt */
                        const mv_value *delim);
 int64_t   mvx_readv(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
                     const mv_value *id, int64_t attr, int64_t lock);
-void      mvx_writev(mvx_ctx *ctx, const mv_value *val, const mv_value *fvar,
-                     const mv_value *id, int64_t attr, int64_t keep);
+int64_t   mvx_writev(mvx_ctx *ctx, const mv_value *val, const mv_value *fvar,
+                     const mv_value *id, int64_t attr, int64_t keep,
+                     int64_t onerr);
 int64_t   mvx_matread(mvx_ctx *ctx, mv_array *arr, const mv_value *fvar,
                       const mv_value *id, int64_t lock);
-void      mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
-                       const mv_value *id, int64_t keep);
+int64_t   mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
+                       const mv_value *id, int64_t keep, int64_t onerr);
 
 /* --- string intrinsics ------------------------------------------------- */
 void    mv_char_fn(mv_value *dst, int64_t code);
@@ -200,8 +201,8 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
                  mv_value *fvar);
 int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
                  const mv_value *id, int64_t lock);
-void    mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
-                  const mv_value *id, int64_t keep_lock);
+int64_t mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
+                  const mv_value *id, int64_t keep_lock, int64_t onerr);
 int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *id);
 void    mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id);
