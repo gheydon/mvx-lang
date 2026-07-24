@@ -1,3 +1,15 @@
+/*
+ * MVX — a native compiler and runtime for Pick/MultiValue BASIC.
+ * Copyright (C) 2026 Gordon Heydon.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2, as
+ * published by the Free Software Foundation.  There is NO WARRANTY, to
+ * the extent permitted by law; see the LICENSE file for details.
+ *
+ * SPDX-License-Identifier: GPL-2.0-only
+ */
+
 /* Embedded LMDB driver: one environment per account at
  * <account>/mvxdata.lmdb, one named DB per MV file.  Key = record id,
  * value = MV record bytes — nearly a passthrough (ARCHITECTURE.md 4.2).

@@ -4,6 +4,7 @@
   "description": "Language support for MVX Pick/MultiValue BASIC: syntax highlighting, snippets, and compiler error matching",
   "version": "0.1.0",
   "publisher": "mvx",
+  "license": "GPL-2.0-only",
   "engines": { "vscode": "^1.70.0" },
   "categories": ["Programming Languages"],
   "contributes": {
