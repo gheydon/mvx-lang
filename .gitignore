@@ -6,6 +6,7 @@ CLAUDE.md
 demo/
 packages/*/CATALOG/
 packages/*/LIB/
+packages/*/bin/
 packages/git/LIB/
 
 # LMDB hash-file stores are binary and account-local: never commit them.

@@ -76,3 +76,12 @@ the account instead of a verb. `CALL` resolves at runtime: symbols
 already in the program, then the account's `LIB/`, each linked
 package's `LIB/`, then the system `LIB/`. The subroutine ABI is
 frozen, so libraries built at different times interoperate.
+
+## bin commands
+
+A package may ship standalone OS commands in a `bin/` directory —
+executables that run from the shell, not from TCL. `mkpkg.sh` links
+whatever it finds there onto the dev `PATH` (`build/bin`, beside `mvx`);
+a real install would copy them into a system bin directory instead.
+The git package uses this to ship `mvx-git` (built from C by its
+`build-native.sh`). See [Version Control](git.md) for `mvx-git`.

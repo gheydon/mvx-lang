@@ -69,4 +69,17 @@ if [ -n "$SUBS" ]; then
   echo "  built LIB/lib$PKGNAME.$EXT"
 fi
 
+# bin/: standalone OS commands a package ships (built by build-native.sh
+# or checked in).  Symlink them beside mvx so they land on the dev PATH;
+# an install would copy them into a real bin directory instead.
+if [ -d "$PKG/bin" ]; then
+  mkdir -p "$ROOT/build/bin"
+  for b in "$PKG"/bin/*; do
+    [ -f "$b" ] && [ -x "$b" ] || continue
+    babs="$(cd "$(dirname "$b")" && pwd)/$(basename "$b")"
+    ln -sf "$babs" "$ROOT/build/bin/$(basename "$b")"
+    echo "  installed bin/$(basename "$b") -> build/bin/$(basename "$b")"
+  done
+fi
+
 echo "package built: $PKG"

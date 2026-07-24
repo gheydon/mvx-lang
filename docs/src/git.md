@@ -160,3 +160,32 @@ delivery by exporting each dictionary — `EXPORT DICT PARTS` writes
 `PARTS.DICT` — and declaring types in `FILES`; the data stays in the
 store. Packages are themselves account-shaped, so the same `BUILD`
 provisions a cloned package.
+## mvx-git — the drop-in git wrapper
+
+`GIT` (above) version-controls records *inside* a running account. For
+the outside — cloning, pulling, and switching branches of an account's
+git repository from the command line — the git package ships
+**`mvx-git`**, a small native command that wraps the real `git`.
+
+Every command is forwarded verbatim, so `mvx-git` is a complete git
+replacement — you can `alias git=mvx-git`. The one addition: after a
+command that changes the working tree (`clone`, `checkout`, `switch`,
+`pull`, `merge`, `rebase`, `reset`, `restore`, `cherry-pick`, `revert`,
+`stash`) succeeds in a directory that is an MVX account (it carries a
+`.mvx` descriptor), `mvx-git` rebuilds the account — exactly
+`mvx -a <account> -c CONVERT-ACCOUNT` — so the hash files match the
+git-tracked legible form. In an ordinary repository it does nothing
+extra and behaves precisely like git.
+
+```sh
+mvx-git clone git@host:acct.git myacct   # git clone, then build hash files
+cd myacct
+mvx-git pull                              # git pull, then re-sync the account
+mvx-git checkout release-2            # switch branch, rebuild records
+```
+
+`mvx-git` changes no MVX internals — it only orchestrates the real
+`git` and the existing `CONVERT-ACCOUNT` verb. It is built by the git
+package's `build-native.sh` into `packages/git/bin/`, which `mkpkg.sh`
+links onto the dev `PATH` (`build/bin`); the real git is found on
+`PATH`, the MVX shell as `$MVX` or `mvx` on `PATH`.

@@ -290,6 +290,36 @@ check tcl-account-dict "$( \
   { [ -d "$RDC/ORDERS" ] && echo 'ORDERS still directory' || echo 'ORDERS is a hash file'; }; \
   { [ -d "$RDC/ARCHIVE" ] && echo 'ARCHIVE stays a directory file' || echo 'ARCHIVE lost'; })"
 
+# mvx-git: the git-wrapper bin command (built by the git package) clones
+# an account's legible form and rebuilds its hash files.  Needs the real
+# git CLI and the built wrapper, so it is skipped where either is absent.
+if command -v git >/dev/null 2>&1 && [ -x "$ROOT/build/bin/mvx-git" ]; then
+  MGS="$TESTROOT/mgsrc"
+  "$ROOT/scripts/mkaccount.sh" "$MGS" >/dev/null
+  mgseed="$TESTROOT/mgseed.b"
+  cat > "$mgseed" <<'EOF'
+X = CREATEFILE("PARTS")
+OPEN "PARTS" TO F ELSE STOP
+WRITE "Widget":@AM:"999" ON F, "W100"
+OPEN "DICT", "PARTS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+PRINT "seeded"
+EOF
+  "$MVX" "$mgseed" -o "$TESTROOT/mgseedbin" 2>/dev/null
+  (cd "$MGS" && MVXACCOUNT=. "$TESTROOT/mgseedbin") >/dev/null
+  "$TCL" -a "$MGS" -c "EXPORT-ACCOUNT" >/dev/null 2>&1
+  ( cd "$MGS" && printf 'mvxdata.lmdb/\n' > .gitignore && git init -q -b main && \
+    git add -A && git -c user.email=t@t -c user.name=t commit -qm acct ) >/dev/null 2>&1
+  MGC="$TESTROOT/mgclone"
+  MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGS" "$MGC" >/dev/null 2>&1
+  check tcl-mvxgit "$( \
+    { [ -d "$MGC/mvxdata.lmdb" ] && echo 'clone rebuilt: hash-file store present' \
+        || echo 'clone NOT rebuilt'; }; \
+    "$TCL" -a "$MGC" -c 'COUNT PARTS' 2>&1)"
+else
+  echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
+fi
+
 # native git (libgit2, no shell, restricted tier): init, export, add,
 # commit, log - the injection-proof structured path
 GACCT="$TESTROOT/gitacct"
