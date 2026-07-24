@@ -13,6 +13,22 @@ See `ARCHITECTURE.md` for the full design, `DECISIONS.md` for settled
 implementation decisions, and `docs/` for the book (`mdbook serve
 docs`).
 
+## Why I built this
+
+This is a personal project — an itch I have wanted to scratch for a
+long time. Ever since Apple shipped clang and LLVM, I saw LLVM as a
+great way to build a real, native implementation of Pick BASIC:
+compile straight to machine code instead of transpiling to C, with
+proper source-level debugging along the way.
+
+The other half of the idea is the data. There are now plenty of
+excellent databases that can hold MultiValue data just as well as Pick
+ever did, so the storage layer no longer has to be a bespoke Pick
+engine — it can sit behind a driver contract and let a modern database
+do the heavy lifting. Between a modern compiler toolchain and modern
+storage, it felt like the right time to see whether I could actually
+build it. So I did.
+
 ## Seeking Pick/MultiValue products to port
 
 **I am looking for real Pick-based products to port to MVX** — the goal
