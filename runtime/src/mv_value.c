@@ -374,30 +374,32 @@ void mv_matparse(mv_array *a, const mv_value *rec) {
     }
 }
 
-/* MATWRITE: join the array's elements with @FM into one record,
-   dropping trailing empty elements (UniVerse MATWRITE/MATBUILD). */
+/* MATWRITE: join the array's elements with @FM into one record, then
+   strip trailing attribute marks from the result (classic MATWRITE
+   removes trailing empty attributes).  Doing it on the finished record
+   catches both trailing empty elements and a last element that itself
+   ends in @FM — e.g. one that absorbed overflow on MATREAD. */
 void mv_matbuild(const mv_array *a, mv_value *dst) {
     int64_t n = a->d1 * (a->d2 ? a->d2 : 1);
+    if (n < 1) n = 1;
     char b[40];
     const char *p;
-    int64_t l, last = -1;
+    int64_t l, total = n - 1;                       /* field marks */
     for (int64_t k = 0; k < n; k++) {
-        elem_chars(&a->elems[k], b, sizeof b, &l);
-        if (l > 0) last = k;
-    }
-    int64_t total = last < 0 ? 0 : last;            /* field marks */
-    for (int64_t k = 0; k <= last; k++) {
         elem_chars(&a->elems[k], b, sizeof b, &l);
         total += l;
     }
     mv_string *s = str_alloc(total);
     int64_t off = 0;
-    for (int64_t k = 0; k <= last; k++) {
+    for (int64_t k = 0; k < n; k++) {
         if (k) s->data[off++] = (char)0xFE;
         p = elem_chars(&a->elems[k], b, sizeof b, &l);
         memcpy(s->data + off, p, (size_t)l);
         off += l;
     }
+    while (off > 0 && (unsigned char)s->data[off - 1] == 0xFE) off--;
+    s->len = off;
+    s->data[off] = '\0';
     if (dst->tag == MV_STR) str_release(dst->s);
     dst->tag = MV_STR;
     dst->s = s;

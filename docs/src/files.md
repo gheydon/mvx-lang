@@ -81,8 +81,10 @@ fewer, the trailing elements come back empty. A missing record takes the
 `ELSE` and leaves the array untouched. `MATREADU` adds a record lock.
 
 `MATWRITE arr ON fvar, id` is the inverse: it joins the elements with
-`@FM` into one record and writes it, **dropping trailing empty elements**.
-`MATWRITEU` keeps the lock.
+`@FM` into one record and writes it, then **strips trailing attribute
+marks** — so trailing empty elements disappear, and so do any marks left
+at the end of the last element (for instance one that absorbed overflow on
+a prior `MATREAD`). `MATWRITEU` keeps the lock.
 
 ## Secondary indexes
 

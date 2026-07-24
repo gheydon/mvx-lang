@@ -4,7 +4,13 @@ tail=REDşEXTRA
 short1=[Solo]
 short2=[]
 short3=[]
+u1=Widget
+u2=9.99şREDşEXTRA
+ufields=3
+whole=4 fields
 NOPE absent ok
 built=[OneşTwo]
 fields=2
+trimmed=[PşQşR]
+trimfields=3
 updated price=12.00
