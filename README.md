@@ -28,7 +28,9 @@ access to code for testing.
 
 To reach me, either:
 
-- **Open a GitHub issue** on this repository, or
+- **Open a GitHub issue** at
+  [github.com/gheydon/mvx-lang/issues](https://github.com/gheydon/mvx-lang/issues),
+  or
 - **Email Gordon Heydon — gordon@heydon.com.au**.
 
 Bug reports, feature requests, and dialect-compatibility notes are also

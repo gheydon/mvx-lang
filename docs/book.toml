@@ -9,4 +9,4 @@ build-dir = "../build/docs"
 
 [output.html]
 default-theme = "rust"
-git-repository-url = ""
+git-repository-url = "https://github.com/gheydon/mvx-lang"
