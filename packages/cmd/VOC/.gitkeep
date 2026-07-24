@@ -1,2 +1,0 @@
-# keeps this VOC directory tracked; the cmd package exposes only
-# subroutines (libcmd), so it has no verb records of its own.
