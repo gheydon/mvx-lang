@@ -226,9 +226,10 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
-# account round-trip: EXPORT-ACCOUNT snapshots a live hash-file account
-# into legible directory files; a git-style clone (no hash-file store)
-# is then rebuilt into hash files by CONVERT-ACCOUNT.
+# account round-trip: mvx-convert-acct --export snapshots a live account
+# to the git directory form; a plain-git-style clone (no hash-file store)
+# is then rebuilt into hash files by mvx-convert-acct.
+CONV="$ROOT/build/bin/mvx-convert-acct"
 RTS="$TESTROOT/rtsrc"
 "$ROOT/scripts/mkaccount.sh" "$RTS" >/dev/null
 rtseed="$TESTROOT/rtseed.b"
@@ -245,20 +246,19 @@ PRINT "seeded"
 EOF
 "$MVX" "$rtseed" -o "$TESTROOT/rtseedbin" 2>/dev/null
 (cd "$RTS" && MVXACCOUNT=. "$TESTROOT/rtseedbin") >/dev/null
-"$TCL" -a "$RTS" -c "EXPORT-ACCOUNT" >/dev/null 2>&1
+MVX="$TCL" "$CONV" --export "$RTS" >/dev/null 2>&1
 RTC="$TESTROOT/rtclone"
 mkdir -p "$RTC"
 (cd "$RTS" && tar cf - --exclude=mvxdata.lmdb .) | (cd "$RTC" && tar xf -)
-MVXPRIV=developer "$TCL" -a "$RTC" -c "CONVERT-ACCOUNT" >/dev/null 2>&1
+MVX="$TCL" "$CONV" "$RTC" >/dev/null 2>&1
 check tcl-account "$(printf '%s\n' \
   'COUNT PARTS' \
   'LIST PARTS NAME BY NAME' \
   'CT VOC FOO' | "$TCL" -a "$RTC" 2>&1 | normalise)"
 
-# dictionary-driven recreation: a bulk file exports its dictionary only
-# (data excluded, like a .gitignore), and the dictionary's %FILE% record
-# alone recreates the file on CONVERT - even with no FILES manifest, and
-# honouring a directory file's type.
+# %FILE%-driven type: on import each file is rebuilt as the backend its
+# dictionary's %FILE% names - a hash file for ORDERS, a directory file
+# for ARCHIVE.
 RDS="$TESTROOT/rdsrc"
 "$ROOT/scripts/mkaccount.sh" "$RDS" >/dev/null
 rdseed="$TESTROOT/rdseed.b"
@@ -276,16 +276,13 @@ PRINT "seeded"
 EOF
 "$MVX" "$rdseed" -o "$TESTROOT/rdseedbin" 2>/dev/null
 (cd "$RDS" && MVXACCOUNT=. "$TESTROOT/rdseedbin") >/dev/null
-MVXEXPORT_MAX=1 "$TCL" -a "$RDS" -c "EXPORT-ACCOUNT" >/dev/null 2>&1
+MVX="$TCL" "$CONV" --export "$RDS" >/dev/null 2>&1
 RDC="$TESTROOT/rdclone"
 mkdir -p "$RDC"
-# clone without the hash-file store AND without the FILES manifest
-(cd "$RDS" && tar cf - --exclude=mvxdata.lmdb --exclude=FILES .) | (cd "$RDC" && tar xf -)
-rdhasdata=no
-[ -d "$RDC/ORDERS" ] && rdhasdata=yes    # ORDERS was bulk: dict only, no data dir
-MVXPRIV=developer "$TCL" -a "$RDC" -c "CONVERT-ACCOUNT" >/dev/null 2>&1
+# clone without the hash-file store
+(cd "$RDS" && tar cf - --exclude=mvxdata.lmdb .) | (cd "$RDC" && tar xf -)
+MVX="$TCL" "$CONV" "$RDC" >/dev/null 2>&1
 check tcl-account-dict "$( \
-  echo "clone shipped ORDERS data: $rdhasdata"; \
   "$TCL" -a "$RDC" -c 'COUNT ORDERS' 2>&1; \
   "$TCL" -a "$RDC" -c 'CT DICT ORDERS WHO' 2>&1 | head -1; \
   "$TCL" -a "$RDC" -c 'COUNT ARCHIVE' 2>&1; \
@@ -332,11 +329,11 @@ PRINT "seeded"
 EOF
   "$MVX" "$mgseed" -o "$TESTROOT/mgseedbin" 2>/dev/null
   (cd "$MGS" && MVXACCOUNT=. "$TESTROOT/mgseedbin") >/dev/null
-  "$TCL" -a "$MGS" -c "EXPORT-ACCOUNT" >/dev/null 2>&1
+  MVX="$TCL" "$CONV" --export "$MGS" >/dev/null 2>&1
   ( cd "$MGS" && printf 'mvxdata.lmdb/\n' > .gitignore && git init -q -b main && \
     git add -A && git -c user.email=t@t -c user.name=t commit -qm acct ) >/dev/null 2>&1
   MGC="$TESTROOT/mgclone"
-  MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGS" "$MGC" >/dev/null 2>&1
+  MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGS" "$MGC" >/dev/null 2>&1
   # a repo WITHOUT a .mvx descriptor: plain clone stays plain; only an
   # explicit opt-in ($MVXGIT_CREATE) turns it into a new account.
   MGP="$TESTROOT/mgplain"
@@ -344,9 +341,9 @@ EOF
   ( cd "$MGP" && git init -q -b main && git add -A && \
     git -c user.email=t@t -c user.name=t commit -qm src ) >/dev/null 2>&1
   MGPD="$TESTROOT/mgplain-default"
-  MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPD" </dev/null >/dev/null 2>&1
+  MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPD" </dev/null >/dev/null 2>&1
   MGPY="$TESTROOT/mgplain-optin"
-  MVXGIT_CREATE=1 MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPY" </dev/null >/dev/null 2>&1
+  MVXGIT_CREATE=1 MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPY" </dev/null >/dev/null 2>&1
   check tcl-mvxgit "$( \
     { [ -d "$MGC/mvxdata.lmdb" ] && echo 'account clone (.mvx) rebuilt' \
         || echo 'account clone NOT rebuilt'; }; \

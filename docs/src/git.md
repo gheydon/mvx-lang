@@ -168,14 +168,19 @@ git repository from the command line — the git package ships
 **`mvx-git`**, a small native command that wraps the real `git`.
 
 Every command is forwarded verbatim, so `mvx-git` is a complete git
-replacement — you can `alias git=mvx-git`. The one addition: after a
-command that changes the working tree (`clone`, `checkout`, `switch`,
-`pull`, `merge`, `rebase`, `reset`, `restore`, `cherry-pick`, `revert`,
-`stash`) succeeds in a directory that is an MVX account (it carries a
-`.mvx` descriptor), `mvx-git` rebuilds the account — exactly
-`mvx -a <account> -c CONVERT-ACCOUNT` — so the hash files match the
-git-tracked legible form. In an ordinary repository it does nothing
-extra and behaves precisely like git.
+replacement — you can `alias git=mvx-git`. It adds two symmetric steps
+in a directory that is an MVX account (one carrying a `.mvx`
+descriptor):
+
+- after a command that changes the working tree (`clone`, `checkout`,
+  `switch`, `pull`, `merge`, `rebase`, `reset`, `restore`,
+  `cherry-pick`, `revert`, `stash`), it **rebuilds** the account from the
+  updated directory form into hash files;
+- before a `commit` or `add`, it **exports** the live hash files back to
+  the directory form so git records the legible version.
+
+Both directions run `mvx-convert-acct`. In an ordinary repository it
+does nothing extra and behaves precisely like git.
 
 ```sh
 mvx-git clone git@host:acct.git myacct   # git clone, then build hash files
@@ -188,19 +193,19 @@ mvx-git checkout release-2            # switch branch, rebuild records
 so mvx-git treats it specially:
 
 - if the cloned repo carries a `.mvx` descriptor it *is* an account —
-  mvx-git rebuilds it automatically (`CONVERT-ACCOUNT`);
+  mvx-git rebuilds it automatically;
 - if it does not, and stdin is a terminal, mvx-git asks
   *"Directory … is not an MVX account. Create one here? (y/N)"* —
-  defaulting to no. On yes it creates one with `BUILD`, which only adds
-  a `.mvx` and a `VOC` (and catalogs any `BP`), so declining leaves an
-  ordinary checkout and an accidental yes cannot mangle a non-MVX repo.
+  defaulting to no. On yes it runs mvx-convert-acct (which writes a `.mvx`
+  and a `VOC` and catalogs any `BP`); declining leaves an ordinary
+  checkout.
 
 Set `MVXGIT_CREATE=1` to answer yes without prompting (for scripts and
 the coming package installer); with no terminal and no override,
 mvx-git never prompts and never creates an account.
 
 `mvx-git` changes no MVX internals — it only orchestrates the real
-`git` and the existing `CONVERT-ACCOUNT` verb. It is built by the git
+`git` and `mvx-convert-acct`. It is built by the git
 package's `build-native.sh` into `packages/git/bin/`, which `mkpkg.sh`
 links onto the dev `PATH` (`build/bin`); the real git is found on
 `PATH`, the MVX shell as `$MVX` or `mvx` on `PATH`.

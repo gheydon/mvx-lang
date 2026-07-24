@@ -68,7 +68,7 @@ To actually move a file to a different backend, use **`CONVERT-FILE`**:
 and its dictionary — into the new backend verbatim, so a hash file
 round-trips to a directory file and back without loss, and the `%FILE%`
 control record is restamped to the new type. It is the per-file
-companion to `CONVERT-ACCOUNT` (which rebuilds a whole account).
+companion to mvx-convert-acct (which rebuilds a whole account).
 
 What the daemon guarantees:
 
@@ -88,42 +88,31 @@ keep daemon and clients on the same architecture for now.
 
 ## Committing and cloning an account through git
 
-Hash files are binary, so an account is not committed as-is. Two verbs
-move an account between its **live** form (LMDB hash files) and a
-**legible** form (one directory file per MV file, one text record per
-Unix file) that git tracks with clean, mergeable diffs:
+Hash files are binary, so an account is never committed as-is. Git
+tracks the **directory form** — each file as `NAME/` (one text file per
+record) beside `NAME.DICT/` (its dictionary) — while a **live account is
+hash files with no `.DICT`**. `mvx-convert-acct` moves between the two:
 
 ```
-> EXPORT-ACCOUNT        live hash files  ->  legible directory files
-$ scripts/mvx-convert.sh <account>       legible clone  ->  live hash files
+mvx-convert-acct <account>            directory form -> live hash files
+mvx-convert-acct --export <account>   live hash files -> directory form
 ```
 
-`EXPORT-ACCOUNT` snapshots the whole account — the VOC, every
-dictionary, and the record data of reference-sized files — into
-directory files beside the store, then writes a `FILES` manifest
-recording each file's backend. Bulk files (over `$MVXEXPORT_MAX`
-records, default 5000) export their **dictionary only**, so a million
-orders never land in git; their data is reloaded from its own source.
-Commit the result with ordinary git (keep `mvxdata.lmdb` out via
-`.gitignore`).
+On **import**, every file is rebuilt as the backend its dictionary's
+`%FILE%` control record names — a hash file for an `lmdb` file, a
+directory file (keeping its `NAME.DICT`) for a `dir` file — then `BUILD`
+catalogs `BP` and links packages. On **export**, each hash file is
+written out as `NAME/` + `NAME.DICT/`, copying the dictionary verbatim
+so its `%FILE%` still records the real backend. `%FILE%` is the file
+definition, so a committed dictionary alone recreates its file.
 
-Every dictionary carries a `%FILE%` control record — written when the
-file is created — that names the file's backend (and connection). It
-*is* the file definition, so **committing the dictionary alone is
-enough to recreate the file**: the data is effectively gitignored while
-the schema, in git, rebuilds an empty file of the right type. `%FILE%`
-is authoritative; the `FILES` manifest is only an optional override.
+You rarely call `mvx-convert-acct` directly — **`mvx-git` does it for
+you**: it rebuilds the account after `clone`/`checkout`/`pull` and
+exports it before `commit`/`add` (see [Version Control](git.md)). Run
+`mvx-convert-acct` by hand only for a *plain* `git` checkout — the
+bootstrap that turns mvx-lang's own `system` account and packages into
+real accounts before `mvx-git` exists.
 
-`CONVERT-ACCOUNT` — driven by `scripts/mvx-convert.sh` — is the
-inverse, run once in a fresh clone. It moves the VOC and each
-reference file's records into hash files (the driver named in `FILES`,
-or a file marked `dir` stays a directory file), then hands off to
-`BUILD` to create bulk data files empty from their dictionaries,
-catalog `BP` source, and link packages. The clone becomes a working,
-hash-file-backed account.
-
-The two are inverses, so an account round-trips: `EXPORT-ACCOUNT` →
-commit → clone → `mvx-convert.sh` → work → `EXPORT-ACCOUNT` → commit.
 This is the stock-to-site delivery path — combined with record-level
 branch, merge, and cherry-pick (see [Version Control](git.md)), a
 customised site tracks stock upstream and feeds features back.

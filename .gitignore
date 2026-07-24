@@ -10,8 +10,8 @@ packages/*/bin/
 packages/git/LIB/
 
 # LMDB hash-file stores are binary and account-local: never commit them.
-# An account is version-controlled in its legible form (EXPORT-ACCOUNT)
-# and rebuilt with scripts/mvx-convert.sh.
+# An account is version-controlled in its legible directory form and
+# rebuilt into hash files by mvx-git / mvx-convert-acct.
 mvxdata.lmdb/
 # tt/ is a throwaway scratch account.
 tt/
