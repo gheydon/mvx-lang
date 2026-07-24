@@ -1,20 +1,50 @@
 # MVX
 
-A native compiler and runtime for Pick/MultiValue BASIC. BASIC source
-compiles straight to object code via LLVM — no C transpilation — with
-DWARF debug info against BASIC source lines.
+A native compiler and runtime environment for Pick/MultiValue BASIC.
+BASIC source compiles straight to object code via LLVM — no C
+transpilation — with DWARF debug info against BASIC source lines, and
+the compiler is surrounded by the pieces that make a MultiValue system
+a system: pluggable storage (embedded LMDB, a networked daemon, plain
+directories), a classic TCL shell, dictionaries and dictionary-driven
+`LIST`/`SELECT` queries, secondary indexes, a package ecosystem, and
+first-class git version control of hash-file records.
 
-See `ARCHITECTURE.md` for the full design and `DECISIONS.md` for settled
-implementation decisions.
+See `ARCHITECTURE.md` for the full design, `DECISIONS.md` for settled
+implementation decisions, and `docs/` for the book (`mdbook serve
+docs`).
 
-## Status — Slice 1 milestone reached
+## Seeking Pick/MultiValue products to port
 
-Compiler + minimal runtime. The prime-sieve milestone (1M sieve,
-5-second timed run, per [Primes](https://github.com/PlummersSoftwareLLC/Primes)
-rules) validates at 78,498 primes and runs at ~14,500 passes/5s on Apple
-M-series — 99% of an equivalent C sieve — via two tiers of compiler
-numeric specialisation (native `i64`/`double` scalars, `i8`/`i64`/`f64`
-array storage) over the boxed value representation. See `DECISIONS.md`.
+**I am looking for real Pick-based products to port to MVX** — the goal
+is to make MVX more feature-complete and robust by exercising it
+against actual application code rather than synthetic tests. Real
+programs surface the dialect corners, intrinsic coverage, and
+operational edges that matter.
+
+If you have a Pick/MultiValue application (UniVerse, UniData, jBASE,
+D3, Reality, or similar) that you would be willing to let me test
+against, please get in touch. **I am happy to sign an NDA** to get
+access to code for testing. Contact **Gordon Heydon —
+gordon@heydon.com.au**.
+
+## Status
+
+The compiler and the environment are both well advanced. Highlights:
+
+- **Native compiler** — programs and subroutines to executables and
+  shared libraries, DWARF debug info (`lldb` steps BASIC source). The
+  1M prime-sieve benchmark runs at ~99% of an equivalent C program via
+  two tiers of numeric specialisation over the boxed value
+  representation.
+- **Storage** — a pluggable driver contract with embedded LMDB, a
+  networked `mvxd` daemon, and directory backends; dictionaries,
+  secondary indexes, record locks, and select lists; mixed
+  local/remote per file (`CREATE-FILE … USING <driver>`).
+- **Environment** — classic TCL with VOC dispatch, the standard verb
+  set (all written in MVX BASIC), `EXECUTE` and a runtime privilege
+  gate, packages with dependency manifests, full-screen terminal
+  support, and git version control of records (branch/merge/cherry-pick
+  for multi-site delivery).
 
 ## Build
 
@@ -66,10 +96,34 @@ build/bin/mvx tests/smoke.b -o /tmp/smoke && /tmp/smoke
 build/bin/mvx bench/sieve.b -o /tmp/sieve && /tmp/sieve
 ```
 
+## The environment
+
+Create an account and log on to the classic shell:
+
+```sh
+scripts/mkaccount.sh myaccount
+build/bin/mvx-tcl -a myaccount
+```
+
+```
+myaccount> CREATE-FILE CUSTOMERS
+myaccount> LIST CUSTOMERS
+myaccount> OFF
+```
+
+Requires LMDB (`brew install lmdb`) for storage and, for the git
+package, libgit2 (`brew install libgit2`). See `docs/` for the full
+book.
+
 ## Layout
 
 - `compiler/` — lexer, parser, LLVM codegen, `mvx` driver (C++17)
-- `runtime/` — boxed value type, arrays, printing, intrinsics (C11);
+- `runtime/` — value type, arrays, storage, intrinsics (C11);
   `mvx_runtime.h` is the permanent ABI surface
-- `bench/sieve.b` — the Slice 1 milestone benchmark
-- `tests/` — subset smoke tests
+- `daemon/` — `mvxd`, the networked LMDB storage daemon
+- `tcl/` — `mvx-tcl`, the classic shell
+- `verbs/` — the standard verb set (MVX BASIC)
+- `packages/` — shipped packages (`cmd`, `git`, `sample`)
+- `docs/` — the MVX book (mdBook)
+- `bench/sieve.b` — the prime-sieve benchmark
+- `tests/`, `scripts/test.sh` — the test harness
