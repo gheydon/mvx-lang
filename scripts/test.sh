@@ -195,8 +195,10 @@ check tcl-records "$(printf '%s\n' \
 check tcl-gate "$(printf '!echo leaked\n' | tclrun; \
   printf '!echo allowed\n' | MVXPRIV=unrestricted "$TCL" -a "$ACCT" 2>&1)"
 
-# self-hosting: BASIC + CATALOG a verb, then run it
+# self-hosting: BASIC + CATALOG a verb, then run it.  BP is a directory
+# file, so its dictionary carries a %FILE% marking it "dir".
 mkdir -p "$ACCT/BP" "$ACCT/BP.DICT"
+printf 'FILE\375dir\n' > "$ACCT/BP.DICT/%FILE%"
 cat > "$ACCT/BP/HELLO" <<'EOF'
 * /**
 *  * @file HELLO

@@ -133,14 +133,15 @@ static int open_dict(mvx_ctx *ctx, const char *name, mv_value *f) {
     return (int)ok;
 }
 
-/* Read a directory file's %FILE% backend type (default "lmdb").  conn
- * receives the connection string for bound drivers. */
-static void file_type(mvx_ctx *ctx, const char *dictname, char *type,
-                      size_t tcap, char *conn, size_t ccap) {
+/* Read a directory file's %FILE% backend type.  Returns 1 if a %FILE%
+ * record was found (type/conn filled), 0 otherwise (type left "lmdb"). */
+static int file_type(mvx_ctx *ctx, const char *dictname, char *type,
+                     size_t tcap, char *conn, size_t ccap) {
     snprintf(type, tcap, "lmdb");
     if (conn && ccap) conn[0] = '\0';
     mv_value f;
-    if (!open_lit(ctx, dictname, &f)) return;
+    if (!open_lit(ctx, dictname, &f)) return 0;
+    int found = 0;
     mv_value id, rec; set(&id, "%FILE%", 6); mv_init(&rec);
     if (mvx_read(ctx, &rec, &f, &id, 0)) {
         char rb[64]; const char *rp;
@@ -155,7 +156,25 @@ static void file_type(mvx_ctx *ctx, const char *dictname, char *type,
             snprintf(type, tcap, "%.*s", (int)(te - t), t);
             if (m2 && conn && ccap)
                 snprintf(conn, ccap, "%.*s", (int)(end - (m2 + 1)), m2 + 1);
+            found = 1;
         }
+    }
+    mv_clear(&id); mv_clear(&rec); mv_clear(&f);
+    return found;
+}
+
+/* Guarantee a directory file's dictionary carries a %FILE% record — a
+ * dir file must always have one so it is never mistaken for a hash file
+ * (e.g. a NAME.DICT made by hand, or an older account). */
+static void ensure_dir_meta(mvx_ctx *ctx, const char *nm) {
+    mv_value f;
+    if (!open_dict(ctx, nm, &f)) return;
+    mv_value id, rec; set(&id, "%FILE%", 6); mv_init(&rec);
+    if (!mvx_read(ctx, &rec, &f, &id, 0)) {
+        char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
+        mv_value v; set(&v, meta, sizeof meta);
+        mvx_write(ctx, &v, &f, &id, 0);
+        mv_clear(&v);
     }
     mv_clear(&id); mv_clear(&rec); mv_clear(&f);
 }
@@ -241,8 +260,21 @@ int mvx_acct_import(mvx_ctx *ctx) {
         char type[64], conn[512];
         char dictname[300];
         snprintf(dictname, sizeof dictname, "%s.DICT", nm);
-        file_type(ctx, dictname, type, sizeof type, conn, sizeof conn);
-        if (!strcmp(type, "dir")) continue;   /* keep intentional dir files */
+        int found = file_type(ctx, dictname, type, sizeof type,
+                              conn, sizeof conn);
+        if (!found) {
+            /* No %FILE%: a data directory on disk is a directory file
+             * (never guess lmdb and convert it away). */
+            char dp[4096];
+            snprintf(dp, sizeof dp, "%s/%s", acct, nm);
+            struct stat sb;
+            if (stat(dp, &sb) == 0 && S_ISDIR(sb.st_mode))
+                snprintf(type, sizeof type, "dir");
+        }
+        if (!strcmp(type, "dir")) {
+            ensure_dir_meta(ctx, nm);         /* a dir file always has %FILE% */
+            continue;
+        }
 
         stash data = {0}, dict = {0};
         mv_value f;
