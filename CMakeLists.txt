@@ -128,6 +128,7 @@ add_custom_target(mvx_crt ALL DEPENDS ${CMAKE_BINARY_DIR}/lib/mvx_crt.o)
 # --- compiler ----------------------------------------------------------
 add_executable(mvx-basic
   compiler/src/main.cpp
+  compiler/src/preprocess.cpp
   compiler/src/lexer.cpp
   compiler/src/parser.cpp
   compiler/src/codegen.cpp)

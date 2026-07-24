@@ -9,6 +9,7 @@ mvx-basic -shared sub.b -o libsub        # subroutine shared library
 mvx-basic main.b sub1.b sub2.b -o prog   # multi-source build
 mvx-basic -O0|-O1|-O2 ...                # optimisation (default -O2)
 mvx-basic --emit-llvm ...                # also write textual IR
+mvx-basic -D NAME[=value] ...      define a preprocessor symbol
 ```
 
 Errors: `item:line: message` on stderr. DWARF debug info is always

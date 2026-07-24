@@ -143,3 +143,35 @@ READNEXT var THEN/ELSE                next id from the active list
 ```
 A select list left unconsumed when a program ends passes to the next
 command in the TCL session.
+
+## Conditional compilation
+
+A source preprocessor runs before parsing, in the UniVerse/UniData
+style, so the same source can target several MultiValue systems:
+
+```
+$DEFINE name {value}     define a symbol (optional replacement value)
+$UNDEFINE name           remove a definition
+$IFDEF name              keep the block if name is defined
+$IFNDEF name             keep the block if name is NOT defined
+$ELSE                    the other branch
+$ENDIF                   end the conditional
+```
+
+`MVX` is predefined by the `mvx-basic` compiler; define your own on the
+command line with `-D NAME` or `-D NAME=value`. A `$DEFINE` with a value
+also substitutes that value wherever the name appears (outside string
+literals). Inactive lines are blanked, not removed, so error messages
+and the source-level debugger still line up with the original file.
+
+```basic
+$IFDEF MVX
+   OPEN "ORDERS" TO F ELSE STOP
+$ELSE
+   OPEN "", "ORDERS" TO F ELSE STOP     ;* UniVerse two-argument form
+$ENDIF
+```
+
+This is the portability seam: commit an account to git on one platform,
+`mvx-git clone` it on MVX, and — with the `$IFDEF`s set correctly — it
+compiles and runs.

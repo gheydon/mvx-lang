@@ -22,6 +22,9 @@
 
 #include "codegen.h"
 #include "parser.h"
+#include "preprocess.h"
+
+#include <map>
 
 #include <cstdio>
 #include <cstdlib>
@@ -75,6 +78,7 @@ int usage() {
         "  -c           compile to object only (no link)\n"
         "  -o <path>    output path\n"
         "  -shared      produce a shared subroutine library\n"
+        "  -D NAME[=v]  define a preprocessor symbol ($IFDEF NAME)\n"
         "  -O0|-O1|-O2  optimisation level (default -O2)\n"
         "  --emit-llvm  also write textual IR beside each object\n";
     return 2;
@@ -97,6 +101,10 @@ int main(int argc, char **argv) {
     mvx::CodegenOptions cg;
     std::string outPath;
     std::vector<std::string> sources, objects;
+    // Preprocessor symbols: MVX identifies this compiler to portable
+    // source ($IFDEF MVX ... $ELSE ... $ENDIF).
+    std::map<std::string, std::string> defines;
+    defines["MVX"] = "";
 
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -110,6 +118,13 @@ int main(int argc, char **argv) {
         else if (a == "-O1") cg.optLevel = 1;
         else if (a == "-O2") cg.optLevel = 2;
         else if (a == "--emit-llvm") cg.emitLLVM = true;
+        else if (a.rfind("-D", 0) == 0) {               // -DNAME[=value] or -D NAME
+            std::string def = a.size() > 2 ? a.substr(2) : "";
+            if (def.empty()) { if (++i >= argc) return usage(); def = argv[i]; }
+            auto eq = def.find('=');
+            if (eq == std::string::npos) defines[def] = "";
+            else defines[def.substr(0, eq)] = def.substr(eq + 1);
+        }
         else if (!a.empty() && a[0] == '-') return usage();
         else if (a.size() > 2 && a.substr(a.size() - 2) == ".o")
             objects.push_back(a);
@@ -162,7 +177,8 @@ int main(int argc, char **argv) {
         }
 
         try {
-            mvx::Program prog = mvx::parse(ss.str(), src);
+            std::string pp = mvx::preprocess(ss.str(), src, defines);
+            mvx::Program prog = mvx::parse(pp, src);
             mvx::compileToObject(prog, obj, cg);
         } catch (const mvx::CompileError &e) {
             std::cerr << e.item << ":" << e.line << ": " << e.what()

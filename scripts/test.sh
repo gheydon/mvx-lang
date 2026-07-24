@@ -100,6 +100,7 @@ lang dynarr
 lang conv
 lang strfns world
 lang strmath
+lang ifdef
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)
