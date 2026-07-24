@@ -130,6 +130,25 @@ build/bin/mvx tests/smoke.b -o /tmp/smoke && /tmp/smoke
 build/bin/mvx bench/sieve.b -o /tmp/sieve && /tmp/sieve
 ```
 
+## Examples
+
+`examples/` holds fuller programs that exercise the full-screen
+terminal support (KEYIN, cursor/screen control, colour):
+
+- **`FSDEMO.b`** — a full-screen demo in Midnight Commander dress: a
+  cyan menu bar and function-key bar, a movable marker (arrows, HOME,
+  END, PGUP/PGDN), and chrome that re-flows live when the terminal is
+  resized.
+- **`SNAKE.b`** — Snake, in MVX BASIC: arrows steer, eating grows and
+  speeds the snake, walls and your own tail end it. The game tick is a
+  `KEYIN` with a timeout; the body is a dynamic array driven by
+  `LOCATE` / `INSERT` / `DELETE`.
+
+```sh
+build/bin/mvx examples/SNAKE.b -o /tmp/snake && /tmp/snake
+build/bin/mvx examples/FSDEMO.b -o /tmp/fsdemo && /tmp/fsdemo
+```
+
 ## The environment
 
 Create an account and log on to the classic shell:
@@ -159,6 +178,7 @@ book.
 - `verbs/` — the standard verb set (MVX BASIC)
 - `packages/` — shipped packages (`cmd`, `git`, `sample`)
 - `docs/` — the MVX book (mdBook)
+- `examples/` — larger sample programs (full-screen demo, Snake)
 - `bench/sieve.b` — the prime-sieve benchmark
 - `tests/`, `scripts/test.sh` — the test harness
 
