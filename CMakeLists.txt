@@ -28,7 +28,8 @@ add_library(mvxrt SHARED
   runtime/src/mvx_exec.c
   runtime/src/mvx_call.c
   runtime/src/mvx_term.c
-  runtime/src/mvx_os.c)
+  runtime/src/mvx_os.c
+  runtime/src/mvx_acct.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
 target_compile_definitions(mvxrt PRIVATE
   MVX_DRIVER_DIR="${CMAKE_BINARY_DIR}/lib"
@@ -67,6 +68,12 @@ add_executable(mvx-lmdbd daemon/mvxd.c)
 target_include_directories(mvx-lmdbd PRIVATE ${LMDB_INCLUDE_DIR})
 target_link_libraries(mvx-lmdbd PRIVATE ${LMDB_LIBRARY})
 set_target_properties(mvx-lmdbd PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# --- mvx-convert-acct: bootstrap tool for plain-git checkouts ----------
+add_executable(mvx-convert-acct tools/mvx_convert_acct.c)
+target_link_libraries(mvx-convert-acct PRIVATE mvxrt)
+set_target_properties(mvx-convert-acct PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- classic TCL shell -------------------------------------------------
