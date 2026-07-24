@@ -58,7 +58,12 @@ fs::path exeDir() {
 // The runtime ships next to the compiler: <root>/bin/mvx, <root>/lib/*.
 fs::path runtimeLibDir() {
     fs::path lib = exeDir().parent_path() / "lib";
-    if (fs::exists(lib / "libmvxrt.a")) return lib;
+#ifdef __APPLE__
+    const char *rt = "libmvxrt.dylib";
+#else
+    const char *rt = "libmvxrt.so";
+#endif
+    if (fs::exists(lib / rt)) return lib;
     std::cerr << "mvx-basic: cannot find runtime library near " << exeDir()
               << "\n";
     exit(1);
@@ -184,21 +189,17 @@ int main(int argc, char **argv) {
     for (const std::string &o : linkObjects) cmd += " " + shellQuote(o);
     if (!shared) {
         cmd += " " + shellQuote((lib / "mvx_crt.o").string());
-        // Only executables carry the runtime, and they carry ALL of it
-        // (whole-archive): shared subroutine libraries resolve
-        // mv_*/mvx_* from the host program at load, and may need
-        // runtime functions the host's own code never referenced.
-        // Embedding the runtime in each subroutine library instead
-        // would duplicate per-image state (a second LMDB env handle
-        // for the same files, separate driver registries) — a
-        // correctness hazard, not just bloat.
-#ifdef __APPLE__
-        cmd += " -Wl,-force_load," + shellQuote((lib / "libmvxrt.a").string());
-#else
-        cmd += " -Wl,--whole-archive " +
-               shellQuote((lib / "libmvxrt.a").string()) +
-               " -Wl,--no-whole-archive";
-#endif
+        // Executables link the shared runtime dynamically: its code maps
+        // once and is shared across every mvx process, and the whole of
+        // it is loaded, so dlopen'd subroutine libraries and storage
+        // drivers resolve mv_*/mvx_* from that single copy — including
+        // functions the host's own code never referenced.  An rpath to
+        // the lib directory lets the program find libmvxrt at run time
+        // wherever it is placed.  (Subroutine libraries still link no
+        // runtime: they share the host's one copy, so per-image state —
+        // the LMDB env handle, the driver registry — stays single.)
+        cmd += " -L" + shellQuote(lib.string()) + " -lmvxrt";
+        cmd += " -Wl,-rpath," + shellQuote(lib.string());
     }
 #ifndef __APPLE__
     cmd += " -ldl";                     // dlopen for storage drivers

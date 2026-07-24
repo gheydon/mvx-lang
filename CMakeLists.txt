@@ -13,7 +13,12 @@ message(STATUS "Using LLVM ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
 
 # --- runtime -----------------------------------------------------------
-add_library(mvxrt STATIC
+# A SHARED library so its code is mapped once and shared across every mvx
+# process (each cataloged verb is its own executable), and so dlopen'd
+# subroutine libraries and storage drivers resolve mv_*/mvx_* from the
+# single loaded copy — no more force-loading a static archive into each
+# executable.
+add_library(mvxrt SHARED
   runtime/src/mv_value.c
   runtime/src/mv_dyn.c
   runtime/src/mv_str.c
@@ -30,7 +35,7 @@ target_compile_definitions(mvxrt PRIVATE
   MVX_BIN_DIR="${CMAKE_BINARY_DIR}/bin"
   MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
 set_target_properties(mvxrt PROPERTIES
-  ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # --- storage drivers: dlopen'd shared libraries ------------------------
 # Each driver links its own backend dependency; compiled programs link
