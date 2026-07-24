@@ -86,6 +86,14 @@ void      mv_arr_fill(mv_array *a, const mv_value *val);
 void      mv_arr_copy(mv_array *dst, const mv_array *src); /* dims must match */
 void      mv_matparse(mv_array *a, const mv_value *rec);   /* MATREAD split */
 void      mv_matbuild(const mv_array *a, mv_value *dst);    /* MATWRITE join */
+int64_t   mvx_readv(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
+                    const mv_value *id, int64_t attr, int64_t lock);
+void      mvx_writev(mvx_ctx *ctx, const mv_value *val, const mv_value *fvar,
+                     const mv_value *id, int64_t attr, int64_t keep);
+int64_t   mvx_matread(mvx_ctx *ctx, mv_array *arr, const mv_value *fvar,
+                      const mv_value *id, int64_t lock);
+void      mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
+                       const mv_value *id, int64_t keep);
 
 /* --- string intrinsics ------------------------------------------------- */
 void    mv_char_fn(mv_value *dst, int64_t code);

@@ -178,6 +178,39 @@ private:
             endStatementSoft();
             break;
         }
+        case Tok::KwReadv:
+        case Tok::KwReadvu: {
+            bool lock = cur().kind == Tok::KwReadvu;
+            advance();
+            s = mk(Stmt::K::ReadV);
+            if (lock) s->name = "U";
+            s->target = primaryRef();
+            expect(Tok::KwFrom, "FROM in READV");
+            s->args.push_back(expression());        // file
+            expect(Tok::Comma, "','");
+            s->args.push_back(expression());        // id
+            expect(Tok::Comma, "',' before attribute");
+            s->args.push_back(expression());        // attribute number
+            thenElse(*s);
+            break;
+        }
+        case Tok::KwWritev:
+        case Tok::KwWritevu: {
+            bool keep = cur().kind == Tok::KwWritevu;
+            advance();
+            s = mk(Stmt::K::WriteV);
+            if (keep) s->name = "U";
+            s->value = expression();                // value
+            if (at(Tok::KwOn) || at(Tok::KwTo)) advance();
+            else err("expected ON in WRITEV");
+            s->args.push_back(expression());        // file
+            expect(Tok::Comma, "','");
+            s->args.push_back(expression());        // id
+            expect(Tok::Comma, "',' before attribute");
+            s->args.push_back(expression());        // attribute number
+            endStatementSoft();
+            break;
+        }
         case Tok::KwMatread:
         case Tok::KwMatreadu: {
             bool lock = cur().kind == Tok::KwMatreadu;

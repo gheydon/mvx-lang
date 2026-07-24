@@ -305,6 +305,7 @@ private:
                 joinVar(s.name, NK::NotNum, changed);
                 break;
             case Stmt::K::ReadF:
+            case Stmt::K::ReadV:
                 if (s.target->kind == Expr::K::Var)
                     joinVar(s.target->sval, NK::NotNum, changed);
                 else
@@ -1182,6 +1183,8 @@ private:
         case Stmt::K::Open:     emitOpen(s);     break;
         case Stmt::K::ReadF:    emitReadF(s);    break;
         case Stmt::K::WriteF:   emitWriteF(s);   break;
+        case Stmt::K::ReadV:    emitReadV(s);    break;
+        case Stmt::K::WriteV:   emitWriteV(s);   break;
         case Stmt::K::MatRead:  emitMatRead(s);  break;
         case Stmt::K::MatWrite: emitMatWrite(s); break;
         case Stmt::K::DeleteF:
@@ -1331,6 +1334,34 @@ private:
                {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_},
                {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
                 evalPtr(*s.args[1]), keep});
+    }
+
+    void emitReadV(const Stmt &s) {
+        const Expr &t = *s.target;
+        Value *dst;
+        if (t.kind == Expr::K::Var)
+            dst = getScalar(t.sval, t.line);
+        else if (arrayNames_.count(t.sval) && !num_.numericArray(t.sval))
+            dst = arrayElemPtr(t);
+        else
+            err(t.line, "READV target must be a variable or array element");
+        Value *attr = numIndex(*s.args[2]);
+        Value *lock = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
+        Value *found = callRt(
+            "mvx_readv", i64Ty_,
+            {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
+            {ctxArg_, dst, evalPtr(*s.args[0]), evalPtr(*s.args[1]), attr,
+             lock});
+        emitThenElse(found, s, "readv");
+    }
+
+    void emitWriteV(const Stmt &s) {
+        Value *attr = numIndex(*s.args[2]);
+        Value *keep = ConstantInt::get(i64Ty_, s.name == "U" ? 1 : 0);
+        callRt("mvx_writev", voidTy_,
+               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, i64Ty_, i64Ty_},
+               {ctxArg_, evalPtr(*s.value), evalPtr(*s.args[0]),
+                evalPtr(*s.args[1]), attr, keep});
     }
 
     void emitMatRead(const Stmt &s) {

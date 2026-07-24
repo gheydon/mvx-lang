@@ -1,0 +1,11 @@
+name=Widget
+cost=9.99
+color=RED
+attr9=[]
+NOPE absent ok
+after=[Widgetþ12.00þRED]
+attrs=5
+attr5=BOX
+new=[solo]
+recolor=green
+still=Widget

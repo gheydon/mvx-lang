@@ -664,6 +664,30 @@ void mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
     mv_clear(&rec);
 }
 
+/* READV var FROM file, id, attr: read one attribute of a record.
+   Returns found (drives THEN/ELSE); target untouched when absent. */
+int64_t mvx_readv(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
+                  const mv_value *id, int64_t attr, int64_t lock) {
+    mv_value rec;
+    mv_init(&rec);
+    int64_t found = mvx_read(ctx, &rec, fvar, id, lock);
+    if (found) mv_extract_fn(dst, &rec, attr, 0, 0);
+    mv_clear(&rec);
+    return found;
+}
+
+/* WRITEV expr ON file, id, attr: replace one attribute, preserving the
+   rest of the record (creating it if absent). */
+void mvx_writev(mvx_ctx *ctx, const mv_value *val, const mv_value *fvar,
+                const mv_value *id, int64_t attr, int64_t keep_lock) {
+    mv_value rec;
+    mv_init(&rec);
+    if (!mvx_read(ctx, &rec, fvar, id, 0)) mv_set_str(&rec, "", 0);
+    mv_replace_fn(&rec, &rec, attr, 0, 0, val);
+    mvx_write(ctx, &rec, fvar, id, keep_lock);
+    mv_clear(&rec);
+}
+
 int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *id) {
     mvx_file *f = file_of(fvar, "DELETE");

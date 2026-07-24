@@ -71,6 +71,16 @@ from the dictionary.
 the daemon, the daemon is the lock authority and locks are leased to
 the connection: a client that dies loses its locks immediately.
 
+## READV / WRITEV
+
+`READV var FROM fvar, id, n` reads just attribute `n` of a record (1-based,
+in `@FM` order); an attribute past the end of the record comes back empty,
+and a missing record takes the `ELSE`. `WRITEV expr ON fvar, id, n`
+replaces attribute `n` and leaves the rest of the record untouched,
+extending the record with empty attributes if `n` is past the end and
+creating the record if it does not yet exist. The `U` variants
+(`READVU`/`WRITEVU`) take and hold a record lock, as with `READU`/`WRITEU`.
+
 ## MATREAD / MATWRITE
 
 `MATREAD arr FROM fvar, id` reads a record and spreads its fields (`@FM`
