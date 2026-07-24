@@ -14,6 +14,8 @@
 #include "parser.h"   // CompileError
 
 #include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <set>
 #include <sstream>
 #include <vector>
@@ -21,6 +23,10 @@
 namespace mvx {
 
 namespace {
+
+namespace fs = std::filesystem;
+
+constexpr int kMaxIncludeDepth = 32;
 
 std::string upper(std::string s) {
     for (char &c : s) c = (char)std::toupper((unsigned char)c);
@@ -62,29 +68,68 @@ std::string substitute(const std::string &line,
     return out;
 }
 
-} // namespace
-
-std::string preprocess(const std::string &src, const std::string &item,
-                       const std::map<std::string, std::string> &predefined) {
+// Symbol state shared across a file and everything it includes.
+struct Shared {
     std::set<std::string> defined;
     std::map<std::string, std::string> macros;
-    for (const auto &kv : predefined) {
-        defined.insert(kv.first);
-        if (!kv.second.empty()) macros[kv.first] = kv.second;
-    }
+    std::ostringstream out;
+    std::vector<PPLine> map;
+};
 
-    struct Frame {
-        bool parentActive;
-        bool active;
-        bool taken;   // has any branch of this conditional been active
-    };
+std::string readFile(const std::string &path, const std::string &fromItem,
+                     int fromLine) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        throw CompileError(fromItem, fromLine,
+                           "cannot open include \"" + path + "\"");
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+// Resolve an $INCLUDE / $INSERT target against the including file's
+// directory: "file item" -> dir/file/item (the directory-file layout),
+// or a single "item" -> dir/item.  A ".b" suffix is tried as a fallback.
+std::string resolveInclude(const fs::path &baseDir, const std::string &tok1,
+                           const std::string &tok2) {
+    fs::path p = tok2.empty() ? baseDir / tok1 : baseDir / tok1 / tok2;
+    if (fs::exists(p)) return p.string();
+    fs::path withB = p;
+    withB += ".b";
+    if (fs::exists(withB)) return withB.string();
+    return p.string();     // report the primary path in the error
+}
+
+void run(const std::string &src, const std::string &file, int fixedDwarf,
+         int depth, Shared &sh);
+
+void includeFile(const fs::path &baseDir, const std::string &tok1,
+                 const std::string &tok2, const std::string &fromItem,
+                 int fromLine, int childDwarf, int depth, Shared &sh) {
+    if (depth >= kMaxIncludeDepth)
+        throw CompileError(fromItem, fromLine, "include nesting too deep");
+    std::string path = resolveInclude(baseDir, tok1, tok2);
+    std::string text = readFile(path, fromItem, fromLine);
+    run(text, path, childDwarf, depth + 1, sh);
+}
+
+void run(const std::string &src, const std::string &file, int fixedDwarf,
+         int depth, Shared &sh) {
+    struct Frame { bool parentActive, active, taken; };
     std::vector<Frame> stack;
     auto active = [&]() { return stack.empty() ? true : stack.back().active; };
 
-    std::ostringstream out;
+    fs::path baseDir = fs::path(file).parent_path();
+    std::string label = fs::path(file).filename().string();
+
     std::istringstream in(src);
     std::string line;
     int lineno = 0;
+    auto emit = [&](const std::string &content) {
+        sh.out << content << "\n";
+        sh.map.push_back({label, lineno, fixedDwarf ? fixedDwarf : lineno});
+    };
+
     while (std::getline(in, line)) {
         lineno++;
         size_t p = 0;
@@ -113,44 +158,76 @@ std::string preprocess(const std::string &src, const std::string &item,
             if (dir == "DEFINE") {
                 if (active()) {
                     if (name.empty())
-                        throw CompileError(item, lineno, "$DEFINE needs a name");
-                    defined.insert(name);
-                    if (!value.empty()) macros[name] = value;
-                    else macros.erase(name);
+                        throw CompileError(file, lineno, "$DEFINE needs a name");
+                    sh.defined.insert(name);
+                    if (!value.empty()) sh.macros[name] = value;
+                    else sh.macros.erase(name);
                 }
             } else if (dir == "UNDEFINE" || dir == "UNDEF") {
-                if (active()) { defined.erase(name); macros.erase(name); }
+                if (active()) { sh.defined.erase(name); sh.macros.erase(name); }
             } else if (dir == "IFDEF" || dir == "IFNDEF") {
                 if (name.empty())
-                    throw CompileError(item, lineno, "$" + dir + " needs a name");
+                    throw CompileError(file, lineno, "$" + dir + " needs a name");
                 bool parent = active();
-                bool cond = defined.count(name) > 0;
+                bool cond = sh.defined.count(name) > 0;
                 if (dir == "IFNDEF") cond = !cond;
                 bool on = parent && cond;
                 stack.push_back({parent, on, on});
             } else if (dir == "ELSE") {
                 if (stack.empty())
-                    throw CompileError(item, lineno, "$ELSE without $IFDEF");
+                    throw CompileError(file, lineno, "$ELSE without $IFDEF");
                 Frame &f = stack.back();
                 f.active = f.parentActive && !f.taken;
                 if (f.active) f.taken = true;
             } else if (dir == "ENDIF") {
                 if (stack.empty())
-                    throw CompileError(item, lineno, "$ENDIF without $IFDEF");
+                    throw CompileError(file, lineno, "$ENDIF without $IFDEF");
                 stack.pop_back();
+            } else if (dir == "INCLUDE" || dir == "INSERT") {
+                if (active()) {
+                    // first token of `value` is the item when two are given
+                    std::string tok2;
+                    for (char c : value) {
+                        if (c == ' ' || c == '\t') break;
+                        tok2 += c;
+                    }
+                    if (name.empty())
+                        throw CompileError(file, lineno,
+                                           "$" + dir + " needs a target");
+                    int childDwarf = fixedDwarf ? fixedDwarf : lineno;
+                    includeFile(baseDir, name, tok2, file, lineno, childDwarf,
+                                depth, sh);
+                    // the directive line is replaced by the include, so
+                    // it produces no output line of its own
+                    continue;
+                }
+                emit("");                          // inactive: blank it
+                continue;
             } else {
-                throw CompileError(item, lineno, "unknown directive $" + dir);
+                throw CompileError(file, lineno, "unknown directive $" + dir);
             }
-            out << "\n";                       // blank the directive line
+            emit("");                              // blank the directive line
             continue;
         }
 
-        if (active()) out << substitute(line, macros) << "\n";
-        else out << "\n";                      // blank the inactive line
+        if (active()) emit(substitute(line, sh.macros));
+        else emit("");                             // blank the inactive line
     }
     if (!stack.empty())
-        throw CompileError(item, lineno, "unterminated $IFDEF / $IFNDEF");
-    return out.str();
+        throw CompileError(file, lineno, "unterminated $IFDEF / $IFNDEF");
+}
+
+} // namespace
+
+PPResult preprocess(const std::string &src, const std::string &path,
+                    const std::map<std::string, std::string> &predefined) {
+    Shared sh;
+    for (const auto &kv : predefined) {
+        sh.defined.insert(kv.first);
+        if (!kv.second.empty()) sh.macros[kv.first] = kv.second;
+    }
+    run(src, path, 0, 0, sh);
+    return {sh.out.str(), std::move(sh.map)};
 }
 
 } // namespace mvx

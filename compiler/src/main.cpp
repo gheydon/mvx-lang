@@ -176,13 +176,30 @@ int main(int argc, char **argv) {
                       .string();
         }
 
+        mvx::PPResult ppr;
         try {
-            std::string pp = mvx::preprocess(ss.str(), src, defines);
-            mvx::Program prog = mvx::parse(pp, src);
+            // Preprocess errors already carry the real file and line.
+            ppr = mvx::preprocess(ss.str(), src, defines);
+        } catch (const mvx::CompileError &e) {
+            std::cerr << e.item << ":" << e.line << ": " << e.what() << "\n";
+            return 1;
+        }
+        try {
+            mvx::Program prog = mvx::parse(ppr.text, src);
+            cg.dwarfLines.clear();
+            cg.dwarfLines.reserve(ppr.map.size());
+            for (const auto &m : ppr.map) cg.dwarfLines.push_back(m.dwarf);
             mvx::compileToObject(prog, obj, cg);
         } catch (const mvx::CompileError &e) {
-            std::cerr << e.item << ":" << e.line << ": " << e.what()
-                      << "\n";
+            // Parse/codegen errors carry an output line; map it back to
+            // the original source (an included file, past an $INCLUDE).
+            std::string item = e.item;
+            int line = e.line;
+            if (line >= 1 && line <= (int)ppr.map.size()) {
+                item = ppr.map[line - 1].file;
+                line = ppr.map[line - 1].line;
+            }
+            std::cerr << item << ":" << line << ": " << e.what() << "\n";
             return 1;
         }
         linkObjects.push_back(obj);

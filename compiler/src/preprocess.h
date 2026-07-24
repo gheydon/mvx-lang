@@ -14,16 +14,34 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace mvx {
 
+// Where an output line came from, so errors and DWARF still point at the
+// original source even after $INCLUDE splices other files in.
+struct PPLine {
+    std::string file;   // source file the line came from
+    int         line;   // its line number within that file
+    int         dwarf;  // line to attribute in the compilation unit:
+                        // the real line for the main file, or the
+                        // include site's line for included content
+};
+
+struct PPResult {
+    std::string          text;   // expanded source
+    std::vector<PPLine>  map;    // one entry per output line (1-based)
+};
+
 // Expand the source preprocessor: $DEFINE / $UNDEFINE / $IFDEF / $IFNDEF
-// / $ELSE / $ENDIF (UniVerse/UniData style), plus macro substitution of
-// defined values.  `predefined` seeds the symbol table (e.g. MVX).
-// Inactive and directive lines are blanked, not removed, so reported
-// line numbers and DWARF still match the original source.  Throws
-// CompileError on a malformed or unbalanced directive.
-std::string preprocess(const std::string &src, const std::string &item,
-                       const std::map<std::string, std::string> &predefined);
+// / $ELSE / $ENDIF (UniVerse/UniData style), $INCLUDE / $INSERT source
+// inclusion, plus macro substitution of defined values.  `predefined`
+// seeds the symbol table (e.g. MVX).  `path` is the including file's
+// path, used both as the error label and to resolve relative includes.
+// The returned map lets the caller keep error and DWARF line numbers
+// pointing at the real source across includes.  Throws CompileError on a
+// malformed or unbalanced directive or an unreadable include.
+PPResult preprocess(const std::string &src, const std::string &path,
+                    const std::map<std::string, std::string> &predefined);
 
 } // namespace mvx

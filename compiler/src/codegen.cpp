@@ -464,7 +464,9 @@ private:
     }
 
     DebugLoc loc(int line) {
-        return DILocation::get(llctx_, line, 1, sp_);
+        const auto &dl = opts_.dwarfLines;
+        int src = (line >= 1 && line <= (int)dl.size()) ? dl[line - 1] : line;
+        return DILocation::get(llctx_, src, 1, sp_);
     }
 
     void declareVarDebug(const std::string &name, Value *slot, int line) {

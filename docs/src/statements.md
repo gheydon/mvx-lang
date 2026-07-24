@@ -209,3 +209,20 @@ $ENDIF
 This is the portability seam: commit an account to git on one platform,
 `mvx-git clone` it on MVX, and — with the `$IFDEF`s set correctly — it
 compiles and runs.
+
+### Source inclusion
+
+```
+$INCLUDE item            splice a sibling source file
+$INSERT item             synonym for $INCLUDE
+$INCLUDE file item       splice file/item (the directory-file layout)
+```
+
+`$INCLUDE` and `$INSERT` pull another source file in where the directive
+stands — the classic way to share `EQUATE`s, `COMMON` blocks, and
+`DEFFUN` declarations across programs. The target resolves relative to
+the including file's directory (a `.b` suffix is tried as a fallback),
+includes may nest, and `$DEFINE`/`$IFDEF` state carries across the
+boundary. A compiler tracks each spliced line back to its origin, so a
+compile error in an included file reports *that* file and line, and the
+source-level debugger still steps the right code.
