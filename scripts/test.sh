@@ -253,6 +253,43 @@ check tcl-account "$(printf '%s\n' \
   'LIST PARTS NAME BY NAME' \
   'CT VOC FOO' | "$TCL" -a "$RTC" 2>&1 | normalise)"
 
+# dictionary-driven recreation: a bulk file exports its dictionary only
+# (data excluded, like a .gitignore), and the dictionary's %FILE% record
+# alone recreates the file on CONVERT - even with no FILES manifest, and
+# honouring a directory file's type.
+RDS="$TESTROOT/rdsrc"
+"$ROOT/scripts/mkaccount.sh" "$RDS" >/dev/null
+rdseed="$TESTROOT/rdseed.b"
+cat > "$rdseed" <<'EOF'
+X = CREATEFILE("ORDERS")
+OPEN "ORDERS" TO F ELSE STOP
+WRITE "a":@AM:"1" ON F, "O1"
+WRITE "b":@AM:"2" ON F, "O2"
+OPEN "DICT", "ORDERS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Who":@AM:"10L" ON D, "WHO"
+X = CREATEFILE("ARCHIVE", "DIR")
+OPEN "ARCHIVE" TO A ELSE STOP
+WRITE "old":@AM:"x" ON A, "R1"
+PRINT "seeded"
+EOF
+"$MVX" "$rdseed" -o "$TESTROOT/rdseedbin" 2>/dev/null
+(cd "$RDS" && MVXACCOUNT=. "$TESTROOT/rdseedbin") >/dev/null
+MVXEXPORT_MAX=1 "$TCL" -a "$RDS" -c "EXPORT-ACCOUNT" >/dev/null 2>&1
+RDC="$TESTROOT/rdclone"
+mkdir -p "$RDC"
+# clone without the hash-file store AND without the FILES manifest
+(cd "$RDS" && tar cf - --exclude=mvxdata.lmdb --exclude=FILES .) | (cd "$RDC" && tar xf -)
+rdhasdata=no
+[ -d "$RDC/ORDERS" ] && rdhasdata=yes    # ORDERS was bulk: dict only, no data dir
+MVXPRIV=developer "$TCL" -a "$RDC" -c "CONVERT-ACCOUNT" >/dev/null 2>&1
+check tcl-account-dict "$( \
+  echo "clone shipped ORDERS data: $rdhasdata"; \
+  "$TCL" -a "$RDC" -c 'COUNT ORDERS' 2>&1; \
+  "$TCL" -a "$RDC" -c 'CT DICT ORDERS WHO' 2>&1 | head -1; \
+  "$TCL" -a "$RDC" -c 'COUNT ARCHIVE' 2>&1; \
+  { [ -d "$RDC/ORDERS" ] && echo 'ORDERS still directory' || echo 'ORDERS is a hash file'; }; \
+  { [ -d "$RDC/ARCHIVE" ] && echo 'ARCHIVE stays a directory file' || echo 'ARCHIVE lost'; })"
+
 # native git (libgit2, no shell, restricted tier): init, export, add,
 # commit, log - the injection-proof structured path
 GACCT="$TESTROOT/gitacct"

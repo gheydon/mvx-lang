@@ -61,11 +61,27 @@ STOP
 
 * ---- 1000: migrate directory file NM into a hash file -----------------
 1000
-* target backend from the FILES manifest; "dir" means keep it legible
+* Target backend: the FILES manifest is an optional override, but the
+* authority is the dictionary's %FILE% control record — it travels with
+* the schema, so a committed dictionary alone recreates the file with
+* the right backend (and connection), no manifest required.  "dir"
+* means the file is meant to stay a legible directory file.
 TYPE = ""
+CONN = ""
 FOR K = 1 TO DCOUNT(FILETYPES, @AM)
    IF FIELD(FILETYPES<K>, " ", 1) = NM THEN TYPE = FIELD(FILETYPES<K>, " ", 2)
 NEXT K
+IF TYPE = "" THEN
+   * read the exported dictionary (top-level NM.DICT), not the directory
+   * file's own hidden .DICT — a directory wrapper written on export
+   * carries its own %FILE% = dir, which is not the file's real backend.
+   OPEN NM:".DICT" TO MDD THEN
+      READ META FROM MDD, "%FILE%" THEN
+         TYPE = META<1, 2>
+         CONN = META<1, 3>
+      END
+   END
+END
 IF TYPE = "dir" THEN RETURN
 IF TYPE = "" THEN TYPE = "lmdb"
 * Stage the records into a temporary hash file (a straight OPEN of NM
@@ -122,7 +138,11 @@ RETURN
 IF TYPE = "lmdb" THEN
    X = CREATEFILE(TMP)
 END ELSE
-   X = CREATEFILE(TMP, "USING ":TYPE)
+   IF CONN # "" THEN
+      X = CREATEFILE(TMP, "USING ":TYPE:" ":CONN)
+   END ELSE
+      X = CREATEFILE(TMP, "USING ":TYPE)
+   END
 END
 RETURN
 
@@ -131,6 +151,10 @@ RETURN
 IF TYPE = "lmdb" THEN
    X = CREATEFILE(NM)
 END ELSE
-   X = CREATEFILE(NM, "USING ":TYPE)
+   IF CONN # "" THEN
+      X = CREATEFILE(NM, "USING ":TYPE:" ":CONN)
+   END ELSE
+      X = CREATEFILE(NM, "USING ":TYPE)
+   END
 END
 RETURN

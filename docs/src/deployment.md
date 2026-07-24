@@ -93,6 +93,13 @@ orders never land in git; their data is reloaded from its own source.
 Commit the result with ordinary git (keep `mvxdata.lmdb` out via
 `.gitignore`).
 
+Every dictionary carries a `%FILE%` control record — written when the
+file is created — that names the file's backend (and connection). It
+*is* the file definition, so **committing the dictionary alone is
+enough to recreate the file**: the data is effectively gitignored while
+the schema, in git, rebuilds an empty file of the right type. `%FILE%`
+is authoritative; the `FILES` manifest is only an optional override.
+
 `CONVERT-ACCOUNT` — driven by `scripts/mvx-convert.sh` — is the
 inverse, run once in a fresh clone. It moves the VOC and each
 reference file's records into hash files (the driver named in `FILES`,
