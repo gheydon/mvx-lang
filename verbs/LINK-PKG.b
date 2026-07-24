@@ -47,8 +47,15 @@ UNTIL QUEUE = "" DO
    SKIP = 0
    LOCATE(CUR, PKGS; POS) THEN SKIP = 1
    IF SKIP = 0 THEN
-      OPEN CUR:"/VOC" TO PV ELSE
-         PRINT CUR:" is not a package (no VOC directory)"
+      * a package is identified by its PKG manifest, not its VOC: a
+      * package may expose only subroutines (a LIB library) and carry
+      * no verb records at all.
+      OPEN CUR TO PV ELSE
+         PRINT CUR:" is not a package (cannot open ":CUR:")"
+         STOP
+      END
+      READ PKGREC FROM PV, "PKG" ELSE
+         PRINT CUR:" is not a package (no PKG manifest)"
          STOP
       END
       GOSUB 9000

@@ -224,6 +224,35 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
+# account round-trip: EXPORT-ACCOUNT snapshots a live hash-file account
+# into legible directory files; a git-style clone (no hash-file store)
+# is then rebuilt into hash files by CONVERT-ACCOUNT.
+RTS="$TESTROOT/rtsrc"
+"$ROOT/scripts/mkaccount.sh" "$RTS" >/dev/null
+rtseed="$TESTROOT/rtseed.b"
+cat > "$rtseed" <<'EOF'
+X = CREATEFILE("PARTS")
+OPEN "PARTS" TO F ELSE STOP
+WRITE "Widget":@AM:"999" ON F, "W100"
+WRITE "Gadget":@AM:"450" ON F, "G200"
+OPEN "DICT", "PARTS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+OPEN "VOC" TO V ELSE STOP
+WRITE "V":@AM:"CATALOG/FOO" ON V, "FOO"
+PRINT "seeded"
+EOF
+"$MVX" "$rtseed" -o "$TESTROOT/rtseedbin" 2>/dev/null
+(cd "$RTS" && MVXACCOUNT=. "$TESTROOT/rtseedbin") >/dev/null
+"$TCL" -a "$RTS" -c "EXPORT-ACCOUNT" >/dev/null 2>&1
+RTC="$TESTROOT/rtclone"
+mkdir -p "$RTC"
+(cd "$RTS" && tar cf - --exclude=mvxdata.lmdb .) | (cd "$RTC" && tar xf -)
+MVXPRIV=developer "$TCL" -a "$RTC" -c "CONVERT-ACCOUNT" >/dev/null 2>&1
+check tcl-account "$(printf '%s\n' \
+  'COUNT PARTS' \
+  'LIST PARTS NAME BY NAME' \
+  'CT VOC FOO' | "$TCL" -a "$RTC" 2>&1 | normalise)"
+
 # native git (libgit2, no shell, restricted tier): init, export, add,
 # commit, log - the injection-proof structured path
 GACCT="$TESTROOT/gitacct"

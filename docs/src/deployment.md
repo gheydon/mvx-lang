@@ -72,6 +72,41 @@ failure, the single-writer throughput ceiling remains, and
 replication/HA is not provided. Protocol integers are host-order —
 keep daemon and clients on the same architecture for now.
 
+## Committing and cloning an account through git
+
+Hash files are binary, so an account is not committed as-is. Two verbs
+move an account between its **live** form (LMDB hash files) and a
+**legible** form (one directory file per MV file, one text record per
+Unix file) that git tracks with clean, mergeable diffs:
+
+```
+> EXPORT-ACCOUNT        live hash files  ->  legible directory files
+$ scripts/mvx-convert.sh <account>       legible clone  ->  live hash files
+```
+
+`EXPORT-ACCOUNT` snapshots the whole account — the VOC, every
+dictionary, and the record data of reference-sized files — into
+directory files beside the store, then writes a `FILES` manifest
+recording each file's backend. Bulk files (over `$MVXEXPORT_MAX`
+records, default 5000) export their **dictionary only**, so a million
+orders never land in git; their data is reloaded from its own source.
+Commit the result with ordinary git (keep `mvxdata.lmdb` out via
+`.gitignore`).
+
+`CONVERT-ACCOUNT` — driven by `scripts/mvx-convert.sh` — is the
+inverse, run once in a fresh clone. It moves the VOC and each
+reference file's records into hash files (the driver named in `FILES`,
+or a file marked `dir` stays a directory file), then hands off to
+`BUILD` to create bulk data files empty from their dictionaries,
+catalog `BP` source, and link packages. The clone becomes a working,
+hash-file-backed account.
+
+The two are inverses, so an account round-trips: `EXPORT-ACCOUNT` →
+commit → clone → `mvx-convert.sh` → work → `EXPORT-ACCOUNT` → commit.
+This is the stock-to-site delivery path — combined with record-level
+branch, merge, and cherry-pick (see [Version Control](git.md)), a
+customised site tracks stock upstream and feeds features back.
+
 ## The migration curve
 
 ```
