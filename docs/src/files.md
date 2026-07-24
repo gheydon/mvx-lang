@@ -26,8 +26,9 @@ same time.
 
 ## Dictionaries
 
-Every file has a dictionary: a sibling store (`DICT.X` for LMDB,
-`X/.DICT` for directory files) opened with `OPEN "DICT", "X" TO D`.
+Every file has a dictionary: a sibling store (`DICT.X` for LMDB, or the
+directory `X.DICT` beside `X` for directory files — so `BP` and
+`BP.DICT` sit side by side) opened with `OPEN "DICT", "X" TO D`.
 Dictionary records describe fields:
 
 **D-type** (attribute) items:

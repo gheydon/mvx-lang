@@ -57,58 +57,64 @@ STOP
 TYOUT = "lmdb"
 IF TY = "D" THEN TYOUT = "dir"
 IF TY # "D" AND TY # "L" THEN TYOUT = TY      ;* a bound driver name
-* dictionary -> NM.DICT, created only when it actually holds records
-OPEN "DICT", NM TO DSRC THEN
-   DMADE = 0
-   SELECT DSRC
-   DDONE = 0
+IF TY = "D" THEN
+   * a directory file is already legible: NM/ and NM.DICT sit side by side
+   NDATA = NDATA + 1
+   FILES<-1> = NM:" ":TYOUT
+   RETURN
+END
+* hash/bound file: take the source dict and data handles BEFORE creating
+* the directory form, which shadows the same-named hash file.
+HAVEDICT = 0
+OPEN "DICT", NM TO DSRC THEN HAVEDICT = 1 ELSE HAVEDICT = 0
+OPEN NM TO SRC ELSE RETURN
+CNT = 0
+BIG = 0
+SELECT SRC
+CDONE = 0
+LOOP
+   READNEXT XID ELSE CDONE = 1
+UNTIL CDONE DO
+   CNT = CNT + 1
+   IF CNT > MAXREC THEN
+      BIG = 1
+      CDONE = 1
+   END
+REPEAT
+IF BIG THEN
+   * bulk: keep the data in the hash file, export the dictionary only
+   PRINT "  ":NM:": over ":MAXREC:" records — dictionary only"
+   X = CREATEFILE(NM:".DICT", "DIR")
+END ELSE
+   X = CREATEFILE(NM, "DIR")                  ;* NM/ and NM.DICT
+   OPEN NM TO DST ELSE RETURN
+   SELECT SRC
+   WDONE = 0
    LOOP
-      READNEXT DID ELSE DDONE = 1
-   UNTIL DDONE DO
-      READ DR FROM DSRC, DID THEN
-         IF DMADE = 0 THEN
-            X = CREATEFILE(NM:".DICT", "DIR")
-            OPEN NM:".DICT" TO DDST ELSE RETURN
-            DMADE = 1
-            NDICT = NDICT + 1
-         END
-         WRITE DR ON DDST, DID
+      READNEXT ID ELSE WDONE = 1
+   UNTIL WDONE DO
+      READ R FROM SRC, ID THEN
+         WRITE R ON DST, ID
+         NREC = NREC + 1
       END
    REPEAT
 END
-* data -> NM.  Directory files are already legible on disk; hash files
-* export their records unless the file is bulk (over the threshold).
-IF TY # "D" THEN
-   OPEN NM TO SRC THEN
-      CNT = 0
-      BIG = 0
-      SELECT SRC
-      CDONE = 0
+* dictionary -> NM.DICT, copied verbatim: the source %FILE% carries the
+* real backend type, overriding the "dir" stamp CREATE-FILE just wrote.
+IF HAVEDICT THEN
+   OPEN NM:".DICT" TO DDST THEN
+      SELECT DSRC
+      DDONE = 0
+      DANY = 0
       LOOP
-         READNEXT XID ELSE CDONE = 1
-      UNTIL CDONE DO
-         CNT = CNT + 1
-         IF CNT > MAXREC THEN
-            BIG = 1
-            CDONE = 1
+         READNEXT DID ELSE DDONE = 1
+      UNTIL DDONE DO
+         READ DR FROM DSRC, DID THEN
+            WRITE DR ON DDST, DID
+            DANY = 1
          END
       REPEAT
-      IF BIG THEN
-         PRINT "  ":NM:": over ":MAXREC:" records — dictionary only"
-      END ELSE
-         X = CREATEFILE(NM, "DIR")
-         OPEN NM TO DST ELSE RETURN
-         SELECT SRC
-         WDONE = 0
-         LOOP
-            READNEXT ID ELSE WDONE = 1
-         UNTIL WDONE DO
-            READ R FROM SRC, ID THEN
-               WRITE R ON DST, ID
-               NREC = NREC + 1
-            END
-         REPEAT
-      END
+      IF DANY THEN NDICT = NDICT + 1
    END
 END
 NDATA = NDATA + 1

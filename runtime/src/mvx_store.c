@@ -367,9 +367,10 @@ static int binding_for(const char *cspec, char *driver, size_t dcap,
 }
 
 /* Resolve a spec to its driver, and derive the dictionary spec when
-   asked: DICT.<spec> as a sibling LMDB named DB, <spec>/.DICT as a
-   hidden subdirectory for directory files (data SELECTs skip dotfiles,
-   so the dictionary is invisible to them). */
+   asked: DICT.<spec> as a sibling LMDB named DB, and <spec>.DICT as a
+   sibling directory for directory files — so a directory file NAME and
+   its dictionary NAME.DICT sit side by side (BP and BP.DICT), matching
+   the git-legible form exactly. */
 static const mvx_driver *resolve(const char *cspec, int want_dict,
                                  char *outspec, size_t cap) {
     const char *acct = getenv("MVXACCOUNT");
@@ -383,7 +384,7 @@ static const mvx_driver *resolve(const char *cspec, int want_dict,
 
     struct stat sb;
     if (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
-        snprintf(outspec, cap, want_dict ? "%s/.DICT" : "%s", cspec);
+        snprintf(outspec, cap, want_dict ? "%s.DICT" : "%s", cspec);
         return driver_load("dir");
     }
     /* Per-file backend binding (ARCHITECTURE.md 4.4: migration is per
@@ -1212,8 +1213,12 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
     if (tp[0] == 'D' || tp[0] == 'd') {
         const mvx_driver *drv = driver_load("dir");
         if (!drv->create(cspec, err, sizeof err)) return 0;
+        /* A dictionary directory (NAME.DICT) is a file but needs no
+           dictionary of its own — never create NAME.DICT.DICT. */
+        size_t cl = strlen(cspec);
+        if (cl > 5 && strcmp(cspec + cl - 5, ".DICT") == 0) return 1;
         char dspec[1152];
-        snprintf(dspec, sizeof dspec, "%s/.DICT", cspec);
+        snprintf(dspec, sizeof dspec, "%s.DICT", cspec);
         if (!drv->create(dspec, err, sizeof err)) {
             drv->remove(cspec, err, sizeof err);
             return 0;

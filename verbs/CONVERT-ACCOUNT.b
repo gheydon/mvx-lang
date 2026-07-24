@@ -72,9 +72,8 @@ FOR K = 1 TO DCOUNT(FILETYPES, @AM)
    IF FIELD(FILETYPES<K>, " ", 1) = NM THEN TYPE = FIELD(FILETYPES<K>, " ", 2)
 NEXT K
 IF TYPE = "" THEN
-   * read the exported dictionary (top-level NM.DICT), not the directory
-   * file's own hidden .DICT — a directory wrapper written on export
-   * carries its own %FILE% = dir, which is not the file's real backend.
+   * the dictionary sibling NM.DICT carries the real backend in its
+   * %FILE% control record — authoritative when no FILES manifest exists.
    OPEN NM:".DICT" TO MDD THEN
       READ META FROM MDD, "%FILE%" THEN
          TYPE = META<1, 2>
@@ -103,8 +102,15 @@ UNTIL DONE DO
       C = C + 1
    END
 REPEAT
+* Stash the dictionary into the temp file's dict BEFORE dropping NM:
+* NM's dictionary is now its sibling NM.DICT, which DELETE-FILE removes
+* along with the data.  Skip %FILE% so the new backend's own type stamp
+* stands.
+DFROM = NM
+DTO = TMP
+GOSUB 1800                               ;* copy dict NM -> TMP
 SRC = ""
-X = DELETEFILE(NM)                       ;* remove the directory form
+X = DELETEFILE(NM)                       ;* removes NM/ and its NM.DICT
 TGT = NM
 GOSUB 1600                               ;* create NM with backend TYPE (target=TGT)
 OPEN NM TO FIN ELSE RETURN
@@ -116,19 +122,10 @@ LOOP
 UNTIL DONE DO
    READ R FROM TSRC, ID THEN WRITE R ON FIN, ID
 REPEAT
+DFROM = TMP
+DTO = NM
+GOSUB 1800                               ;* restore dict TMP -> NM
 X = DELETEFILE(TMP)
-* import the dictionary (still a directory file, NM.DICT) into the hash
-OPEN NM:".DICT" TO DDSRC THEN
-   OPEN "DICT", NM TO DDST THEN
-      SELECT DDSRC
-      DONE = 0
-      LOOP
-         READNEXT DID ELSE DONE = 1
-      UNTIL DONE DO
-         READ DR FROM DDSRC, DID THEN WRITE DR ON DDST, DID
-      REPEAT
-   END
-END
 NMIG = NMIG + 1
 NREC = NREC + C
 RETURN
@@ -155,6 +152,24 @@ END ELSE
       X = CREATEFILE(NM, "USING ":TYPE:" ":CONN)
    END ELSE
       X = CREATEFILE(NM, "USING ":TYPE)
+   END
+END
+RETURN
+
+* ---- 1800: copy the dictionary of DFROM into DTO, keeping DTO's own
+*            %FILE% type stamp ----------------------------------------
+1800
+OPEN "DICT", DFROM TO XDS THEN
+   OPEN "DICT", DTO TO XDD THEN
+      SELECT XDS
+      XDONE = 0
+      LOOP
+         READNEXT XID ELSE XDONE = 1
+      UNTIL XDONE DO
+         IF XID # "%FILE%" THEN
+            READ XDR FROM XDS, XID THEN WRITE XDR ON XDD, XID
+         END
+      REPEAT
    END
 END
 RETURN

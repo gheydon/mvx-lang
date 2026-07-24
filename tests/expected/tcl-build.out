@@ -2,10 +2,11 @@ built account: 1 file(s) created, 1 verb(s) cataloged, 0 package(s) linked
 File                     Type
 BP                       directory
 CATALOG                  directory
+CATALOG.DICT             directory
 PARTS.DICT               directory
 PARTS                    lmdb
 VOC                      lmdb
-5 file(s)
+6 file(s)
 @ID         
 NAME        
 1 record(s) listed

@@ -207,11 +207,11 @@ static void spec_path(const char *spec, char *path, size_t cap) {
 static int dir_create(const char *spec, char *err, size_t errlen) {
     char path[4096];
     spec_path(spec, path, sizeof path);
-    if (mkdir(path, 0775) != 0) {
+    if (mkdir(path, 0775) != 0 && errno != EEXIST) {
         snprintf(err, errlen, "dir: cannot create %s", path);
         return 0;
     }
-    return 1;
+    return 1;                    /* idempotent: an existing directory is fine */
 }
 
 static int dir_remove(const char *spec, char *err, size_t errlen) {

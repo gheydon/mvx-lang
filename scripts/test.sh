@@ -195,7 +195,7 @@ check tcl-gate "$(printf '!echo leaked\n' | tclrun; \
   printf '!echo allowed\n' | MVXPRIV=unrestricted "$TCL" -a "$ACCT" 2>&1)"
 
 # self-hosting: BASIC + CATALOG a verb, then run it
-mkdir -p "$ACCT/BP" "$ACCT/BP/.DICT"
+mkdir -p "$ACCT/BP" "$ACCT/BP.DICT"
 cat > "$ACCT/BP/HELLO" <<'EOF'
 * /**
 *  * @file HELLO
@@ -210,8 +210,8 @@ check tcl-selfhost "$( \
   printf 'HELLO A B\n' | tclrun)"
 
 # docblocks through I-type dictionary items
-printf 'I\nDOCTAG(file)\n\nFile\n10L\n' > "$ACCT/BP/.DICT/FILE"
-printf 'I\nDOCTAG(version)\n\nVersion\n8L\n' > "$ACCT/BP/.DICT/VERSION"
+printf 'I\nDOCTAG(file)\n\nFile\n10L\n' > "$ACCT/BP.DICT/FILE"
+printf 'I\nDOCTAG(version)\n\nVersion\n8L\n' > "$ACCT/BP.DICT/VERSION"
 check tcl-docblock "$(printf 'LIST BP FILE VERSION\n' | tclrun)"
 
 # packages: build, link (dependency pulls cmd), GIT help, unlink rules

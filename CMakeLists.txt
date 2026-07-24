@@ -102,6 +102,8 @@ add_custom_target(system-account ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory ${MVX_SYS_DIR}/VOC
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_SOURCE_DIR}/system/VOC ${MVX_SYS_DIR}/VOC
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_SOURCE_DIR}/system/VOC.DICT ${MVX_SYS_DIR}/VOC.DICT
   DEPENDS ${MVX_SYS_VERBS})
 
 # --- tests -------------------------------------------------------------
