@@ -7,7 +7,10 @@ Reference, alphabetically. `{...}` marks optional parts.
 var = expr
 var<a{,v{,s}}> = expr        dynamic-array replace
 ARR(i{,j}) = expr            dimensioned element
+var += expr                  compound: also -= *= /= and := (append)
 ```
+`target OP= value` is shorthand for `target = target OP value`; `:=`
+appends (string concatenation). It works on any assignable target.
 
 ### BEGIN CASE
 ```
@@ -79,6 +82,8 @@ FOR I = first TO last {STEP n}
    statements
 NEXT I
 ```
+Inside any `FOR` or `LOOP`, `CONTINUE` skips to the next iteration and
+`EXIT` leaves the innermost loop.
 
 ### FORMLIST
 ```

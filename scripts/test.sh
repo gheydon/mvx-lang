@@ -105,6 +105,8 @@ lang equate
 lang matparse
 lang include
 lang matches
+lang loopctl
+lang assign
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)

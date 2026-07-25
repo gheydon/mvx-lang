@@ -449,6 +449,16 @@ private:
             s = mk(Stmt::K::Nop);
             endStatementSoft();
             break;
+        case Tok::KwContinue:
+            advance();
+            s = mk(Stmt::K::Continue);
+            endStatementSoft();
+            break;
+        case Tok::KwExit:
+            advance();
+            s = mk(Stmt::K::Exit);
+            endStatementSoft();
+            break;
         case Tok::Ident:      s = assignStmt(); break;
         default:
             err("expected statement");
@@ -479,8 +489,24 @@ private:
             err("cannot assign to EQUATE name " + cur().text);
         auto s = mk(Stmt::K::Assign);
         s->target = maybeExtract(primaryRef());
-        expect(Tok::Eq, "'=' in assignment");
-        s->value = expression();
+        // Compound assignment: `target OP= value` desugars to
+        // `target = target OP value` (`:=` appends, `+= -= *= /=`).
+        BinOp cop = BinOp::Add;
+        bool compound = peek().kind == Tok::Eq;
+        if (compound && at(Tok::Colon))      cop = BinOp::Cat;
+        else if (compound && at(Tok::Plus))  cop = BinOp::Add;
+        else if (compound && at(Tok::Minus)) cop = BinOp::Sub;
+        else if (compound && at(Tok::Star))  cop = BinOp::Mul;
+        else if (compound && at(Tok::Slash)) cop = BinOp::Div;
+        else compound = false;
+        if (compound) {
+            int line = advance().line;               // the OP
+            advance();                               // the '='
+            s->value = bin(cop, cloneExpr(*s->target), expression(), line);
+        } else {
+            expect(Tok::Eq, "'=' in assignment");
+            s->value = expression();
+        }
         endStatementSoft();
         return s;
     }

@@ -62,6 +62,7 @@ struct Stmt {
         Print,      // items + seps, noNewline  (CRT is the same in Slice 1)
         Call,       // name, args
         Return, Stop,
+        Continue, Exit,     // loop control: next iteration / leave loop
         Label,      // name: numeric statement label
         Goto,       // name: target label
         Gosub,      // name: target label

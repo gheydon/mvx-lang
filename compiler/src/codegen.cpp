@@ -407,6 +407,8 @@ private:
     Value *gsStack_ = nullptr;              // [kGosubDepth x i32] alloca
     std::vector<BasicBlock *> gosubConts_;  // continuation per GOSUB site
     BasicBlock *gosubRetBB_ = nullptr;
+    // Enclosing loops: {CONTINUE target, EXIT target}, innermost last.
+    std::vector<std::pair<BasicBlock *, BasicBlock *>> loops_;
     static constexpr uint64_t kGosubDepth = 1024;
 
     // ---------------------------------------------------------------- utils
@@ -1200,6 +1202,16 @@ private:
             b_.CreateBr(labelBBs_.at(s.name));
             b_.SetInsertPoint(newBB("dead"));
             break;
+        case Stmt::K::Continue:
+        case Stmt::K::Exit:
+            if (loops_.empty())
+                err(s.line, (s.kind == Stmt::K::Continue ? "CONTINUE"
+                                                         : "EXIT")
+                                + std::string(" outside a loop"));
+            b_.CreateBr(s.kind == Stmt::K::Continue ? loops_.back().first
+                                                    : loops_.back().second);
+            b_.SetInsertPoint(newBB("dead"));
+            break;
         case Stmt::K::Gosub:
             emitGosub(s);
             break;
@@ -1831,6 +1843,7 @@ private:
 
         BasicBlock *testBB = newBB("for.test");
         BasicBlock *bodyBB = newBB("for.body");
+        BasicBlock *incBB = newBB("for.inc");
         BasicBlock *doneBB = newBB("for.done");
         b_.CreateBr(testBB);
 
@@ -1844,7 +1857,12 @@ private:
         b_.CreateCondBr(cont, bodyBB, doneBB);
 
         b_.SetInsertPoint(bodyBB);
+        loops_.push_back({incBB, doneBB});
         emitBlock(s.body);
+        loops_.pop_back();
+        b_.CreateBr(incBB);
+
+        b_.SetInsertPoint(incBB);
         b_.SetCurrentDebugLocation(loc(s.line));
         call3("mv_add", var, var, step);
         b_.CreateBr(testBB);
@@ -1877,6 +1895,7 @@ private:
 
         BasicBlock *testBB = newBB("for.test");
         BasicBlock *bodyBB = newBB("for.body");
+        BasicBlock *incBB = newBB("for.inc");
         BasicBlock *doneBB = newBB("for.done");
         b_.CreateBr(testBB);
 
@@ -1892,7 +1911,12 @@ private:
         b_.CreateCondBr(cont, bodyBB, doneBB);
 
         b_.SetInsertPoint(bodyBB);
+        loops_.push_back({incBB, doneBB});
         emitBlock(s.body);
+        loops_.pop_back();
+        b_.CreateBr(incBB);
+
+        b_.SetInsertPoint(incBB);
         b_.SetCurrentDebugLocation(loc(s.line));
         Value *cur = b_.CreateLoad(ty, var);
         Value *st = b_.CreateLoad(ty, stepSlot);
@@ -1908,9 +1932,11 @@ private:
         BasicBlock *doneBB = newBB("loop.done");
         b_.CreateBr(preBB);
         b_.SetInsertPoint(preBB);
+        loops_.push_back({preBB, doneBB});
         emitBlock(s.pre);
 
         if (s.loopCond == Stmt::LoopCond::None) {
+            loops_.pop_back();
             b_.CreateBr(preBB);
             b_.SetInsertPoint(doneBB);
             return;
@@ -1925,6 +1951,7 @@ private:
             b_.CreateCondBr(c, doneBB, postBB);
         b_.SetInsertPoint(postBB);
         emitBlock(s.post);
+        loops_.pop_back();
         b_.CreateBr(preBB);
         b_.SetInsertPoint(doneBB);
     }
