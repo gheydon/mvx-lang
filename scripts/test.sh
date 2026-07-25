@@ -806,6 +806,24 @@ MEOF
   (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgmapbin")
   check tcl-mapbuild "$(printf 'BUILD-MAP MORD CUSTOMER PRODUCT QTY PRICE\n' | \
     "$TCL" -a "$PGACCT" 2>&1)"
+
+  # mirror-on-write (#18): CREATE-MAP declares %MAP%; a later WRITE from a
+  # program then auto-projects into the mapping (via the runtime hook).
+  cat > "$TESTROOT/pgw3.b" <<'W3EOF'
+OPEN "MORD" TO F ELSE STOP
+R = ""
+R<1> = "Gamma Inc"
+R<5> = "Nut":@VM:"Washer"
+R<6> = "40":@VM:"40"
+R<7> = "0.05":@VM:"0.02"
+WRITE R ON F, "O3"
+PRINT "wrote O3"
+W3EOF
+  "$MVX" "$TESTROOT/pgw3.b" -o "$TESTROOT/pgw3bin" 2>/dev/null
+  check tcl-mapmirror "$( \
+    printf 'CREATE-MAP MORD CUSTOMER PRODUCT QTY PRICE\n' | \
+      "$TCL" -a "$PGACCT" 2>&1; \
+    (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgw3bin"))"
 else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi

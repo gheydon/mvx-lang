@@ -158,9 +158,17 @@ ORDERS_ORDERITEMS (id, seq, PRODUCT, QTY, PRICE)
 This is the driver **mapping capability**: the runtime is backend-neutral
 (it computes the columns, the child rows, and the projected values), and
 each driver renders it in its own form — Postgres as parent columns +
-child tables, a non-SQL backend as it sees fit (or not at all). Columns
-are text holding the display value; **typed columns** and **live
-maintenance on write** (`mirror` mode) are the remaining phases of
+child tables, a non-SQL backend as it sees fit (or not at all).
+
+**`CREATE-MAP file field…`** declares the mapping — it writes a `%MAP%`
+control record into the dictionary and builds it — after which the
+projection is **kept live**: every `WRITE` to the file mirrors the record
+into its columns and child rows automatically, no rebuild needed
+(`BUILD-MAP` is the on-demand backfill). The projection is a derived
+view, so a write is never blocked by it; the `rec` blob stays the source
+of truth (`mirror` mode). Columns currently hold the display value as
+text; **typed columns** and the `native` mode (backend as source of
+truth) are the remaining phases of
 [#18](https://github.com/mvx-lang/mvx/issues/18).
 
 ## Record locks
