@@ -100,10 +100,11 @@ unequal length in one listing currently share a single explosion height
 
 Because the dictionary already knows which attributes are single-valued
 and which belong to an association, it doubles as a **relational schema**.
-`MAP file` prints the schema that follows: single-valued attributes are
-parent-table columns, each association is a child table keyed `(id, seq)`,
-and the column type comes from the conversion (`MD…`→`NUMERIC`, `D…`→
-`DATE`, `MT…`→`TIME`, else `TEXT`).
+`MAP file item…` prints the schema for the items you name — you generally
+map just the fields you need — while `MAP file ALL` (or `*`) maps every
+item. Single-valued attributes are parent-table columns, each association
+is a child table keyed `(id, seq)`, and the column type comes from the
+conversion (`MD…`→`NUMERIC`, `D…`→`DATE`, `MT…`→`TIME`, else `TEXT`).
 
 ```
 > MAP ORDERS

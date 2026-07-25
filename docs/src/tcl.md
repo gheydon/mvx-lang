@@ -38,7 +38,7 @@ standard verbs.
 | `SORT {DICT} file {items} {WITH item op value} {BY item}` | like `LIST`, but sorted by id (or the `BY` key) |
 | `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |
 | `SSELECT {DICT} file {WITH item op value} {BY item}` | like `SELECT`, but the list is sorted |
-| `MAP file {DATA}` | the relational schema the dictionary implies (SQL mapping preview) |
+| `MAP file {items...\|ALL} {DATA}` | the relational schema the named items imply (SQL mapping preview) |
 | `CT {DICT} file id` | show a record, numbered attributes |
 | `COPY file id TO {file2} id2` | copy a record |
 | `DELETE file id {id...}` | delete records |

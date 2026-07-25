@@ -7,17 +7,35 @@
 * the extent permitted by law; see the LICENSE file for details.
 *
 * SPDX-License-Identifier: GPL-2.0-only
-* MAP file {DATA} — the relational schema the dictionary implies.
-* Single-valued attributes become parent-table columns; each association
-* (dict attribute 6) becomes a child table keyed (id, seq).  Column types
-* come from the conversion code.  DATA also previews the projected rows.
+* MAP file {items...|ALL} {DATA} — the relational schema the dictionary
+* implies.  Map only the named dictionary items (the usual case), or ALL
+* / * for every item.  Single-valued attributes become parent-table
+* columns; each association (dict attribute 6) becomes a child table
+* keyed (id, seq).  Column types come from the conversion code.  DATA
+* also previews the projected rows.
 S = TRIM(SENTENCE())
 FN = FIELD(S, " ", 2)
-MODE = FIELD(S, " ", 3)
 IF FN = "" THEN
-   PRINT "usage: MAP file {DATA}"
+   PRINT "usage: MAP file {items...|ALL} {DATA}"
    STOP
 END
+* parse the item selection and the DATA flag from the remaining tokens
+NT = DCOUNT(S, " ")
+MODE = ""
+SELS = ""
+FOR AI = 3 TO NT
+   T = FIELD(S, " ", AI)
+   IF T = "DATA" THEN
+      MODE = "DATA"
+   END ELSE
+      SELS<-1> = T
+   END
+NEXT AI
+* ALL when nothing is named, or ALL / * is given
+ALLMAP = 0
+NS = DCOUNT(SELS, @AM)
+IF NS = 0 THEN ALLMAP = 1
+IF SELS<1> = "ALL" OR SELS<1> = "*" THEN ALLMAP = 1
 OPEN "DICT", FN TO D ELSE
    PRINT "cannot open DICT ":FN
    STOP
@@ -33,7 +51,13 @@ DONE = 0
 LOOP
    READNEXT ID ELSE DONE = 1
 UNTIL DONE DO
-   IF ID[1, 1] # "%" THEN
+   KEEP = ALLMAP
+   IF KEEP = 0 THEN
+      FOR SI = 1 TO NS
+         IF SELS<SI> = ID THEN KEEP = 1
+      NEXT SI
+   END
+   IF ID[1, 1] # "%" AND KEEP THEN
       READ DI FROM D, ID THEN
          IF DI<1>[1, 1] = "D" THEN
             CONV = DI<3>
