@@ -41,7 +41,7 @@ standard verbs.
 | `MAP file {items...\|ALL} {DATA}` | the relational schema the named items imply (SQL mapping preview) |
 | `CREATE-MAP file field…` | declare the mapping (`%MAP%`) + build it; writes are then mirrored live |
 | `BUILD-MAP file field…` | materialise the mapping in the backend and backfill (SQL columns) |
-| `LIST-MAPS` | the account's mapped files, their mode, and their fields |
+| `LIST-MAPS` | the account's mapped files: mode, state (current/stale vs the dictionary), and fields |
 | `MAP-MODE file {native\|mirror}` | show or set the write policy (mirror: NULL on mismatch; native: reject the write) |
 | `DELETE-MAP file` | drop a mapping — tear down its columns/child tables and stop mirroring |
 | `CT {DICT} file id` | show a record, numbered attributes |

@@ -237,11 +237,27 @@ violate it, naming the count — so you never enter native mode with data
 the schema would reject. This completes the mapping epic
 [#18](https://github.com/mvx-lang/mvx/issues/18).
 
-`LIST-MAPS` shows the account's mapped files and their fields, and
-`DELETE-MAP file` tears a mapping down — dropping its columns and child
-tables and removing `%MAP%`, so writes stop mirroring — the full lifecycle
-alongside `CREATE-MAP`/`BUILD-MAP` (as `LIST-INDEXES`/`DELETE-INDEX` are
-to indexing).
+`LIST-MAPS` shows the account's mapped files with their mode, state, and
+fields, and `DELETE-MAP file` tears a mapping down — dropping its columns
+and child tables and removing `%MAP%`, so writes stop mirroring — the full
+lifecycle alongside `CREATE-MAP`/`BUILD-MAP` (as `LIST-INDEXES`/
+`DELETE-INDEX` are to indexing).
+
+```
+> LIST-MAPS
+ORDERS           native   current  CUSTOMER ORDER_DATE TOTAL PRODUCT QTY
+1 mapping(s)
+```
+
+A mapping is a **snapshot** of the dictionary taken at `CREATE-MAP` time —
+the projection reads that `%MAP%` snapshot, not the live dict — so editing a
+mapped dictionary item (its conversion, attribute number, association, or
+deleting it) does **not** re-project or re-type the columns on its own; the
+mapping and the dictionary silently diverge. The **state** column surfaces
+this: `current` when every mapped field still matches its dictionary item,
+`stale` when one has drifted (or its dict item is gone). A stale mapping is
+brought back in line by rebuilding it — `DELETE-MAP` then `CREATE-MAP` —
+which drops and recreates the columns/child tables with the current types.
 
 ## Record locks
 
