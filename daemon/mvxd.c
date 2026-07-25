@@ -27,6 +27,7 @@
  * naturally, matching LMDB's single-writer design.
  */
 #include "../runtime/include/mvxd_proto.h"
+#include "sha256.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -188,7 +189,68 @@ static void lock_release(const char *key, int fd) {
         }
 }
 
-/* The lease: a dropped connection releases everything it held. */
+/* ------------------------------------------------------- authentication
+
+   Access control is generic and Pick-agnostic: a namespace is an opaque
+   partition, authorised per connection by a bearer token.  The token is
+   provisioned out-of-band by mvx-lmdbd-admin into <datadir>/accounts
+   (`name salt hash`, the token stored only as a salted SHA-256).  With
+   no accounts file the daemon runs open (trusted-network mode). */
+
+typedef struct authent {
+    int fd;
+    char ns[128];
+    struct authent *next;
+} authent;
+
+static authent *g_auth;
+
+static int creds_enabled(void) {
+    char p[4096];
+    snprintf(p, sizeof p, "%s/accounts", g_datadir);
+    struct stat sb;
+    return stat(p, &sb) == 0 && sb.st_size > 0;
+}
+
+/* Verify a presented token against the provisioned salt+hash. */
+static int creds_check(const char *ns, const char *token) {
+    char p[4096];
+    snprintf(p, sizeof p, "%s/accounts", g_datadir);
+    FILE *fp = fopen(p, "r");
+    if (!fp) return 0;
+    char ln[512], name[128], salt[64], hash[80];
+    int ok = 0;
+    while (fgets(ln, sizeof ln, fp)) {
+        if (sscanf(ln, "%127s %63s %79s", name, salt, hash) != 3) continue;
+        if (strcmp(name, ns) != 0) continue;
+        char h[65];
+        sha256_salted_hex(salt, token, h);
+        ok = strcmp(h, hash) == 0;
+        break;
+    }
+    fclose(fp);
+    return ok;
+}
+
+static void auth_add(int fd, const char *ns) {
+    for (authent *a = g_auth; a; a = a->next)
+        if (a->fd == fd && strcmp(a->ns, ns) == 0) return;
+    authent *a = malloc(sizeof(authent));
+    if (!a) exit(70);
+    a->fd = fd;
+    snprintf(a->ns, sizeof a->ns, "%s", ns);
+    a->next = g_auth;
+    g_auth = a;
+}
+
+static int authed(int fd, const char *ns) {
+    for (authent *a = g_auth; a; a = a->next)
+        if (a->fd == fd && strcmp(a->ns, ns) == 0) return 1;
+    return 0;
+}
+
+/* The lease: a dropped connection releases every lock and authorisation
+   it held. */
 static void conn_reap(int fd) {
     lockent **pp = &g_locks;
     while (*pp) {
@@ -199,6 +261,16 @@ static void conn_reap(int fd) {
             free(dead);
         } else {
             pp = &(*pp)->next;
+        }
+    }
+    authent **ap = &g_auth;
+    while (*ap) {
+        if ((*ap)->fd == fd) {
+            authent *dead = *ap;
+            *ap = dead->next;
+            free(dead);
+        } else {
+            ap = &(*ap)->next;
         }
     }
 }
@@ -293,6 +365,34 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
     char ns[128];
     memcpy(ns, nsp, nsl);
     ns[nsl] = '\0';
+
+    /* AUTH authorises this connection for the namespace; in open mode
+       (no accounts file) it is a no-op success. */
+    if (op == MVXD_OP_AUTH) {
+        uint16_t tl = 0;
+        const char *tp = istr16(in, &tl);
+        if (in->bad || tl >= 256) return;
+        char token[256];
+        memcpy(token, tp, tl);
+        token[tl] = '\0';
+        if (!creds_enabled())
+            *status = MVXD_ST_OK;
+        else if (creds_check(ns, token)) {
+            auth_add(fd, ns);
+            *status = MVXD_ST_OK;
+        } else {
+            *status = MVXD_ST_DENIED;
+        }
+        return;
+    }
+
+    /* Once accounts exist, every other op needs the connection to have
+       authenticated this namespace. */
+    if (creds_enabled() && !authed(fd, ns)) {
+        *status = MVXD_ST_DENIED;
+        return;
+    }
+
     MDB_env *env = env_for(ns);
     if (!env) return;
 

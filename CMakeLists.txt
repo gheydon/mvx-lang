@@ -78,10 +78,16 @@ target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 mvx_driver(lmdbnet runtime/src/mvx_drv_lmdbnet.c)
 
 # --- the networked LMDB daemon -----------------------------------------
-add_executable(mvx-lmdbd daemon/mvxd.c)
+add_executable(mvx-lmdbd daemon/mvxd.c daemon/sha256.c)
 target_include_directories(mvx-lmdbd PRIVATE ${LMDB_INCLUDE_DIR})
 target_link_libraries(mvx-lmdbd PRIVATE ${LMDB_LIBRARY})
 set_target_properties(mvx-lmdbd PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# mvx-lmdbd-admin: standalone credential provisioning for the daemon host
+# (libc + vendored SHA-256 only — no MVX runtime, no LMDB).
+add_executable(mvx-lmdbd-admin daemon/mvxd_admin.c daemon/sha256.c)
+set_target_properties(mvx-lmdbd-admin PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- mvx-convert-acct: bootstrap tool for plain-git checkouts ----------
@@ -181,7 +187,7 @@ endif()
 set_target_properties(mvx mvx-basic mvx-convert-acct PROPERTIES
   INSTALL_RPATH "${MVX_INSTALL_RPATH}")
 
-install(TARGETS mvx mvx-basic mvx-lmdbd mvx-convert-acct
+install(TARGETS mvx mvx-basic mvx-lmdbd mvx-lmdbd-admin mvx-convert-acct
         RUNTIME DESTINATION bin)
 install(TARGETS mvxrt mvxdrv_dir mvxdrv_lmdb mvxdrv_lmdbnet
         LIBRARY DESTINATION lib)

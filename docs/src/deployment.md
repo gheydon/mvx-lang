@@ -126,16 +126,45 @@ Several accounts can share one `mvx-lmdbd`, isolated by **namespace**:
   transaction.
 
 Still open (see the investigation, [#5](https://github.com/mvx-lang/mvx/issues/5)):
-the daemon has **no authentication** and **no drop protection** — any
-client that can reach the port can access or drop any namespace
-([#9](https://github.com/mvx-lang/mvx/issues/9)), and a slow client can
-stall others ([#10](https://github.com/mvx-lang/mvx/issues/10)). Keep the
-daemon on a trusted network until those land.
+a slow client can still stall others
+([#10](https://github.com/mvx-lang/mvx/issues/10)).
 
 *Migration note:* pre-namespace data written by an earlier daemon lived
 in a single `<datadir>/mvxdata.lmdb`; it is not read by the namespaced
 daemon (which looks under `<datadir>/<namespace>/`). There is no
 production data at this stage, so no migration path is provided.
+
+### Authenticating a namespace
+
+By default the daemon runs **open** — any client that reaches the port
+can access any namespace. To require a token, provision each namespace on
+the daemon host with **`mvx-lmdbd-admin`**, a standalone tool (no MVX
+runtime needed):
+
+```sh
+mvx-lmdbd-admin -d /data create-account SALES     # prints the token once
+```
+
+This writes a salted hash of a generated token into the creds list
+`/data/accounts` (mode `0600`) — the token itself is never stored. Once
+the file exists the daemon **requires authentication** for every
+namespace: a connection must present a matching token before any
+operation. Give the token to the client through its credential store:
+
+```
+SET-CREDENTIAL lmdbnet mvxdb:4300 SALES token=<token>
+```
+```
+BINDINGS:  ORDERS  lmdbnet  mvxdb:4300  SALES
+```
+
+The lmdbnet driver reads the token from `.mvx-private` and authenticates
+the connection automatically; an account with no token, or the wrong one,
+is denied. Provisioning is offline and local — access to the daemon's
+data dir is the trust boundary, so there is no admin password on the
+wire. `mvx-lmdbd-admin` also has `rotate`, `delete-account`, and
+`list-accounts`. The daemon and this tool stay **Pick-agnostic**: a
+namespace is just an opaque partition, authorised by a bearer token.
 
 ## Credentials and secrets (`.mvx-private`)
 

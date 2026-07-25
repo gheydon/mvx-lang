@@ -44,6 +44,7 @@ enum {
     MVXD_OP_DEL_IX,         /* ns, spec, id, nops{item,key,add} -> ok/notfound */
     MVXD_OP_IDX_SELECT,     /* ns, spec, item, key -> count, ids / notfound */
     MVXD_OP_IDX_DROP,       /* ns, spec, item -> ok/notfound */
+    MVXD_OP_AUTH,           /* ns, token -> ok / denied (authorise the conn) */
 };
 
 enum {
@@ -51,6 +52,7 @@ enum {
     MVXD_ST_NO = 1,         /* not found / already exists / absent */
     MVXD_ST_BUSY = 2,       /* lock held by another connection */
     MVXD_ST_ERR = 3,
+    MVXD_ST_DENIED = 4,     /* authentication required / failed */
 };
 
 #endif /* MVXD_PROTO_H */

@@ -708,6 +708,37 @@ check tcl-namespace "$( \
 kill $DPID 2>/dev/null
 rm -f "$DSOCK"
 
+# daemon authentication: mvx-lmdbd-admin provisions a namespace token
+# (offline, into <datadir>/accounts); a client with the token in
+# .mvx-private reads/writes, a client with the wrong token is denied.
+ADATA="$TESTROOT/adata"; ASOCK="/tmp/mvx-auth-test-$$.sock"
+AACCT="$TESTROOT/aacct"; BACCT="$TESTROOT/bacct"
+mkdir -p "$AACCT/.mvx-private" "$BACCT/.mvx-private"
+chmod 700 "$AACCT/.mvx-private" "$BACCT/.mvx-private"
+ATOK="$("$ROOT/build/bin/mvx-lmdbd-admin" -d "$ADATA" create-account acct1 2>/dev/null)"
+"$ROOT/build/bin/mvx-lmdbd" -d "$ADATA" -s "$ASOCK" 2>/dev/null &
+APID=$!
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  [ -S "$ASOCK" ] && break
+  sleep 0.1
+done
+printf 'lmdbnet %s acct1 token=%s\n' "$ASOCK" "$ATOK" > "$AACCT/.mvx-private/credentials"
+printf 'ORDERS lmdbnet %s acct1\n' "$ASOCK" > "$AACCT/BINDINGS"
+printf 'lmdbnet %s acct1 token=deadbeefwrong\n' "$ASOCK" > "$BACCT/.mvx-private/credentials"
+printf 'ORDERS lmdbnet %s acct1\n' "$ASOCK" > "$BACCT/BINDINGS"
+chmod 600 "$AACCT/.mvx-private/credentials" "$BACCT/.mvx-private/credentials"
+printf 'OPEN "ORDERS" TO F ELSE STOP\nWRITE "hi" ON F, "O1"\nREAD V FROM F, "O1" THEN PRINT "read: ":V\n' > "$TESTROOT/wauth.b"
+printf 'OPEN "ORDERS" TO F ELSE PRINT "denied"\n' > "$TESTROOT/rauth.b"
+"$MVX" "$TESTROOT/wauth.b" -o "$TESTROOT/wauth" 2>/dev/null
+"$MVX" "$TESTROOT/rauth.b" -o "$TESTROOT/rauth" 2>/dev/null
+check tcl-auth "$( \
+  "$TCL" -a "$AACCT" -c "CREATE-FILE ORDERS" 2>&1 | sed "s#$ASOCK#@SOCK@#g"; \
+  (cd "$AACCT" && MVXACCOUNT=. "$TESTROOT/wauth"); \
+  printf 'wrong token: '; (cd "$BACCT" && MVXACCOUNT=. "$TESTROOT/rauth" 2>/dev/null); \
+  "$ROOT/build/bin/mvx-lmdbd-admin" -d "$ADATA" list-accounts)"
+kill $APID 2>/dev/null
+rm -f "$ASOCK"
+
 # ---------------------------------------------------------------- phase 3
 if [ "$QUICK" = 0 ]; then
   echo "== sieve"

@@ -51,9 +51,12 @@ struct mvx_cursor {
    that daemon.  The driver-level spec may carry its daemon address as
    "addr\nspec"; without a prefix, $MVXDAEMON is the default. */
 #define MAX_DAEMONS 8
+#define MAX_AUTHED 16
 static struct {
     char addr[512];
     int fd;
+    char authed[MAX_AUTHED][128];       /* namespaces AUTH'd on this conn */
+    int nauthed;
 } g_conns[MAX_DAEMONS];
 static int g_nconns;
 
@@ -226,6 +229,42 @@ static int roundtrip(int fd, uint8_t op, reqbuf *b, char **resp,
     return status;
 }
 
+/* Authorise this connection for a namespace, once.  The bearer token
+   comes from the account credential store (.mvx-private); with none we
+   send an empty token, which an open-mode daemon accepts and an
+   authenticated one rejects.  Returns 0 (with err) if the daemon denies. */
+static int net_auth(int fd, const char *addr, const char *ns, char *err,
+                    size_t errlen) {
+    int ci = -1;
+    for (int i = 0; i < g_nconns; i++)
+        if (g_conns[i].fd == fd) { ci = i; break; }
+    if (ci >= 0)
+        for (int j = 0; j < g_conns[ci].nauthed; j++)
+            if (strcmp(g_conns[ci].authed[j], ns) == 0) return 1;
+
+    char tok[256] = "";
+    mvx_cred_lookup("lmdbnet", addr, ns, "token", tok, sizeof tok);
+
+    reqbuf b = {0, 0, 0};
+    rstr16(&b, ns, strlen(ns));
+    rstr16(&b, tok, strlen(tok));
+    char *resp;
+    uint32_t rlen;
+    int st = roundtrip(fd, MVXD_OP_AUTH, &b, &resp, &rlen);
+    free(resp);
+    if (st != MVXD_ST_OK) {
+        snprintf(err, errlen,
+                 "lmdbnet: authentication failed for namespace '%s' "
+                 "(set its token with SET-CREDENTIAL)",
+                 ns);
+        return 0;
+    }
+    if (ci >= 0 && g_conns[ci].nauthed < MAX_AUTHED)
+        snprintf(g_conns[ci].authed[g_conns[ci].nauthed++],
+                 sizeof g_conns[ci].authed[0], "%s", ns);
+    return 1;
+}
+
 /* ------------------------------------------------------------ contract */
 
 static const mvx_driver mvx_driver_lmdbnet;
@@ -236,6 +275,7 @@ static mvx_file *net_open(const char *spec, char *err, size_t errlen) {
     split_loc(loc, addr, sizeof addr, ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return NULL;
+    if (!net_auth(fd, addr, ns, err, errlen)) return NULL;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
@@ -365,6 +405,7 @@ static int net_create(const char *spec, char *err, size_t errlen) {
     split_loc(loc, addr, sizeof addr, ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
+    if (!net_auth(fd, addr, ns, err, errlen)) return 0;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
@@ -381,6 +422,7 @@ static int net_remove(const char *spec, char *err, size_t errlen) {
     split_loc(loc, addr, sizeof addr, ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
+    if (!net_auth(fd, addr, ns, err, errlen)) return 0;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
@@ -397,6 +439,7 @@ static int net_names(mv_value *out, char *err, size_t errlen) {
     mvx_account_namespace(ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
+    if (!net_auth(fd, addr, ns, err, errlen)) return 0;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     char *resp;
