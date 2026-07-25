@@ -55,6 +55,10 @@ typedef struct mvx_ctx  mvx_ctx;
 mvx_ctx *mvx_ctx_create(void);
 void     mvx_ctx_destroy(mvx_ctx *ctx);
 
+/* Directory of the loaded libmvxrt; the anchor for relocatable installs
+   (drivers beside it, ../bin, ../share/mvx/system).  "" if unknown. */
+const char *mvx_runtime_dir(void);
+
 /* --- value lifecycle --------------------------------------------------- */
 void mv_init(mv_value *v);
 void mv_clear(mv_value *v);                         /* release + unassigned */

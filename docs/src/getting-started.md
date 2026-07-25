@@ -20,6 +20,31 @@ Run the test suite any time with:
 ninja -C build check
 ```
 
+## Install
+
+`cmake --install` lays the build tree down as a self-contained,
+relocatable prefix:
+
+```sh
+cmake --install build --prefix ~/.local
+```
+
+It writes:
+
+| path | contents |
+|---|---|
+| `<prefix>/bin` | `mvx`, `mvx-basic`, `mvx-lmdbd`, `mvx-convert-acct` |
+| `<prefix>/lib` | `libmvxrt`, the storage drivers, `mvx_crt.o` |
+| `<prefix>/share/mvx/system` | the standard verbs and master VOC |
+
+The standard verbs are re-cataloged with the installed compiler as part
+of the install, so their runtime paths point at `<prefix>/lib`. Put
+`<prefix>/bin` on your `PATH` and `mvx` runs from anywhere — it finds the
+runtime, drivers, and system account **relative to its own location**, so
+no environment variables are needed and the whole prefix can be moved or
+renamed as a unit. The `MVXSYSTEM`, `MVXDRIVERS`, and `MVXBIN` variables
+still override those locations when you want them to.
+
 ## Your first program
 
 ```sh

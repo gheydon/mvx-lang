@@ -95,6 +95,17 @@ Produces `build/bin/mvx-basic`, `build/bin/mvx`, the runtime in
 `build/lib/`, and the system account (standard verbs) in
 `build/system/`.
 
+Install a relocatable prefix (binaries in `bin/`, runtime and drivers in
+`lib/`, standard verbs in `share/mvx/system/`) with:
+
+```sh
+cmake --install build --prefix ~/.local
+```
+
+Installed binaries locate the runtime, drivers, and system account
+relative to their own path, so `mvx` runs from `PATH` with no environment
+variables and the prefix can be moved as a unit.
+
 ## Tests
 
 ```sh

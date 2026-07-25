@@ -81,11 +81,15 @@ static const mvx_driver *driver_load(const char *name) {
             d = driver_try(tok, name);
         free(dup);
     }
+    /* Drivers ship in libmvxrt's own directory: relocatable, no baked
+       path.  The compile-time dir is the last-resort fallback. */
+    const char *rtd = mvx_runtime_dir();
+    if (!d && rtd[0]) d = driver_try(rtd, name);
     if (!d) d = driver_try(MVX_DRIVER_DIR, name);
     if (!d)
         mvx_fatal("cannot load storage driver \"%s\" "
-                  "(searched $MVXDRIVERS and %s)",
-                  name, MVX_DRIVER_DIR);
+                  "(searched $MVXDRIVERS, %s and %s)",
+                  name, rtd[0] ? rtd : "(runtime dir)", MVX_DRIVER_DIR);
 
     loaded_drv *l = malloc(sizeof(loaded_drv));
     if (!l) mvx_fatal("out of memory loading driver");

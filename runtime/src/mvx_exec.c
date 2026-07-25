@@ -55,7 +55,15 @@ static int priv_tier(void) {
 
 static const char *bin_dir(void) {
     const char *p = getenv("MVXBIN");
-    return p && p[0] ? p : MVX_BIN_DIR;
+    if (p && p[0]) return p;
+    /* Binaries live in ../bin from libmvxrt (../lib): relocatable. */
+    const char *rtd = mvx_runtime_dir();
+    if (rtd[0]) {
+        static char b[4096];
+        snprintf(b, sizeof b, "%s/../bin", rtd);
+        return b;
+    }
+    return MVX_BIN_DIR;
 }
 
 /* Spawn argv, optionally capturing stdout into a dynamic array

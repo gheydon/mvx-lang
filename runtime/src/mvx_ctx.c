@@ -12,6 +12,8 @@
 
 #include "mvx_runtime.h"
 
+#include <dlfcn.h>
+#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +21,60 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+
+/* Directory holding libmvxrt itself, found at run time from the loaded
+   library's own path.  Everything else in an MVX install is located
+   relative to it — storage drivers sit in the same directory, the
+   binaries in ../bin, the system account in ../share/mvx/system — so a
+   whole install relocates as a unit with no baked-in absolute paths.
+   Returns "" if the path cannot be determined. */
+const char *mvx_runtime_dir(void) {
+    static char dir[4096];
+    static int done = 0;
+    if (done) return dir;
+    done = 1;
+    Dl_info info;
+    if (dladdr((void *)mvx_runtime_dir, &info) && info.dli_fname &&
+        info.dli_fname[0]) {
+        char tmp[4096];
+        snprintf(tmp, sizeof tmp, "%s", info.dli_fname);
+        snprintf(dir, sizeof dir, "%s", dirname(tmp));
+    } else {
+        dir[0] = '\0';
+    }
+    return dir;
+}
+
+/* Point the dynamic loader at libmvxrt's own directory for child
+   processes.  Cataloged verbs are separate executables the shell spawns;
+   they carry an rpath into the install's lib, but a *moved* prefix leaves
+   that rpath stale.  Because every such process is a child of one that
+   has libmvxrt loaded, exporting the current runtime directory on the
+   loader path lets each spawned verb find libmvxrt wherever the prefix
+   now lives — so the whole install stays relocatable, not just the top
+   binaries.  Drivers are dlopen'd by absolute path and are unaffected. */
+__attribute__((constructor))
+static void mvx_export_loader_path(void) {
+    const char *rtd = mvx_runtime_dir();
+    if (!rtd[0]) return;
+#ifdef __APPLE__
+    const char *var = "DYLD_LIBRARY_PATH";
+#else
+    const char *var = "LD_LIBRARY_PATH";
+#endif
+    const char *cur = getenv(var);
+    if (cur && cur[0]) {
+        /* already leading with our dir?  leave it be */
+        size_t n = strlen(rtd);
+        if (strncmp(cur, rtd, n) == 0 && (cur[n] == ':' || cur[n] == '\0'))
+            return;
+        char buf[8192];
+        snprintf(buf, sizeof buf, "%s:%s", rtd, cur);
+        setenv(var, buf, 1);
+    } else {
+        setenv(var, rtd, 1);
+    }
+}
 
 /* Session context.  The parameter exists in every ABI signature so that
    session identity, locks, and the privilege gate can land here later

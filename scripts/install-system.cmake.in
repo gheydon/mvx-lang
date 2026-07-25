@@ -1,0 +1,35 @@
+# MVX — a native compiler and runtime for Pick/MultiValue BASIC.
+# Copyright (C) 2026 Gordon Heydon.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2, as
+# published by the Free Software Foundation.  There is NO WARRANTY, to
+# the extent permitted by law; see the LICENSE file for details.
+#
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Install the MVX system account.  The standard verbs are (re)cataloged
+# with the just-installed compiler, so each verb executable's runtime
+# rpath points at the install's own lib directory rather than the build
+# tree.  The master VOC and its dictionary are copied alongside.
+set(SRC "@MVX_SOURCE_DIR@")
+set(SYS "${CMAKE_INSTALL_PREFIX}/share/mvx/system")
+set(MVXBASIC "${CMAKE_INSTALL_PREFIX}/bin/mvx-basic")
+
+file(MAKE_DIRECTORY "${SYS}/CATALOG")
+file(REMOVE_RECURSE "${SYS}/VOC" "${SYS}/VOC.DICT")
+file(COPY "${SRC}/system/VOC"      DESTINATION "${SYS}")
+file(COPY "${SRC}/system/VOC.DICT" DESTINATION "${SYS}")
+
+file(GLOB verbs "${SRC}/verbs/*.b")
+foreach(v ${verbs})
+  get_filename_component(vn "${v}" NAME_WE)
+  execute_process(
+    COMMAND "${MVXBASIC}" "${v}" -o "${SYS}/CATALOG/${vn}"
+    RESULT_VARIABLE rc)
+  if(rc)
+    message(FATAL_ERROR "mvx: cataloging ${vn} failed (${rc})")
+  endif()
+  message(STATUS "  cataloged ${vn}")
+endforeach()
+message(STATUS "MVX system account installed to ${SYS}")

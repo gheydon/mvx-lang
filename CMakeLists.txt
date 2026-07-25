@@ -148,3 +148,32 @@ add_dependencies(mvx-basic mvxrt mvx_crt)
 llvm_map_components_to_libnames(LLVM_LIBS
   core support passes native irreader targetparser)
 target_link_libraries(mvx-basic PRIVATE ${LLVM_LIBS})
+
+# --- install -----------------------------------------------------------
+# A relocatable prefix: bin/ holds the executables, lib/ the shared
+# runtime and dlopen'd drivers, share/mvx/system the standard verbs.
+# Everything is located at run time relative to libmvxrt (mvx_runtime_dir),
+# so the whole prefix can be moved as a unit.  Executables reach libmvxrt
+# through a loader-relative rpath; the compiler and drivers keep resolving
+# ../lib relative to their own path (already the case), and the verbs it
+# catalogs get an rpath into this lib on install.  Layout is fixed to
+# bin/lib (not GNUInstallDirs) so ../lib always matches the compiler's
+# assumption on every platform.
+if(APPLE)
+  set(MVX_INSTALL_RPATH "@loader_path/../lib")
+else()
+  set(MVX_INSTALL_RPATH "\$ORIGIN/../lib")
+endif()
+set_target_properties(mvx mvx-basic mvx-convert-acct PROPERTIES
+  INSTALL_RPATH "${MVX_INSTALL_RPATH}")
+
+install(TARGETS mvx mvx-basic mvx-lmdbd mvx-convert-acct
+        RUNTIME DESTINATION bin)
+install(TARGETS mvxrt mvxdrv_dir mvxdrv_lmdb mvxdrv_lmdbnet
+        LIBRARY DESTINATION lib)
+install(FILES ${CMAKE_BINARY_DIR}/lib/mvx_crt.o DESTINATION lib)
+
+set(MVX_SOURCE_DIR ${CMAKE_SOURCE_DIR})
+configure_file(${CMAKE_SOURCE_DIR}/scripts/install-system.cmake.in
+               ${CMAKE_BINARY_DIR}/install-system.cmake @ONLY)
+install(SCRIPT ${CMAKE_BINARY_DIR}/install-system.cmake)

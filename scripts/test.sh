@@ -623,5 +623,37 @@ if [ "$QUICK" = 0 ]; then
   fi
 fi
 
+# -------------------------------------------------------- phase 4: install
+# Install to a throwaway prefix and drive it with every MVX_* override
+# unset, proving the binaries locate the runtime, drivers, and system
+# account relative to themselves.
+if [ "$QUICK" = 0 ]; then
+  echo "== install"
+  IPFX="$TESTROOT/prefix"
+  rm -rf "$IPFX"
+  if cmake --install "$ROOT/build" --prefix "$IPFX" >/dev/null 2>&1; then
+    IACCT="$TESTROOT/iacct"
+    rm -rf "$IACCT"; mkdir -p "$IACCT"
+    prog="$IACCT/hi.b"
+    printf 'OPEN "PARTS" TO F ELSE STOP\nWRITE "Widget":@AM:"9.99" ON F,"W1"\nREAD R FROM F,"W1" THEN PRINT "installed:":R<1>\n' > "$prog"
+    out="$(
+      env -u MVXSYSTEM -u MVXDRIVERS -u MVXBIN -u MVXSESSION -u MVXACCOUNT \
+          -u DYLD_LIBRARY_PATH -u LD_LIBRARY_PATH sh -c '
+        P="$1"; A="$2"; PR="$3"
+        "$P/bin/mvx" -a "$A" -c "CREATE-FILE VOC"   >/dev/null 2>&1
+        "$P/bin/mvx" -a "$A" -c "CREATE-FILE PARTS" >/dev/null 2>&1
+        "$P/bin/mvx-basic" "$PR" -o "$A/hi" 2>&1 || { echo COMPILE-FAIL; exit 0; }
+        (cd "$A" && MVXACCOUNT=. ./hi)
+      ' _ "$IPFX" "$IACCT" "$prog" 2>&1)"
+    if [ "$out" = "installed:Widget" ]; then
+      PASS=$((PASS + 1)); echo "  install ok (self-locating, no MVX_* vars)"
+    else
+      FAIL=$((FAIL + 1)); echo "FAIL install: $out"
+    fi
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL install: cmake --install failed"
+  fi
+fi
+
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
