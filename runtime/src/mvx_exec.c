@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -212,6 +213,16 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
             strncat(outbuf, ".so", sizeof outbuf - strlen(outbuf) - 1);
 #endif
         }
+    }
+
+    /* Ensure the output directory exists — CATALOG/ and LIB/ are not
+       pre-created in a fresh account, so a plain CATALOG would otherwise
+       fail to link into a missing directory. */
+    char *slashp = strrchr(outbuf, '/');
+    if (slashp) {
+        *slashp = '\0';
+        mkdir(outbuf, 0777);            /* harmless if it already exists */
+        *slashp = '/';
     }
 
     char *argv[8];

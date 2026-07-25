@@ -1,14 +1,15 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-mvx runtime: CALL GIT.INIT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.ADD: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.COMMIT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.BRANCH: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.CHECKOUT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.ADD: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.COMMIT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.CHECKOUT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.CHERRYPICK: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+initialised empty git repository
+staged 1 record(s)
+[HASH] stock
+created branch site
+switched to site (1 record(s) updated, 0 removed)
+staged 2 record(s)
+[HASH] acme-custom
+switched to main (1 record(s) updated, 1 removed)
+acme-custom (2 record(s) updated, 0 removed)
 M9
 001 ACME Dashboard
-mvx runtime: CALL GIT.BRANCH: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+* main
+  site

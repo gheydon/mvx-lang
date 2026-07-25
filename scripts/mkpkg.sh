@@ -17,7 +17,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${1:?usage: mkpkg.sh <package-directory>}"
 
 [ -d "$PKG/BP" ] || { echo "mkpkg: $PKG has no BP source directory" >&2; exit 1; }
-[ -d "$PKG/VOC" ] || { echo "mkpkg: $PKG has no VOC directory" >&2; exit 1; }
+# A subroutine-only package has an empty VOC; git does not track empty
+# directories, so recreate it here rather than failing a fresh checkout.
+mkdir -p "$PKG/VOC"
 
 case "$(uname)" in
   Darwin) EXT=dylib ;;

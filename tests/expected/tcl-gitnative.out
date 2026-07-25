@@ -1,14 +1,18 @@
 linked @ROOT@/packages/git
 linked @ROOT@/packages/cmd
-mvx runtime: CALL GIT.INIT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.ADD: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.STATUS: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.COMMIT: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.LOG: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.STATUS: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.DIFF: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.RESTORE: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
-mvx runtime: CALL GIT.STATUS: subroutine is not cataloged (searched the program, LIB/, linked packages, and the system account)
+initialised empty git repository
+staged 2 record(s)
+A  CUST/C1
+A  CUST/C2
+[HASH] initial
+HASH initial
+ M CUST/C2
+diff CUST/C2
+ Bob
+-Paris
++Berlin
+restored 2 record(s), 0 removed
+nothing to commit, working tree clean
 C2
 001 Bob
-002 Berlin
+002 Paris
