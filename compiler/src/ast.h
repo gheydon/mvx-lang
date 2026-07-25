@@ -27,7 +27,7 @@ using StmtP = std::unique_ptr<Stmt>;
 enum class BinOp {
     Add, Sub, Mul, Div, Pow, Cat,
     Eq, Ne, Lt, Le, Gt, Ge,
-    And, Or,
+    And, Or, Matches,
 };
 
 struct Expr {

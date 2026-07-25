@@ -13,11 +13,135 @@
 /* String intrinsics: CHAR, SEQ, STR, SPACE, TRIM, FIELD, INDEX, NUM. */
 #include "mvx_runtime.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct { const char *p; int64_t len; } span;
+static span val_span(const mv_value *v, char *buf, size_t cap);
+
+/* ---- MATCHES / MATCHFIELD pattern matching ------------------------------
+   A pattern is a run of tokens: `nA`/`nN`/`nX` (exactly n alphabetic /
+   numeric / any), `0A`/`0N`/`0X` (zero or more of that class), a quoted
+   literal ('...' or "..."), or any other character taken literally.  The
+   subject must be consumed whole.  Value marks (@VM) in the pattern give
+   alternatives — a match against any one succeeds. */
+#define PAT_MAX 64
+typedef struct { int count; char cls; const char *lit; int litlen; } ptok;
+
+static int cls_ok(unsigned char c, char cls) {
+    switch (cls) {
+    case 'N': return c >= '0' && c <= '9';
+    case 'A': return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    default:  return 1;                              /* 'X': any */
+    }
+}
+
+static int pat_tok(const char *p, int plen, ptok *t) {
+    int nt = 0, i = 0;
+    while (i < plen && nt < PAT_MAX) {
+        char c = p[i];
+        if (c == '"' || c == '\'') {                /* quoted literal */
+            int j = i + 1;
+            while (j < plen && p[j] != c) j++;
+            t[nt].cls = 0; t[nt].lit = p + i + 1; t[nt].litlen = j - (i + 1);
+            nt++; i = (j < plen) ? j + 1 : j;
+            continue;
+        }
+        if (c >= '0' && c <= '9') {                 /* n<class> ? */
+            int j = i, n = 0;
+            while (j < plen && p[j] >= '0' && p[j] <= '9')
+                n = n * 10 + (p[j++] - '0');
+            char k = (j < plen) ? (char)toupper((unsigned char)p[j]) : 0;
+            if (k == 'A' || k == 'N' || k == 'X') {
+                t[nt].count = n; t[nt].cls = k; t[nt].lit = NULL;
+                nt++; i = j + 1;
+                continue;
+            }
+        }
+        t[nt].cls = 0; t[nt].lit = p + i; t[nt].litlen = 1;  /* char literal */
+        nt++; i++;
+    }
+    return nt;
+}
+
+/* Match subject [s,se) against tokens; record each token's span in bnd
+   (may be NULL) on the winning path. */
+static int pat_match(const char *s, const char *se, const ptok *t, int nt,
+                     int ti, span *bnd) {
+    if (ti == nt) return s == se;
+    const ptok *k = &t[ti];
+    if (k->cls == 0) {                              /* literal */
+        if (se - s >= k->litlen && memcmp(s, k->lit, (size_t)k->litlen) == 0) {
+            if (bnd) { bnd[ti].p = s; bnd[ti].len = k->litlen; }
+            return pat_match(s + k->litlen, se, t, nt, ti + 1, bnd);
+        }
+        return 0;
+    }
+    if (k->count > 0) {                             /* exactly n */
+        if (se - s < k->count) return 0;
+        for (int j = 0; j < k->count; j++)
+            if (!cls_ok((unsigned char)s[j], k->cls)) return 0;
+        if (bnd) { bnd[ti].p = s; bnd[ti].len = k->count; }
+        return pat_match(s + k->count, se, t, nt, ti + 1, bnd);
+    }
+    const char *m = s;                              /* 0: zero or more */
+    while (m < se && cls_ok((unsigned char)*m, k->cls)) m++;
+    for (const char *q = m; q >= s; q--) {          /* greedy, backtrack */
+        if (bnd) { bnd[ti].p = s; bnd[ti].len = q - s; }
+        if (pat_match(q, se, t, nt, ti + 1, bnd)) return 1;
+    }
+    return 0;
+}
+
+/* Match, trying each @VM-separated alternative.  Fills *win/*wnt with the
+   winning alternative's tokens (for MATCHFIELD) when winner != NULL. */
+static int pat_any(const char *s, int64_t slen, const char *p, int64_t plen,
+                   ptok *win, int *wnt) {
+    const char *pe = p + plen, *seg = p;
+    for (const char *q = p;; q++) {
+        if (q == pe || (unsigned char)*q == 0xFD) {
+            ptok toks[PAT_MAX];
+            int nt = pat_tok(seg, (int)(q - seg), toks);
+            if (pat_match(s, s + slen, toks, nt, 0, NULL)) {
+                if (win) { memcpy(win, toks, sizeof(ptok) * nt); *wnt = nt; }
+                return 1;
+            }
+            if (q == pe) break;
+            seg = q + 1;
+        }
+    }
+    return 0;
+}
+
+int64_t mv_matches(const mv_value *subj, const mv_value *pat) {
+    char sb[40], pb[40];
+    span s = val_span(subj, sb, sizeof sb);
+    span p = val_span(pat, pb, sizeof pb);
+    return pat_any(s.p, s.len, p.p, p.len, NULL, NULL) ? 1 : 0;
+}
+
+/* MATCHFIELD(str, pattern, n): the substring matched by the n-th pattern
+   component, or "" if the string does not match. */
+void mv_matchfield_fn(mv_value *dst, const mv_value *subj, const mv_value *pat,
+                      int64_t n) {
+    char sb[40], pb[40];
+    span s = val_span(subj, sb, sizeof sb);
+    span p = val_span(pat, pb, sizeof pb);
+    ptok win[PAT_MAX];
+    int wnt = 0;
+    if (n < 1 || !pat_any(s.p, s.len, p.p, p.len, win, &wnt) || n > wnt) {
+        mv_set_str(dst, "", 0);
+        return;
+    }
+    span bnd[PAT_MAX];
+    if (!pat_match(s.p, s.p + s.len, win, wnt, 0, bnd)) {
+        mv_set_str(dst, "", 0);
+        return;
+    }
+    mv_set_str(dst, bnd[n - 1].p, bnd[n - 1].len);
+}
 
 /* Same rendering as the dynamic-array module. */
 static span val_span(const mv_value *v, char *buf, size_t cap) {

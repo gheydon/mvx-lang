@@ -57,10 +57,11 @@ runtime lookup, and a numeric equate stays eligible for specialisation
 and may reference earlier equates. Names must be declared before use and
 cannot be redefined or assigned to.
 
-### END / STOP / RETURN
+### END / STOP / RETURN / NULL
 `END` ends the program text. `STOP` ends the program immediately —
 even from inside a subroutine. `RETURN` returns from a `GOSUB`, or
-from a subroutine when the GOSUB stack is empty.
+from a subroutine when the GOSUB stack is empty. `NULL` is an explicit
+no-op — useful as the body of an otherwise-empty `THEN` or `CASE`.
 
 ### EXECUTE
 ```

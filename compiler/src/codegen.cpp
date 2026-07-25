@@ -1020,6 +1020,13 @@ private:
                    {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
                     numIndex(*e.args[2]), cnt});
             return; }
+        if (f == "MATCHFIELD") {
+            need(3);
+            callRt("mv_matchfield_fn", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+                   {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    numIndex(*e.args[2])});
+            return; }
         if (f == "TIME")   { need(0); call1("mv_time", dest); return; }
         if (f == "SYSTEM") { need(1);
             call3("mv_system_fn", ctxArg_, dest, evalPtr(*e.args[0]));
@@ -1139,6 +1146,11 @@ private:
                 return b_.CreateAnd(evalCond(*e.lhs), evalCond(*e.rhs));
             case BinOp::Or:
                 return b_.CreateOr(evalCond(*e.lhs), evalCond(*e.rhs));
+            case BinOp::Matches: {
+                Value *m = callRt("mv_matches", i64Ty_, {ptrTy_, ptrTy_},
+                                  {evalPtr(*e.lhs), evalPtr(*e.rhs)});
+                return b_.CreateICmpNE(m, ConstantInt::get(i64Ty_, 0));
+            }
             default:
                 break;
             }

@@ -11,6 +11,8 @@
 | `CHAR(n)` / `SEQ(s)` | code to character and back |
 | `FIELD(s, delim, n {, cnt})` | n-th delimited field (cnt fields with delimiters) |
 | `INDEX(s, sub, occ)` | position of the occ-th occurrence, 0 if none |
+| `s MATCHES pat` | pattern test (operator, 1/0); `MATCH` is a synonym |
+| `MATCHFIELD(s, pat, n)` | the substring matched by pattern component n |
 | `COUNT(s, sub)` | occurrences of sub |
 | `DCOUNT(s, delim)` | delimited-field count |
 | `NUM(x)` | 1 if x is numeric ("" counts) |
@@ -22,6 +24,14 @@
 | `ALPHA(s)` | 1 if s is non-empty and all letters |
 | `QUOTE(s)` / `DQUOTE(s)` / `SQUOTE(s)` | wrap in double / double / single quotes |
 | `FMT(x, mask)` | format: `L`/`R` justify, fill `#` space `*` star `%` zero, width — `FMT(N, "R%8")` |
+
+A **pattern** for `MATCHES`/`MATCHFIELD` is a run of tokens that must
+consume the whole string: `nN`/`nA`/`nX` (exactly *n* numeric / alphabetic
+/ any characters), `0N`/`0A`/`0X` (zero or more of that class), a quoted
+literal (`'-'` or `"/"`), or any other character taken literally. Value
+marks (`@VM`) in the pattern give alternatives — the string matches if it
+matches any one. So `"01-234" MATCHES "2N'-'3N"` is true, and
+`"3N":@VM:"3A"` matches three digits or three letters.
 
 ### Dynamic arrays
 

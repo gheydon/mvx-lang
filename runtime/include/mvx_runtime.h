@@ -113,6 +113,9 @@ void    mv_trim_fn(mv_value *dst, const mv_value *src);
 void    mv_field_fn(mv_value *dst, const mv_value *src,
                     const mv_value *delim, int64_t n, int64_t cnt);
 int64_t mv_index_fn(const mv_value *src, const mv_value *sub, int64_t occ);
+int64_t mv_matches(const mv_value *subj, const mv_value *pat);
+void    mv_matchfield_fn(mv_value *dst, const mv_value *subj,
+                         const mv_value *pat, int64_t n);
 int64_t mv_num_fn(const mv_value *v);
 void    mv_substr(mv_value *dst, const mv_value *src, int64_t start,
                   int64_t len);

@@ -41,7 +41,7 @@ enum class Tok {
     KwSelect, KwReadnext, KwFrom, KwOn,
     KwExecute, KwCapturing, KwReturning, KwFormlist, KwEcho,
     KwEquate, KwLit,
-    KwAnd, KwOr, KwNot,
+    KwAnd, KwOr, KwNot, KwMatches, KwNull,
 };
 
 struct Token {

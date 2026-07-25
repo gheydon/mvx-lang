@@ -1,0 +1,17 @@
+5N yes
+4N no ok
+3A yes
+2A2N yes
+0X yes
+empty 0N yes
+phone yes
+wrap yes
+alt-a yes
+alt-n yes
+alt no ok
+value=1
+mf1=01
+mf2=-
+mf3=234
+mf-nomatch=[]
+done

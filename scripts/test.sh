@@ -104,6 +104,7 @@ lang ifdef
 lang equate
 lang matparse
 lang include
+lang matches
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)

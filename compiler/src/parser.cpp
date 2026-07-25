@@ -444,6 +444,11 @@ private:
             s = mk(Stmt::K::Stop);
             endStatementSoft();
             break;
+        case Tok::KwNull:                       // explicit no-op statement
+            advance();
+            s = mk(Stmt::K::Nop);
+            endStatementSoft();
+            break;
         case Tok::Ident:      s = assignStmt(); break;
         default:
             err("expected statement");
@@ -874,6 +879,7 @@ private:
             case Tok::Le: op = BinOp::Le; break;
             case Tok::Gt: op = BinOp::Gt; break;
             case Tok::Ge: op = BinOp::Ge; break;
+            case Tok::KwMatches: op = BinOp::Matches; break;
             default: return l;
             }
             int line = advance().line;
