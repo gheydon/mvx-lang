@@ -12,7 +12,7 @@
 # Build (and optionally push) the three MVX images: the base system, the
 # LMDB daemon, and the demo account.  Run from the repository root.
 #
-#   docker/build.sh                       # build mvx-lang/mvx{,-lmdbd,-demo}:latest
+#   docker/build.sh                       # build ghcr.io/mvx-lang/mvx{,-lmdbd,-demo}:latest
 #   REGISTRY=you TAG=0.1 docker/build.sh  # custom namespace and tag
 #   PUSH=1 docker/build.sh                # build then docker push each
 #
@@ -21,7 +21,7 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-REGISTRY="${REGISTRY:-mvx-lang}"
+REGISTRY="${REGISTRY:-ghcr.io/mvx-lang}"
 TAG="${TAG:-latest}"
 LLVM_VERSION="${LLVM_VERSION:-21}"
 

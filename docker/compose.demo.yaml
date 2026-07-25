@@ -15,7 +15,7 @@
 services:
   # The shared database server.  Its LMDB data persists on a volume.
   mvxdb:
-    image: mvx-lang/mvx-lmdbd:latest
+    image: ghcr.io/mvx-lang/mvx-lmdbd:latest
     restart: unless-stopped
     volumes:
       - mvxdata:/data
@@ -23,7 +23,7 @@ services:
   # One-shot: create the shared data files on the daemon and seed a few
   # records.  Runs once, then exits; the apps wait for it to finish.
   init:
-    image: mvx-lang/mvx:latest
+    image: ghcr.io/mvx-lang/mvx:latest
     depends_on: [mvxdb]
     command:
       - sh
@@ -44,7 +44,7 @@ services:
         echo "seeded shared ORDERS and CUSTOMERS"
 
   app1:
-    image: mvx-lang/mvx:latest
+    image: ghcr.io/mvx-lang/mvx:latest
     depends_on:
       init:
         condition: service_completed_successfully
@@ -69,7 +69,7 @@ services:
         exec tail -f /dev/null
 
   app2:
-    image: mvx-lang/mvx:latest
+    image: ghcr.io/mvx-lang/mvx:latest
     depends_on:
       init:
         condition: service_completed_successfully

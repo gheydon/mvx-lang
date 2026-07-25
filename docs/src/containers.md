@@ -11,7 +11,7 @@ Three images ship MVX to Docker, built from `docker/` in the repo:
 Build all three (base first, since the others layer on it):
 
 ```sh
-docker/build.sh                       # mvx-lang/mvx{,-lmdbd,-demo}:latest
+docker/build.sh                       # ghcr.io/mvx-lang/mvx{,-lmdbd,-demo}:latest
 REGISTRY=you TAG=0.1 docker/build.sh  # custom namespace / tag
 PUSH=1 docker/build.sh                # build, then docker push each
 ```
@@ -23,8 +23,8 @@ base can be layered on directly.
 
 On a `v*` git tag, the `release` GitHub Actions workflow builds and
 pushes all three images multi-arch (`linux/amd64` and `linux/arm64`) to
-Docker Hub under `mvx-lang/`, alongside the native Linux binary
-tarballs — see *Publishing*.
+the GitHub Container Registry under `ghcr.io/mvx-lang/`, alongside the
+native Linux binary tarballs — see *Publishing*.
 
 ## `mvx` — the base system
 
@@ -115,7 +115,7 @@ Boots straight into a `/demo` account with the example programs
 cataloged as verbs. Give it a TTY so the full-screen programs render:
 
 ```sh
-docker run --rm -it mvx-demo
+docker run --rm -it ghcr.io/mvx-lang/mvx-demo   # or just `mvx-demo` if built locally
 demo> SNAKE       # arrows steer; q or ESC quits
 demo> FSDEMO      # the Midnight Commander-style full-screen demo
 ```
@@ -125,17 +125,20 @@ to look under the hood.
 
 ## Publishing
 
-Releases are automated. Pushing a `v*` tag runs the `release` workflow,
-which publishes the three images multi-arch to Docker Hub under
-`mvx-lang/` and attaches per-architecture Linux binary tarballs to the
-GitHub release:
+Releases are automated and need **no external accounts or secrets**.
+Pushing a `v*` tag runs the `release` workflow, which publishes the three
+images multi-arch to the GitHub Container Registry under
+`ghcr.io/mvx-lang/` — authenticating with the built-in `GITHUB_TOKEN` —
+and attaches per-architecture Linux binary tarballs to the GitHub
+release:
 
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-The workflow needs two repository secrets — `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN` (a token with push rights to the `mvx-lang` Docker Hub
-org). To publish by hand instead, `docker/build.sh` tags images
-`${REGISTRY}/mvx{,-lmdbd,-demo}:${TAG}` (`REGISTRY` defaults to
-`mvx-lang`); `docker login`, then run with `PUSH=1`.
+The packages are created private; make each public once from the org's
+**Packages** settings (or the package page → *Package settings* →
+*Change visibility*) so `docker pull ghcr.io/mvx-lang/mvx-demo` works
+without a login. To publish by hand instead, `docker/build.sh` tags
+images `${REGISTRY}/mvx{,-lmdbd,-demo}:${TAG}` (`REGISTRY` defaults to
+`ghcr.io/mvx-lang`); `docker login ghcr.io`, then run with `PUSH=1`.
