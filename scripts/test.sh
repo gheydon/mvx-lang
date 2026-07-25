@@ -736,6 +736,17 @@ check tcl-auth "$( \
   (cd "$AACCT" && MVXACCOUNT=. "$TESTROOT/wauth"); \
   printf 'wrong token: '; (cd "$BACCT" && MVXACCOUNT=. "$TESTROOT/rauth" 2>/dev/null); \
   "$ROOT/build/bin/mvx-lmdbd-admin" -d "$ADATA" list-accounts)"
+
+# named connection profiles: BINDINGS references @conn1, and the host +
+# namespace + token live in the local connection profile — so the
+# committed binding never names the daemon.
+CTOK="$("$ROOT/build/bin/mvx-lmdbd-admin" -d "$ADATA" create-account connns 2>/dev/null)"
+CACCT="$TESTROOT/cacct"; mkdir -p "$CACCT"
+check tcl-conn "$( \
+  printf 'SET-CONNECTION conn1 driver=lmdbnet address=%s namespace=connns token=%s\nLIST-CONNECTIONS\nCREATE-FILE ORDERS USING @conn1\n' \
+    "$ASOCK" "$CTOK" | "$TCL" -a "$CACCT" 2>&1 | sed "s#$ASOCK#@SOCK@#g"; \
+  printf 'BINDINGS: '; cat "$CACCT/BINDINGS"; \
+  (cd "$CACCT" && MVXACCOUNT=. "$TESTROOT/wauth"))"
 kill $APID 2>/dev/null
 rm -f "$ASOCK"
 

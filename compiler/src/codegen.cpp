@@ -77,7 +77,7 @@ const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND",
-    "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED",
+    "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED", "SETCONN",
 };
 
 // String-valued intrinsics (boxed results).
@@ -703,6 +703,11 @@ private:
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2]),
                                evalPtr(*e.args[3])});
+            if (f == "SETCONN" && e.args.size() == 2)
+                return callRt("mvx_setconn", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1])});
             if (kIntIntrinsics.count(f))
                 err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")
@@ -1000,6 +1005,10 @@ private:
             return; }
         if (f == "LISTCRED") { need(0);
             callRt("mvx_listcred", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, dest});
+            return; }
+        if (f == "LISTCONN") { need(0);
+            callRt("mvx_listconn", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
             return; }
         if (f == "OSREAD") { need(1);

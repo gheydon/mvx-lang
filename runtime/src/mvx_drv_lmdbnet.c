@@ -92,6 +92,22 @@ static void split_loc(const char *loc, char *addr, size_t acap, char *ns,
         mvx_account_namespace(ns, ncap);
 }
 
+/* Resolve a driver-level location to address + namespace + connection
+   name.  "@name" is a named connection profile (the store passes the
+   reference through); anything else is the inline "addr [namespace]". */
+static void resolve_loc(const char *loc, char *addr, size_t acap, char *ns,
+                        size_t ncap, char *conn, size_t ccap) {
+    if (loc[0] == '@') {
+        snprintf(conn, ccap, "%s", loc + 1);
+        if (!mvx_conn_lookup(conn, "address", addr, acap)) addr[0] = '\0';
+        if (!mvx_conn_lookup(conn, "namespace", ns, ncap))
+            mvx_account_namespace(ns, ncap);
+    } else {
+        conn[0] = '\0';
+        split_loc(loc, addr, acap, ns, ncap);
+    }
+}
+
 static int send_all(int fd, const void *buf, size_t n) {
     const char *p = buf;
     while (n > 0) {
@@ -233,8 +249,8 @@ static int roundtrip(int fd, uint8_t op, reqbuf *b, char **resp,
    comes from the account credential store (.mvx-private); with none we
    send an empty token, which an open-mode daemon accepts and an
    authenticated one rejects.  Returns 0 (with err) if the daemon denies. */
-static int net_auth(int fd, const char *addr, const char *ns, char *err,
-                    size_t errlen) {
+static int net_auth(int fd, const char *addr, const char *ns,
+                    const char *conn, char *err, size_t errlen) {
     int ci = -1;
     for (int i = 0; i < g_nconns; i++)
         if (g_conns[i].fd == fd) { ci = i; break; }
@@ -242,8 +258,13 @@ static int net_auth(int fd, const char *addr, const char *ns, char *err,
         for (int j = 0; j < g_conns[ci].nauthed; j++)
             if (strcmp(g_conns[ci].authed[j], ns) == 0) return 1;
 
+    /* the token comes from the connection profile when bound by name,
+       else from the credential store keyed by address + namespace */
     char tok[256] = "";
-    mvx_cred_lookup("lmdbnet", addr, ns, "token", tok, sizeof tok);
+    if (conn && conn[0])
+        mvx_conn_lookup(conn, "token", tok, sizeof tok);
+    else
+        mvx_cred_lookup("lmdbnet", addr, ns, "token", tok, sizeof tok);
 
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
@@ -270,12 +291,12 @@ static int net_auth(int fd, const char *addr, const char *ns, char *err,
 static const mvx_driver mvx_driver_lmdbnet;
 
 static mvx_file *net_open(const char *spec, char *err, size_t errlen) {
-    char loc[512], addr[512], ns[128];
+    char loc[512], addr[512], ns[128], conn[128];
     const char *rspec = split_addr(spec, loc, sizeof loc);
-    split_loc(loc, addr, sizeof addr, ns, sizeof ns);
+    resolve_loc(loc, addr, sizeof addr, ns, sizeof ns, conn, sizeof conn);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return NULL;
-    if (!net_auth(fd, addr, ns, err, errlen)) return NULL;
+    if (!net_auth(fd, addr, ns, conn, err, errlen)) return NULL;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
@@ -400,12 +421,12 @@ static void net_select_end(mvx_cursor *c) {
 }
 
 static int net_create(const char *spec, char *err, size_t errlen) {
-    char loc[512], addr[512], ns[128];
+    char loc[512], addr[512], ns[128], conn[128];
     const char *rspec = split_addr(spec, loc, sizeof loc);
-    split_loc(loc, addr, sizeof addr, ns, sizeof ns);
+    resolve_loc(loc, addr, sizeof addr, ns, sizeof ns, conn, sizeof conn);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
-    if (!net_auth(fd, addr, ns, err, errlen)) return 0;
+    if (!net_auth(fd, addr, ns, conn, err, errlen)) return 0;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
@@ -417,12 +438,12 @@ static int net_create(const char *spec, char *err, size_t errlen) {
 }
 
 static int net_remove(const char *spec, char *err, size_t errlen) {
-    char loc[512], addr[512], ns[128];
+    char loc[512], addr[512], ns[128], conn[128];
     const char *rspec = split_addr(spec, loc, sizeof loc);
-    split_loc(loc, addr, sizeof addr, ns, sizeof ns);
+    resolve_loc(loc, addr, sizeof addr, ns, sizeof ns, conn, sizeof conn);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
-    if (!net_auth(fd, addr, ns, err, errlen)) return 0;
+    if (!net_auth(fd, addr, ns, conn, err, errlen)) return 0;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
@@ -439,7 +460,7 @@ static int net_names(mv_value *out, char *err, size_t errlen) {
     mvx_account_namespace(ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
-    if (!net_auth(fd, addr, ns, err, errlen)) return 0;
+    if (!net_auth(fd, addr, ns, "", err, errlen)) return 0;
     reqbuf b = {0, 0, 0};
     rstr16(&b, ns, strlen(ns));
     char *resp;

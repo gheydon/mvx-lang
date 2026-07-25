@@ -55,6 +55,8 @@ standard verbs.
 | `GIT add\|commit\|branch\|checkout\|merge\|cherry-pick\|...` | git for records: full porcelain incl. branching |
 | `SET-CREDENTIAL driver target key field=value ...` | store a backend secret in `.mvx-private` (git-ignored) |
 | `LIST-CREDENTIALS` | list stored credentials, values masked |
+| `SET-CONNECTION name field=value ...` | define a named connection profile (`@name` in `BINDINGS`) |
+| `LIST-CONNECTIONS` | list connection profiles, secret fields masked |
 
 ## Select lists between commands
 

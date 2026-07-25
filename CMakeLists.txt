@@ -33,6 +33,7 @@ add_library(mvxrt SHARED
   runtime/src/mvx_store.c
   runtime/src/mvx_exec.c
   runtime/src/mvx_cred.c
+  runtime/src/mvx_conn.c
   runtime/src/mvx_call.c
   runtime/src/mvx_term.c
   runtime/src/mvx_os.c

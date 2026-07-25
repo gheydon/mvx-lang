@@ -384,6 +384,19 @@ static int binding_for(const char *cspec, char *driver, size_t dcap,
     if (!exact && !star) return 0;
     const char *ud = exact ? exactdrv : stardrv;
     const char *up = exact ? exactparm : starparm;
+    /* `@name` binds to a named connection profile: the driver comes from
+       the profile, and the "@name" reference passes through so the
+       driver resolves the address/namespace/token itself. */
+    if (ud[0] == '@') {
+        const char *cn = ud + 1;
+        static char cdriver[64];
+        if (!mvx_conn_lookup(cn, "driver", cdriver, sizeof cdriver))
+            mvx_fatal("file %s: connection '%s' is not defined "
+                      "(SET-CONNECTION %s driver=...)", cspec, cn, cn);
+        snprintf(driver, dcap, "%s", cdriver);
+        snprintf(params, pcap, "@%s", cn);
+        return 1;
+    }
     if (!ud[0]) ud = "lmdbnet";         /* default backend */
     if (!up[0] && strcmp(ud, "lmdbnet") == 0)
         up = envd && envd[0] ? envd : "";

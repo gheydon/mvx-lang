@@ -166,6 +166,34 @@ wire. `mvx-lmdbd-admin` also has `rotate`, `delete-account`, and
 `list-accounts`. The daemon and this tool stay **Pick-agnostic**: a
 namespace is just an opaque partition, authorised by a bearer token.
 
+### Named connections
+
+Rather than write the daemon host into every file's binding, define a
+**named connection** once and reference it. The committed `BINDINGS`
+names only the connection; the deployment-specific host, namespace, and
+token live in the local (git-ignored) `.mvx-private/connections`:
+
+```
+> SET-CONNECTION salesdb driver=lmdbnet address=mvxdb:4300 namespace=SALES token=<token>
+> CREATE-FILE ORDERS USING @salesdb
+> CREATE-FILE CUSTOMERS USING @salesdb
+```
+```
+BINDINGS:  ORDERS     @salesdb
+           CUSTOMERS  @salesdb
+```
+
+Move the daemon to a new host and you change **one** field —
+`SET-CONNECTION salesdb address=newhost:4300` — with no change to
+`BINDINGS` and nothing to re-commit. The same profile carries the token,
+so a connection is the single place a file's whole remote binding lives;
+`LIST-CONNECTIONS` shows the profiles with secret fields masked. It is
+also how a container injects a target — set `MVXCONN_SALESDB_ADDRESS` and
+`MVXCONN_SALESDB_TOKEN` and no file is needed. The same mechanism will
+carry Postgres and other backends (`driver=postgres address=… dbname=…
+user=… password=…`). The older inline form (`CREATE-FILE … USING lmdbnet
+<addr>`) still works.
+
 ## Credentials and secrets (`.mvx-private`)
 
 Backends that authenticate — a networked-LMDB namespace token, a Postgres

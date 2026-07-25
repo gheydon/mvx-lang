@@ -1,0 +1,8 @@
+connection stored: conn1
+conn1 driver=lmdbnet
+conn1 address=@SOCK@
+conn1 namespace=connns
+conn1 token=****
+[417] file ORDERS created
+BINDINGS: ORDERS @conn1
+read: hi
