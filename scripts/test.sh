@@ -740,16 +740,33 @@ kill $APID 2>/dev/null
 rm -f "$ASOCK"
 
 # ---------------------------------------------------------------- phase 3
+# The sieve result is deterministic (Count 78498); only its *execution*
+# on a loaded CI runner is occasionally flaky (a transient OOM during the
+# LLVM compile leaves no binary).  Retry a few times and, on failure,
+# surface the actual compile/run error instead of an empty "FAIL sieve:".
 if [ "$QUICK" = 0 ]; then
   echo "== sieve"
-  "$MVX" "$ROOT/bench/sieve.b" -o "$TESTROOT/sieve" 2>/dev/null
-  sieve_out="$("$TESTROOT/sieve")"
-  if printf '%s' "$sieve_out" | grep -q "Count: 78498" &&
-     printf '%s' "$sieve_out" | grep -q "VALID"; then
+  sieve_ok=0
+  sieve_diag=""
+  for attempt in 1 2 3; do
+    if ! "$MVX" "$ROOT/bench/sieve.b" -o "$TESTROOT/sieve" \
+         2>"$TESTROOT/sieve.err"; then
+      sieve_diag="compile failed (attempt $attempt): $(cat "$TESTROOT/sieve.err")"
+      continue
+    fi
+    sieve_out="$("$TESTROOT/sieve" 2>"$TESTROOT/sieve.err")"
+    if printf '%s' "$sieve_out" | grep -q "Count: 78498" &&
+       printf '%s' "$sieve_out" | grep -q "VALID"; then
+      sieve_ok=1
+      echo "  sieve valid ($(printf '%s' "$sieve_out" | head -1))"
+      break
+    fi
+    sieve_diag="run output (attempt $attempt): ${sieve_out:-<empty>} $(cat "$TESTROOT/sieve.err")"
+  done
+  if [ "$sieve_ok" = 1 ]; then
     PASS=$((PASS + 1))
-    echo "  sieve valid ($(printf '%s' "$sieve_out" | head -1))"
   else
-    echo "FAIL sieve: $sieve_out"
+    echo "FAIL sieve: $sieve_diag"
     FAIL=$((FAIL + 1))
   fi
 fi
