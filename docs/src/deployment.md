@@ -129,6 +129,45 @@ If you need isolation, authentication, or drop protection, follow the
 issues linked from the multi-account investigation
 ([#5](https://github.com/mvx-lang/mvx/issues/5)).
 
+## Credentials and secrets (`.mvx-private`)
+
+Backends that authenticate — a networked-LMDB namespace token, a Postgres
+username and password — need a secret to connect. Those secrets must
+**not** live in git-committed account config (`BINDINGS`, `.mvx`, the
+VOC): a clone or `BUILD` should provision an account without carrying its
+credentials, with the operator supplying them out-of-band.
+
+So secrets live in a per-account directory **`.mvx-private/`**, a single
+`credentials` file, netrc/pgpass-style — created `0700`/`0600`, and
+git-ignored. `BINDINGS` names only the non-secret reference (driver,
+target, key); the runtime resolves the secret from the store.
+
+```
+> SET-CREDENTIAL lmdbnet mvxdb-a:4300 SALES token=abc123
+> SET-CREDENTIAL postgres db:5432 mvx user=app password=s3cret
+> LIST-CREDENTIALS                       values are masked
+```
+
+`.mvx-private/credentials` then holds:
+
+```
+lmdbnet  mvxdb-a:4300  SALES  token=abc123
+postgres db:5432       mvx    user=app password=s3cret
+```
+
+An environment variable overrides the file so a container can inject a
+secret without writing one — `MVXCRED_<DRIVER>_<KEY>_<FIELD>`,
+upper-cased with non-alphanumerics as `_` (e.g. `MVXCRED_LMDBNET_SALES_TOKEN`).
+Resolution is env override, then the file, then a clear error.
+
+Keep `.mvx-private/` out of version control — it is a dotfile, so MVX's
+own account export already skips it; for an account kept in a plain git
+repo, add it to `.gitignore` alongside `mvxdata.lmdb/`. The consuming
+backends (networked-LMDB tokens, the Postgres driver) are tracked in
+[#7](https://github.com/mvx-lang/mvx/issues/7),
+[#9](https://github.com/mvx-lang/mvx/issues/9), and
+[#11](https://github.com/mvx-lang/mvx/issues/11).
+
 ## Committing and cloning an account through git
 
 Hash files are binary, so an account is never committed as-is. Git

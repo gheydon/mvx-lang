@@ -77,7 +77,7 @@ const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND",
-    "OSWRITE", "OSDELETE", "EDITFILE",
+    "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED",
 };
 
 // String-valued intrinsics (boxed results).
@@ -697,6 +697,12 @@ private:
                               {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2])});
+            if (f == "SETCRED" && e.args.size() == 4)
+                return callRt("mvx_setcred", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1]), evalPtr(*e.args[2]),
+                               evalPtr(*e.args[3])});
             if (kIntIntrinsics.count(f))
                 err(e.line, f + "() given wrong number of arguments");
             if (f == "TIME")
@@ -990,6 +996,10 @@ private:
         }
         if (f == "SENTENCE") { need(0);
             callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, dest});
+            return; }
+        if (f == "LISTCRED") { need(0);
+            callRt("mvx_listcred", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
             return; }
         if (f == "OSREAD") { need(1);

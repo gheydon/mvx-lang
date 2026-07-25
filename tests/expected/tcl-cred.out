@@ -1,0 +1,11 @@
+credential stored: lmdbnet mvxdb-a:4300 SALES
+credential stored: postgres db:5432 mvx
+driver     target             key        fields
+lmdbnet mvxdb-a:4300 SALES token=****
+postgres db:5432 mvx user=**** password=****
+2 credential(s)
+credential stored: lmdbnet mvxdb-a:4300 SALES
+driver     target             key        fields
+postgres db:5432 mvx user=**** password=****
+lmdbnet mvxdb-a:4300 SALES token=****
+2 credential(s)

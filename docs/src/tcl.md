@@ -53,6 +53,8 @@ standard verbs.
 | `BUILD` | provision an account from its git-tracked config (post-clone) |
 | `IMPORT file {dir}` | mirror a directory file back (full sync) |
 | `GIT add\|commit\|branch\|checkout\|merge\|cherry-pick\|...` | git for records: full porcelain incl. branching |
+| `SET-CREDENTIAL driver target key field=value ...` | store a backend secret in `.mvx-private` (git-ignored) |
+| `LIST-CREDENTIALS` | list stored credentials, values masked |
 
 ## Select lists between commands
 

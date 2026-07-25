@@ -244,6 +244,15 @@ check tcl-assoc "$(printf '%s\n' \
   'LIST ORDERS CUSTOMER PRODUCT QTY PRICE' \
   'SORT ORDERS CUSTOMER PRODUCT QTY PRICE' | tclrun)"
 
+# account credential store (.mvx-private): set/list with values masked,
+# and upsert replacing an existing entry in place
+check tcl-cred "$(printf '%s\n' \
+  'SET-CREDENTIAL lmdbnet mvxdb-a:4300 SALES token=abc123' \
+  'SET-CREDENTIAL postgres db:5432 mvx user=app password=s3cret' \
+  'LIST-CREDENTIALS' \
+  'SET-CREDENTIAL lmdbnet mvxdb-a:4300 SALES token=NEWTOK' \
+  'LIST-CREDENTIALS' | tclrun)"
+
 # record verbs + ED scripted session
 check tcl-records "$(printf '%s\n' \
   'COPY PARTS W100 TO W900' \
