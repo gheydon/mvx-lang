@@ -1221,6 +1221,12 @@ private:
         case Stmt::K::Gosub:
             emitGosub(s);
             break;
+        case Stmt::K::OnGoto:
+            emitOnGoto(s);
+            break;
+        case Stmt::K::OnGosub:
+            emitOnGosub(s);
+            break;
         case Stmt::K::Locate:
             emitLocate(s);
             break;
@@ -1702,6 +1708,58 @@ private:
         b_.SetInsertPoint(cont);
     }
 
+    // ON n GOTO l1, l2, ...: jump to the n-th label (1-based); out of
+    // range falls through to the next statement.
+    void emitOnGoto(const Stmt &s) {
+        Value *idx = numIndex(*s.cond);
+        BasicBlock *next = newBB("ongoto.next");
+        SwitchInst *sw = b_.CreateSwitch(idx, next,
+                                         (unsigned)s.labelList.size());
+        for (size_t i = 0; i < s.labelList.size(); i++)
+            sw->addCase(cast<ConstantInt>(ConstantInt::get(i64Ty_, (int64_t)i + 1)),
+                        labelBBs_.at(s.labelList[i]));
+        b_.SetInsertPoint(next);
+    }
+
+    // ON n GOSUB l1, l2, ...: GOSUB the n-th label; out of range falls
+    // through.  All targets share one continuation.
+    void emitOnGosub(const Stmt &s) {
+        ensureGosubState();
+        Value *idx = numIndex(*s.cond);
+        BasicBlock *cont = newBB("ongosub.cont");
+        uint32_t id = (uint32_t)gosubConts_.size();
+        gosubConts_.push_back(cont);
+
+        Value *sp = b_.CreateLoad(i64Ty_, gsSp_);
+        BasicBlock *failBB = newBB("gosub.deep");
+        BasicBlock *okBB = newBB("ongosub.ok");
+        b_.CreateCondBr(
+            b_.CreateICmpUGE(sp, ConstantInt::get(i64Ty_, kGosubDepth)),
+            failBB, okBB,
+            MDBuilder(llctx_).createUnlikelyBranchWeights());
+        b_.SetInsertPoint(failBB);
+        callRt("mvx_fatal", voidTy_, {ptrTy_},
+               {stringConst("GOSUB nesting deeper than 1024")});
+        b_.CreateUnreachable();
+
+        b_.SetInsertPoint(okBB);
+        SwitchInst *sw = b_.CreateSwitch(idx, cont,
+                                         (unsigned)s.labelList.size());
+        for (size_t i = 0; i < s.labelList.size(); i++) {
+            BasicBlock *push = newBB("ongosub.push");
+            sw->addCase(cast<ConstantInt>(ConstantInt::get(i64Ty_, (int64_t)i + 1)), push);
+            b_.SetInsertPoint(push);
+            Value *cell = b_.CreateGEP(ArrayType::get(i32Ty_, kGosubDepth),
+                                       gsStack_,
+                                       {ConstantInt::get(i64Ty_, 0), sp});
+            b_.CreateStore(ConstantInt::get(i32Ty_, id), cell);
+            b_.CreateStore(b_.CreateAdd(sp, ConstantInt::get(i64Ty_, 1)),
+                           gsSp_);
+            b_.CreateBr(labelBBs_.at(s.labelList[i]));
+        }
+        b_.SetInsertPoint(cont);
+    }
+
     // Built once at the end: pop the stack and dispatch to the site
     // after the matching GOSUB; empty stack falls out of the program.
     void finishGosubRet() {
@@ -2038,7 +2096,8 @@ private:
                 labelBBs_[s.name] =
                     BasicBlock::Create(llctx_, "L" + s.name);
             }
-            if (s.kind == Stmt::K::Gosub) hasGosub_ = true;
+            if (s.kind == Stmt::K::Gosub || s.kind == Stmt::K::OnGosub)
+                hasGosub_ = true;
             collectLabels(s.body);
             collectLabels(s.elseBody);
             collectLabels(s.lockedBody);
@@ -2054,6 +2113,10 @@ private:
             if ((s.kind == Stmt::K::Goto || s.kind == Stmt::K::Gosub) &&
                 !labelBBs_.count(s.name))
                 err(s.line, "label " + s.name + " is not defined");
+            if (s.kind == Stmt::K::OnGoto || s.kind == Stmt::K::OnGosub)
+                for (const auto &lbl : s.labelList)
+                    if (!labelBBs_.count(lbl))
+                        err(s.line, "label " + lbl + " is not defined");
             checkLabelRefs(s.body);
             checkLabelRefs(s.elseBody);
             checkLabelRefs(s.lockedBody);

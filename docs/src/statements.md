@@ -94,8 +94,12 @@ Installs the attributes of `dynarray` as the active select list.
 ### GOTO / GOSUB
 ```
 GOTO label      GO TO label      GOSUB label ... RETURN
+ON expr GOTO  l1, l2, ...        computed jump to the expr-th label
+ON expr GOSUB l1, l2, ...        computed GOSUB to the expr-th label
 ```
 Labels are numbers at the start of a line. GOSUBs nest to depth 1024.
+For `ON`, `expr` selects a target 1-based; a value outside `1..n` falls
+through to the next statement.
 
 ### IF
 ```

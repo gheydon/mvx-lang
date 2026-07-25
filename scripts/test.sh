@@ -108,6 +108,7 @@ lang matches
 lang loopctl
 lang assign
 lang vector
+lang ongoto
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)

@@ -434,6 +434,31 @@ private:
                 expect(Tok::IntLit, "label number").ival);
             endStatementSoft();
             break;
+        case Tok::KwOn: {                       // ON expr GOTO/GOSUB n, n, ...
+            advance();
+            ExprP sel = expression();
+            Stmt::K k;
+            if (at(Tok::KwGoto) || at(Tok::KwGo)) {
+                advance();
+                if (at(Tok::KwTo)) advance();
+                k = Stmt::K::OnGoto;
+            } else if (at(Tok::KwGosub)) {
+                advance();
+                k = Stmt::K::OnGosub;
+            } else {
+                err("expected GOTO or GOSUB after ON expr");
+            }
+            s = mk(k);
+            s->cond = std::move(sel);
+            for (;;) {
+                s->labelList.push_back(std::to_string(
+                    expect(Tok::IntLit, "label number").ival));
+                if (!at(Tok::Comma)) break;
+                advance();
+            }
+            endStatementSoft();
+            break;
+        }
         case Tok::KwReturn:
             advance();
             s = mk(Stmt::K::Return);

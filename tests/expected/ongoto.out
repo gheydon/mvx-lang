@@ -1,0 +1,9 @@
+1: one
+2: two
+3: three
+4: fell through (out of range)
+  sub-A
+after gosub 1
+  sub-B
+after gosub 2
+after gosub 3

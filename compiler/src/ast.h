@@ -63,6 +63,7 @@ struct Stmt {
         Call,       // name, args
         Return, Stop,
         Continue, Exit,     // loop control: next iteration / leave loop
+        OnGoto, OnGosub,    // cond: selector; labelList: targets (1-based)
         Label,      // name: numeric statement label
         Goto,       // name: target label
         Gosub,      // name: target label
@@ -105,6 +106,7 @@ struct Stmt {
     bool hasLocked = false;              // READU had a LOCKED clause
     std::vector<StmtP> errorBody;        // ... ON ERROR clause
     bool hasError = false;               // statement had an ON ERROR clause
+    std::vector<std::string> labelList;  // ON GOTO/GOSUB targets
     std::vector<StmtP> pre, post;        // Loop
     LoopCond loopCond = LoopCond::None;
 };
