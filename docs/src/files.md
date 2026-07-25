@@ -172,10 +172,18 @@ Columns are **typed** from the conversion: a masked-decimal item (`MD…`)
 becomes a real `numeric` column, so `sum("PRICE")` works in SQL. The
 value is reduced from its display form to a plain number (`$9.99` → the
 numeric `9.99`); a value that isn't a number projects as `NULL` rather
-than failing the write — the mirror-mode policy. Other items are `text`
-for now; **`DATE`/`TIME`** typed columns and the `native` mode (backend
-as source of truth) are the remaining phases of
-[#18](https://github.com/mvx-lang/mvx/issues/18).
+than failing the write — the mirror-mode policy.
+
+Date (`D…`) and time (`MT…`) items likewise become real `date` and `time`
+columns. These project from the **stored internal value** — the Pick day
+count and seconds-past-midnight — rendered straight to ISO-8601
+(`2026-07-25`, `14:30:00`), not the locale-shaped display conversion,
+which a backend cannot parse unambiguously. An empty or non-numeric cell
+projects as `NULL`, the same mirror-mode leniency. So `WHEN >= DATE
+'2026-01-01'` and `date_trunc('month', "WHEN")` work in SQL while the
+record still reads through its `D4/` conversion in BASIC. Other items are
+`text`. The `native` mode (backend as source of truth) is the remaining
+phase of [#18](https://github.com/mvx-lang/mvx/issues/18).
 
 `LIST-MAPS` shows the account's mapped files and their fields, and
 `DELETE-MAP file` tears a mapping down — dropping its columns and child

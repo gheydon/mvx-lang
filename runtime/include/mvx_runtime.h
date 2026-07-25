@@ -136,6 +136,9 @@ void    mv_oconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
                  const mv_value *code);
 void    mv_iconv(mvx_ctx *ctx, mv_value *dst, const mv_value *src,
                  const mv_value *code);
+/* ISO-8601 renderers for typed DATE/TIME map columns (mv_conv.c). */
+int64_t mvx_iso_date_str(const char *in, int64_t len, char *out, size_t cap);
+int64_t mvx_iso_time_str(const char *in, int64_t len, char *out, size_t cap);
 void    mv_fmt(mv_value *dst, const mv_value *src, const mv_value *mask);
 int64_t mvx_status(mvx_ctx *ctx);
 

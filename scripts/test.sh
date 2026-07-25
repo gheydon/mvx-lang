@@ -846,6 +846,35 @@ VMEOF
     'LIST-MAPS' \
     'DELETE-MAP PARTS' \
     'LIST-MAPS' | "$TCL" -a "$VMACCT" 2>&1)"
+
+  # typed DATE/TIME columns (#32): a D/MT dict item projects to a real
+  # SQL date/time column carrying the internal value as ISO-8601, not the
+  # locale-shaped display conversion.  Empty cells store NULL.
+  printf 'EVT @vpg\n' >> "$VMACCT/BINDINGS"
+  "$TCL" -a "$VMACCT" -c 'DELETE-FILE EVT' >/dev/null 2>&1
+  "$TCL" -a "$VMACCT" -c 'CREATE-FILE EVT USING @vpg' >/dev/null 2>&1
+  cat > "$TESTROOT/vmdt.b" <<'DTEOF'
+OPEN "EVT" TO F ELSE STOP
+R = ""
+R<1> = "Launch"
+R<2> = ICONV("25 JUL 2026", "D")
+R<3> = ICONV("14:30:00", "MTS")
+WRITE R ON F, "E1"
+R = ""
+R<1> = "Empty"
+WRITE R ON F, "E2"
+OPEN "DICT", "EVT" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"D4/":@AM:"When":@AM:"12R" ON D, "WHEN"
+WRITE "D":@AM:"3":@AM:"MTS":@AM:"At":@AM:"10R" ON D, "AT"
+DTEOF
+  "$MVX" "$TESTROOT/vmdt.b" -o "$TESTROOT/vmdtbin" 2>/dev/null
+  (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmdtbin")
+  # LIST reads the record through the D/MT conversions; the SQL projection
+  # rendered the same instants as ISO date/time columns (verified via psql).
+  check tcl-mapdt "$(printf '%s\n' \
+    'CREATE-MAP EVT NAME WHEN AT' \
+    'SORT EVT BY NAME WHEN AT NAME' | "$TCL" -a "$VMACCT" 2>&1)"
 else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi

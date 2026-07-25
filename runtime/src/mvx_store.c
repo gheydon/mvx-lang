@@ -924,6 +924,17 @@ static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
                         mv_value *av, mv_value *ov, mv_value *code,
                         char *dst, size_t cap) {
     mv_extract_fn(av, rec, ano, seq, 0);
+    /* DATE/TIME columns take the stored internal value (day/second count)
+       straight to ISO-8601 — the dict display conversion is locale-shaped
+       and would be ambiguous to the backend.  A non-numeric internal (or an
+       empty cell) yields NULL, matching mirror mode's leniency. */
+    if (strcmp(type, "DATE") == 0 || strcmp(type, "TIME") == 0) {
+        char ib[40];
+        const char *ip;
+        int64_t il = mv_val_chars(av, ib, sizeof ib, &ip);
+        return type[0] == 'D' ? mvx_iso_date_str(ip, il, dst, cap)
+                              : mvx_iso_time_str(ip, il, dst, cap);
+    }
     const mv_value *src = av;
     if (conv[0]) {
         mv_set_str(code, conv, (int64_t)strlen(conv));

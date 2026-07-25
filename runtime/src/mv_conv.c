@@ -158,6 +158,31 @@ static int oconv_time(mvx_ctx *ctx, mv_value *dst, span in, span code) {
     return 1;
 }
 
+/* Map-projection ISO renderers: an internal Pick date (day count) or time
+   (seconds past midnight) rendered as ISO-8601 text for typed DATE/TIME
+   columns.  Postgres parses these unambiguously, unlike the locale-shaped
+   display conversions.  Return the length written, or 0 (with an empty
+   string) when the input is not a clean number, so the caller stores NULL. */
+int64_t mvx_iso_date_str(const char *in, int64_t len, char *out, size_t cap) {
+    double dv;
+    if (!span_num((span){in, len}, &dv)) { if (cap) out[0] = '\0'; return 0; }
+    int64_t y, m, d;
+    civil_from_days((int64_t)dv - 732, &y, &m, &d);
+    int n = snprintf(out, cap, "%04lld-%02lld-%02lld",
+                     (long long)y, (long long)m, (long long)d);
+    return (n > 0 && (size_t)n < cap) ? n : 0;
+}
+
+int64_t mvx_iso_time_str(const char *in, int64_t len, char *out, size_t cap) {
+    double dv;
+    if (!span_num((span){in, len}, &dv)) { if (cap) out[0] = '\0'; return 0; }
+    int64_t secs = ((int64_t)dv % 86400 + 86400) % 86400;
+    int n = snprintf(out, cap, "%02lld:%02lld:%02lld",
+                     (long long)(secs / 3600), (long long)(secs / 60 % 60),
+                     (long long)(secs % 60));
+    return (n > 0 && (size_t)n < cap) ? n : 0;
+}
+
 static int oconv_md(mvx_ctx *ctx, mv_value *dst, span in, span code) {
     double dv;
     if (!span_num(in, &dv)) {

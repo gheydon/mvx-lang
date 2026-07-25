@@ -326,7 +326,9 @@ static int pg_remove(const char *spec, char *err, size_t errlen) {
    tables.  NUMERIC fields get a numeric column; others are text. */
 static const char *pg_sqltype(const char *t) {
     if (strcmp(t, "NUMERIC") == 0) return "numeric";
-    return "text";                        /* DATE/TIME/TEXT as text (yet) */
+    if (strcmp(t, "DATE") == 0) return "date";
+    if (strcmp(t, "TIME") == 0) return "time";
+    return "text";                                    /* TEXT (default) */
 }
 
 static int pg_map_ensure(mvx_file *fh, const mvx_mapfield *cols, int ncols,
