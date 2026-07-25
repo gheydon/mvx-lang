@@ -168,6 +168,15 @@ into its columns and child rows automatically, no rebuild needed
 view, so a write is never blocked by it; the `rec` blob stays the source
 of truth (`mirror` mode).
 
+A Pick `WRITE` hands the runtime the whole record, but the projection is
+columns and rows — so an update writes **only what changed**. The runtime
+diffs the record against its prior version (the same prior-record read that
+maintains secondary indexes) and updates just the parent columns whose
+attribute moved, skipping the column `UPDATE` entirely when none did, and
+re-writing an association's child rows only when one of its attributes
+changed. Editing one field of a record with a large association is one
+small `UPDATE`, not a re-`DELETE`/`INSERT` of every line item.
+
 Columns are **typed** from the conversion: a masked-decimal item (`MD…`)
 becomes a real `numeric` column, so `sum("PRICE")` works in SQL. The
 value is reduced from its display form to a plain number (`$9.99` → the

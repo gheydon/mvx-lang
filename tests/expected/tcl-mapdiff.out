@@ -1,0 +1,5 @@
+parent-only leaves children: yes
+line-item rewrites children: yes
+identical write no-ops: yes
+customer=Renamed Co
+qty1=42

@@ -974,8 +974,63 @@ REOF
     check tcl-mapnread "$( \
       (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmordrbin"); \
       printf 'COUNT ORD\n' | "$TCL" -a "$VMACCT" 2>&1)"
+
+    # write diff (#35): an update projects only what changed.  Proven with
+    # Postgres row xmin — a parent-only write leaves the child rows physically
+    # untouched; a line-item change advances their xmin; an identical rewrite
+    # touches nothing.  Fresh mirror-mode file, seeded via a program.
+    printf 'OPT @vpg\n' >> "$VMACCT/BINDINGS"
+    "$TCL" -a "$VMACCT" -c 'DELETE-FILE OPT' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-FILE OPT USING @vpg' >/dev/null 2>&1
+    cat > "$TESTROOT/vmopt.b" <<'OPTEOF'
+OPEN "OPT" TO F ELSE STOP
+R = ""
+R<1> = "Acme"
+R<5> = "Widget":@VM:"Gadget"
+R<6> = "2":@VM:"1"
+WRITE R ON F, "P1"
+OPEN "DICT", "OPT" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"12L" ON D, "CUSTOMER"
+WRITE "D":@AM:"5":@AM:"":@AM:"Product":@AM:"10L":@AM:"OITEMS" ON D, "PRODUCT"
+WRITE "D":@AM:"6":@AM:"MR0":@AM:"Qty":@AM:"5R":@AM:"OITEMS" ON D, "QTY"
+OPTEOF
+    "$MVX" "$TESTROOT/vmopt.b" -o "$TESTROOT/vmoptbin" 2>/dev/null
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmoptbin")
+    "$TCL" -a "$VMACCT" -c 'CREATE-MAP OPT CUSTOMER PRODUCT QTY' >/dev/null 2>&1
+    xchild() { psql_ext "SELECT string_agg(xmin::text,',' ORDER BY seq) \
+                 FROM vmtest.\"OPT_OITEMS\" WHERE id='\\x5031'"; }
+    cat > "$TESTROOT/vmd1.b" <<'D1'
+OPEN "OPT" TO F ELSE STOP
+READ R FROM F, "P1" THEN R<1> = "Renamed Co"
+WRITE R ON F, "P1"
+D1
+    cat > "$TESTROOT/vmd2.b" <<'D2'
+OPEN "OPT" TO F ELSE STOP
+READ R FROM F, "P1" THEN R<6,1> = "42"
+WRITE R ON F, "P1"
+D2
+    cat > "$TESTROOT/vmd3.b" <<'D3'
+OPEN "OPT" TO F ELSE STOP
+READ R FROM F, "P1" THEN WRITE R ON F, "P1"
+D3
+    "$MVX" "$TESTROOT/vmd1.b" -o "$TESTROOT/vmd1bin" 2>/dev/null
+    "$MVX" "$TESTROOT/vmd2.b" -o "$TESTROOT/vmd2bin" 2>/dev/null
+    "$MVX" "$TESTROOT/vmd3.b" -o "$TESTROOT/vmd3bin" 2>/dev/null
+    X0=$(xchild)
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmd1bin")   # parent-only
+    X1=$(xchild)
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmd2bin")   # line-item
+    X2=$(xchild)
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmd3bin")   # identical
+    X3=$(xchild)
+    check tcl-mapdiff "$(printf '%s\n' \
+      "parent-only leaves children: $([ "$X0" = "$X1" ] && echo yes || echo no)" \
+      "line-item rewrites children: $([ "$X1" != "$X2" ] && echo yes || echo no)" \
+      "identical write no-ops: $([ "$X2" = "$X3" ] && echo yes || echo no)" \
+      "customer=$(psql_ext "SELECT \"CUSTOMER\" FROM vmtest.\"OPT\" WHERE id='\\x5031'")" \
+      "qty1=$(psql_ext "SELECT \"QTY\" FROM vmtest.\"OPT_OITEMS\" WHERE id='\\x5031' AND seq=1")")"
   else
-    echo "  (tcl-mapnread skipped — psql not found)"
+    echo "  (tcl-mapnread/tcl-mapdiff skipped — psql not found)"
   fi
 else
   echo "  (postgres test skipped — set MVX_PG to run)"

@@ -148,6 +148,9 @@ static void map_load(open_file *o);
 static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                            const char *id, int64_t idlen,
                            const mv_value *rec);
+static int map_project(mvx_ctx *ctx, mvx_file *f, mapmeta *m, const char *id,
+                       int64_t idlen, const mv_value *rec,
+                       const mv_value *old);
 static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec);
 static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av);
 static int map_recompose(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
@@ -745,27 +748,35 @@ int64_t mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
                       b->spec, (int)idlen, ip);
         }
     }
-    if (o && o->ix.n > 0) {
-        mv_value old;
+    /* Read the prior record once when either secondary indexes or a mapping
+       need to diff against it, and share it between them. */
+    mv_value old;
+    int had_old = 0;
+    int need_old = o && (o->ix.n > 0 || o->map.nf > 0);
+    if (need_old) {
         mv_init(&old);
-        int had = b->driver->read(f, ip, idlen, &old);
+        had_old = b->driver->read(f, ip, idlen, &old);
+    }
+    if (o && o->ix.n > 0) {
         mvx_ixop ops[IX_MAX_ITEMS * IX_MAX_VALS * 2];
         static ixvals pool[IX_MAX_ITEMS * 2];
-        int nops = ix_diff(o, &old, had, rec, ops, pool);
+        int nops = ix_diff(o, &old, had_old, rec, ops, pool);
         ok = b->driver->write_ix(f, ip, idlen, rec, ops, nops);
-        mv_clear(&old);
     } else {
         ok = b->driver->write(f, ip, idlen, rec);
     }
     if (!ok) {
+        if (need_old) mv_clear(&old);
         if (onerr) return -2;
         mvx_fatal("WRITE failed on %s id %.*s", b->spec, (int)idlen, ip);
     }
-    /* Keep a declared relational mapping (%MAP%) current.  In native mode
-       the record already passed validation above; in mirror mode this is
-       best-effort and any type mismatch was reduced to NULL. */
+    /* Keep a declared relational mapping (%MAP%) current.  On an update we
+       diff against the prior record and write only the columns/child rows
+       that changed; a new record projects in full.  Native mode already
+       validated above; mirror mode is best-effort (mismatch -> NULL). */
     if (o && o->map.nf > 0)
-        map_project_one(ctx, f, &o->map, ip, idlen, rec);
+        map_project(ctx, f, &o->map, ip, idlen, rec, had_old ? &old : NULL);
+    if (need_old) mv_clear(&old);
     if (!keep_lock) {                   /* WRITE releases; WRITEU keeps */
         char *key = lock_key(f, ip, idlen);
         lock_drop(st, key);
@@ -1099,98 +1110,143 @@ static int map_ensure_schema(mvx_file *f, mapmeta *m, char *err,
     return 1;
 }
 
-/* Project one record into the mapped columns / child tables. */
-static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
-                           const char *id, int64_t idlen,
-                           const mv_value *rec) {
+/* True when attribute `ano` is byte-identical in two records.  Because a
+   projected cell is a deterministic function of its attribute, an unchanged
+   attribute has an unchanged projection — so this drives the write-time diff
+   that skips columns/associations a WRITE did not touch. */
+static int map_attr_equal(const mv_value *a, const mv_value *b, int64_t ano,
+                          mv_value *ta, mv_value *tb) {
+    mv_extract_fn(ta, a, ano, 0, 0);
+    mv_extract_fn(tb, b, ano, 0, 0);
+    char ba[64], bb[64];
+    const char *pa, *pb;
+    int64_t la = mv_val_chars(ta, ba, sizeof ba, &pa);
+    int64_t lb = mv_val_chars(tb, bb, sizeof bb, &pb);
+    return la == lb && (la == 0 || memcmp(pa, pb, (size_t)la) == 0);
+}
+
+/* Group the mapping's association members: fills an[]/am[][]/anm[] (member
+   field indices per association) and returns the association count. */
+static int map_group_assoc(mapmeta *m, char *an[MAP_MAXA],
+                           int am[MAP_MAXA][MAP_MAXF], int anm[MAP_MAXA]) {
+    int na = 0;
+    for (int i = 0; i < m->nf; i++) {
+        if (m->assocs[i][0] == '\0') continue;
+        int slot = -1;
+        for (int a = 0; a < na; a++)
+            if (strcmp(an[a], m->assocs[i]) == 0) slot = a;
+        if (slot < 0 && na < MAP_MAXA) {
+            slot = na; an[na] = m->assocs[i]; anm[na++] = 0;
+        }
+        if (slot >= 0 && anm[slot] < MAP_MAXF) am[slot][anm[slot]++] = i;
+    }
+    return na;
+}
+
+/* Project one association's rows (members am, count nm) for a record and
+   replace its child-table rows via the driver.  Returns 1/0. */
+static int map_child_project(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
+                             const char *id, int64_t idlen,
+                             const mv_value *rec, const int *am, int nm,
+                             const char *aname, mv_value *av, mv_value *ov,
+                             mv_value *code) {
     mvx_file_base *b = (mvx_file_base *)f;
-    mv_value av, ov, code;
-    mv_init(&av); mv_init(&ov); mv_init(&code);
+    mvx_mapfield cc[MAP_MAXF];
+    for (int k = 0; k < nm; k++) {
+        cc[k].name = m->names[am[k]];
+        cc[k].type = m->types[am[k]];
+    }
+    int nv = 0;
+    for (int k = 0; k < nm; k++) {
+        int vc = map_vcount(rec, m->anos[am[k]], av);
+        if (vc > nv) nv = vc;
+    }
+    if (nv == 0)
+        return b->driver->map_child_apply(f, id, idlen, aname, cc, nm,
+                                          NULL, NULL, 0);
+    size_t ncell = (size_t)nv * (size_t)nm;
+    const char **cv = malloc(ncell * sizeof *cv);
+    int64_t *cl = malloc(ncell * sizeof *cl);
+    char *arena = malloc(ncell * 256);
+    if (!cv || !cl || !arena) { free(cv); free(cl); free(arena); return 0; }
+    for (int seq = 1; seq <= nv; seq++)
+        for (int k = 0; k < nm; k++) {
+            size_t cell = (size_t)(seq - 1) * nm + k;
+            char *dst = arena + cell * 256;
+            cl[cell] = map_cell(ctx, rec, m->anos[am[k]], seq, m->convs[am[k]],
+                                m->types[am[k]], av, ov, code, dst, 256);
+            if (cl[cell] < 0) { cl[cell] = 0; dst[0] = '\0'; }
+            cv[cell] = dst;
+        }
+    int ok = b->driver->map_child_apply(f, id, idlen, aname, cc, nm, cv, cl, nv);
+    free(cv); free(cl); free(arena);
+    return ok;
+}
+
+/* Project a record into the mapped columns / child tables.  When `old` is
+   non-NULL (an update whose prior record is known) only the attributes that
+   actually changed are written: a Pick WRITE hands us the whole record, but
+   SQL is columns and rows, so re-emitting every column and re-DELETE/INSERTing
+   every child row on each write is wasteful — we diff against `old` and touch
+   only what moved.  With `old` NULL (a new record) the full projection runs. */
+static int map_project(mvx_ctx *ctx, mvx_file *f, mapmeta *m, const char *id,
+                       int64_t idlen, const mv_value *rec,
+                       const mv_value *old) {
+    mvx_file_base *b = (mvx_file_base *)f;
+    mv_value av, ov, code, ta, tb;
+    mv_init(&av); mv_init(&ov); mv_init(&code); mv_init(&ta); mv_init(&tb);
     int ok = 1;
 
+    /* parent columns — only the changed ones (all, when there is no old) */
+    static char ps[MAP_MAXF][256];
     mvx_mapfield pcol[MAP_MAXF];
-    int pidx[MAP_MAXF], npar = 0;
-    for (int i = 0; i < m->nf; i++)
-        if (m->assocs[i][0] == '\0') {
-            pcol[npar].name = m->names[i];
-            pcol[npar].type = m->types[i];
-            pidx[npar++] = i;
-        }
-    if (npar > 0) {
-        static char ps[MAP_MAXF][256];
-        const char *vals[MAP_MAXF];
-        int64_t vlens[MAP_MAXF];
-        for (int k = 0; k < npar; k++) {
-            int i = pidx[k];
-            vlens[k] = map_cell(ctx, rec, m->anos[i], 0, m->convs[i],
-                                m->types[i], &av, &ov, &code, ps[k],
-                                sizeof ps[0]);
-            if (vlens[k] < 0) { vlens[k] = 0; ps[k][0] = '\0'; }  /* -> NULL */
-            vals[k] = ps[k];
-        }
-        if (!b->driver->map_apply(f, id, idlen, pcol, vals, vlens, npar))
-            ok = 0;
+    const char *vals[MAP_MAXF];
+    int64_t vlens[MAP_MAXF];
+    int nchg = 0;
+    for (int i = 0; i < m->nf; i++) {
+        if (m->assocs[i][0] != '\0') continue;
+        if (old && map_attr_equal(old, rec, m->anos[i], &ta, &tb)) continue;
+        int64_t vl = map_cell(ctx, rec, m->anos[i], 0, m->convs[i],
+                              m->types[i], &av, &ov, &code, ps[nchg],
+                              sizeof ps[0]);
+        if (vl < 0) { vl = 0; ps[nchg][0] = '\0'; }
+        pcol[nchg].name = m->names[i];
+        pcol[nchg].type = m->types[i];
+        vals[nchg] = ps[nchg];
+        vlens[nchg] = vl;
+        nchg++;
     }
+    if (nchg > 0 && !b->driver->map_apply(f, id, idlen, pcol, vals, vlens, nchg))
+        ok = 0;
 
+    /* association child tables — skip any association left untouched */
     if (ok && b->driver->map_child_apply) {
         char *an[MAP_MAXA];
-        int am[MAP_MAXA][MAP_MAXF], anm[MAP_MAXA], na = 0;
-        for (int i = 0; i < m->nf; i++) {
-            if (m->assocs[i][0] == '\0') continue;
-            int slot = -1;
-            for (int a = 0; a < na; a++)
-                if (strcmp(an[a], m->assocs[i]) == 0) slot = a;
-            if (slot < 0 && na < MAP_MAXA) {
-                slot = na; an[na] = m->assocs[i]; anm[na++] = 0;
-            }
-            if (slot >= 0 && anm[slot] < MAP_MAXF) am[slot][anm[slot]++] = i;
-        }
+        int am[MAP_MAXA][MAP_MAXF], anm[MAP_MAXA];
+        int na = map_group_assoc(m, an, am, anm);
         for (int a = 0; a < na && ok; a++) {
-            int nm = anm[a];
-            mvx_mapfield cc[MAP_MAXF];
-            for (int k = 0; k < nm; k++) {
-                int i = am[a][k];
-                cc[k].name = m->names[i];
-                cc[k].type = m->types[i];
+            if (old) {
+                int changed = 0;
+                for (int k = 0; k < anm[a] && !changed; k++)
+                    if (!map_attr_equal(old, rec, m->anos[am[a][k]], &ta, &tb))
+                        changed = 1;
+                if (!changed) continue;
             }
-            int nv = 0;
-            for (int k = 0; k < nm; k++) {
-                int vc = map_vcount(rec, m->anos[am[a][k]], &av);
-                if (vc > nv) nv = vc;
-            }
-            if (nv == 0) {
-                b->driver->map_child_apply(f, id, idlen, an[a], cc, nm,
-                                           NULL, NULL, 0);
-                continue;
-            }
-            size_t ncell = (size_t)nv * (size_t)nm;
-            const char **cv = malloc(ncell * sizeof *cv);
-            int64_t *cl = malloc(ncell * sizeof *cl);
-            char *arena = malloc(ncell * 256);
-            if (!cv || !cl || !arena) {
-                free(cv); free(cl); free(arena);
+            if (!map_child_project(ctx, f, m, id, idlen, rec, am[a], anm[a],
+                                   an[a], &av, &ov, &code))
                 ok = 0;
-                break;
-            }
-            for (int seq = 1; seq <= nv; seq++)
-                for (int k = 0; k < nm; k++) {
-                    int i = am[a][k];
-                    size_t cell = (size_t)(seq - 1) * nm + k;
-                    char *dst = arena + cell * 256;
-                    cl[cell] = map_cell(ctx, rec, m->anos[i], seq,
-                                        m->convs[i], m->types[i], &av, &ov,
-                                        &code, dst, 256);
-                    if (cl[cell] < 0) { cl[cell] = 0; dst[0] = '\0'; }
-                    cv[cell] = dst;
-                }
-            if (!b->driver->map_child_apply(f, id, idlen, an[a], cc, nm, cv,
-                                            cl, nv))
-                ok = 0;
-            free(cv); free(cl); free(arena);
         }
     }
     mv_clear(&av); mv_clear(&ov); mv_clear(&code);
+    mv_clear(&ta); mv_clear(&tb);
     return ok;
+}
+
+/* Full projection of a record (new record, or a rebuild). */
+static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
+                           const char *id, int64_t idlen,
+                           const mv_value *rec) {
+    return map_project(ctx, f, m, id, idlen, rec, NULL);
 }
 
 /* Inverse of map_cell: turn a stored column string back into the attribute's
