@@ -619,6 +619,92 @@ static int pg_map_child_read(mvx_file *fh, const char *id, int64_t idlen,
     return 1;
 }
 
+/* Index name for a mapped column: "<table>_<item>_idx" (schema-scoped). */
+static char *pg_index_ident(pg_file *f, const char *item) {
+    char nm[512];
+    snprintf(nm, sizeof nm, "%s_%s_idx", f->table, item);
+    return PQescapeIdentifier(f->conn, nm, strlen(nm));
+}
+
+/* CREATE INDEX on the mapped column (the mapping already stores/maintains
+   it).  Returns the row count, or -1 if the column is absent / on error. */
+static int pg_index_create(mvx_file *fh, const char *item) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qi = pg_index_ident(f, item);
+    char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+    char *qc = PQescapeIdentifier(f->conn, item, strlen(item));
+    char sql[1200];
+    snprintf(sql, sizeof sql,
+             "CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
+             qi ? qi : "\"\"", qt, qc ? qc : "\"\"");
+    if (qs) PQfreemem(qs);
+    PGresult *r = PQexec(f->conn, sql);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    if (qi) PQfreemem(qi);
+    if (qc) PQfreemem(qc);
+    if (!ok) return -1;                   /* e.g. column not mapped */
+    char csql[560];
+    snprintf(csql, sizeof csql, "SELECT count(*) FROM %s", qt);
+    PGresult *cr = PQexec(f->conn, csql);
+    int n = (cr && PQresultStatus(cr) == PGRES_TUPLES_OK && PQntuples(cr))
+                ? atoi(PQgetvalue(cr, 0, 0))
+                : 0;
+    if (cr) PQclear(cr);
+    return n;
+}
+
+/* Equality lookup on a mapped column, using its SQL index: the ids whose
+   column equals key, snapshotted into a cursor (as pg_select_begin does). */
+static mvx_cursor *pg_index_select(mvx_file *fh, const char *item,
+                                   const char *key, int64_t klen) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qc = PQescapeIdentifier(f->conn, item, strlen(item));
+    char sql[700];
+    snprintf(sql, sizeof sql, "SELECT id FROM %s WHERE %s = $1", qt,
+             qc ? qc : "\"\"");
+    if (qc) PQfreemem(qc);
+    const char *pv[1] = {key};
+    int pl[1] = {(int)klen}, pf[1] = {0};   /* text param -> column type */
+    PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, pl, pf, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres index select");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres index select");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
+static int pg_index_drop(mvx_file *fh, const char *item) {
+    pg_file *f = (pg_file *)fh;
+    char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+    char *qi = pg_index_ident(f, item);
+    char sql[700];
+    snprintf(sql, sizeof sql, "DROP INDEX IF EXISTS %s.%s",
+             qs ? qs : "\"\"", qi ? qi : "\"\"");
+    if (qs) PQfreemem(qs);
+    if (qi) PQfreemem(qi);
+    PGresult *r = PQexec(f->conn, sql);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    return ok;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -626,12 +712,14 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_begin, pg_select_next, pg_select_end,
     pg_create, pg_remove,
     NULL,                                 /* names: TODO */
-    NULL, NULL, NULL, NULL,               /* no native indexes (yet) */
+    NULL, NULL,                           /* no MVX-maintained index writes */
+    pg_index_select, pg_index_drop,       /* native SQL indexes on columns */
     NULL, NULL,                           /* no lock authority (yet) */
     pg_map_ensure, pg_map_apply,          /* relational mapping: parent */
     pg_map_child_ensure, pg_map_child_apply,   /* association child tables */
     pg_map_drop,                          /* tear down a mapping */
     pg_map_read, pg_map_child_read,       /* native read-back */
+    pg_index_create,                      /* CREATE INDEX on a mapped column */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

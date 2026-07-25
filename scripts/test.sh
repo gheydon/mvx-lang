@@ -1029,8 +1029,43 @@ D3
       "identical write no-ops: $([ "$X2" = "$X3" ] && echo yes || echo no)" \
       "customer=$(psql_ext "SELECT \"CUSTOMER\" FROM vmtest.\"OPT\" WHERE id='\\x5031'")" \
       "qty1=$(psql_ext "SELECT \"QTY\" FROM vmtest.\"OPT_OITEMS\" WHERE id='\\x5031' AND seq=1")")"
+
+    # native Postgres indexes on mapped columns (#37): CREATE-INDEX emits a
+    # real SQL index and equality WITH pushes down to it — but only on an
+    # identity-projected (TEXT, no-conv) column, else it falls back to the
+    # scan so the result never differs.
+    printf 'CIX @vpg\n' >> "$VMACCT/BINDINGS"
+    "$TCL" -a "$VMACCT" -c 'DELETE-FILE CIX' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-FILE CIX USING @vpg' >/dev/null 2>&1
+    cat > "$TESTROOT/vmcix.b" <<'CIXEOF'
+OPEN "CIX" TO F ELSE STOP
+WRITE "Widget":@AM:"NSW":@AM:"1500" ON F, "C1"
+WRITE "Gadget":@AM:"VIC":@AM:"900" ON F, "C2"
+WRITE "Sprocket":@AM:"NSW":@AM:"250" ON F, "C3"
+OPEN "DICT", "CIX" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"3":@AM:"MD2":@AM:"Credit":@AM:"10R" ON D, "CREDIT"
+CIXEOF
+    "$MVX" "$TESTROOT/vmcix.b" -o "$TESTROOT/vmcixbin" 2>/dev/null
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmcixbin")
+    "$TCL" -a "$VMACCT" -c 'CREATE-MAP CIX NAME STATE CREDIT' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-INDEX CIX STATE' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-INDEX CIX CREDIT' >/dev/null 2>&1
+    IXEXISTS=$(psql_ext "SELECT count(*) FROM pg_indexes WHERE schemaname='vmtest' AND indexname='CIX_STATE_idx'")
+    # push-down proof: divert C2's STATE column to NSW in SQL only (rec still
+    # VIC); if C2 appears, the SQL index ran, not a rec scan.
+    psql_ext "UPDATE vmtest.\"CIX\" SET \"STATE\"='NSW' WHERE id='\\x4332'" >/dev/null
+    check tcl-pgindex "$( \
+      echo "STATE index exists: $IXEXISTS"; \
+      echo "-- WITH STATE = NSW (index push-down, C2 diverted in SQL) --"; \
+      "$TCL" -a "$VMACCT" -c 'LIST CIX NAME STATE WITH STATE = "NSW" BY NAME' 2>&1; \
+      echo "-- WITH CREDIT = 1500 (converted column -> scan fallback) --"; \
+      "$TCL" -a "$VMACCT" -c 'LIST CIX NAME CREDIT WITH CREDIT = "1500"' 2>&1; \
+      "$TCL" -a "$VMACCT" -c 'DELETE-INDEX CIX STATE' 2>&1; \
+      echo "STATE index after drop: $(psql_ext "SELECT count(*) FROM pg_indexes WHERE schemaname='vmtest' AND indexname='CIX_STATE_idx'")")"
   else
-    echo "  (tcl-mapnread/tcl-mapdiff skipped — psql not found)"
+    echo "  (postgres psql-dependent map/index tests skipped — psql not found)"
   fi
 else
   echo "  (postgres test skipped — set MVX_PG to run)"

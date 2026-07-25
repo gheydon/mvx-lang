@@ -1,0 +1,13 @@
+STATE index exists: 1
+-- WITH STATE = NSW (index push-down, C2 diverted in SQL) --
+@ID          Name         State 
+C2           Gadget       VIC   
+C3           Sprocket     NSW   
+C1           Widget       NSW   
+3 record(s) listed
+-- WITH CREDIT = 1500 (converted column -> scan fallback) --
+@ID          Name             Credit
+C1           Widget            15.00
+1 record(s) listed
+index CIX.STATE deleted
+STATE index after drop: 0

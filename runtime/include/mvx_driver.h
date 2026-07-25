@@ -148,6 +148,13 @@ typedef struct mvx_driver {
                           const char *assoc, const mvx_mapfield *cols,
                           int ncols, char ***cells, int64_t **lens,
                           int *nrows);
+    /* Optional (may be NULL): build a native index for a mapped column in
+       one shot — the backend already stores and maintains the column (via
+       the mapping) and its own index, so there is no per-record backfill and
+       no write_ix/del_ix maintenance.  A driver providing this advertises
+       index_select/index_drop but leaves write_ix/del_ix NULL.  Returns the
+       indexed row count, or -1 on error (e.g. the column is not mapped). */
+    int (*index_create)(mvx_file *f, const char *item);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

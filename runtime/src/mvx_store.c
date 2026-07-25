@@ -557,7 +557,9 @@ static void ix_load(open_file *o) {
     o->ix.loaded = 1;
     o->ix.n = 0;
     mvx_file_base *b = (mvx_file_base *)o->f;
-    if (!b->driver->write_ix) return;   /* backend has no capability */
+    /* Either MVX maintains the index (write_ix, LMDB) or the backend does
+       (index_select over a mapped column, Postgres). */
+    if (!b->driver->write_ix && !b->driver->index_select) return;
 
     char dspec[1720];
     const char *nl = strchr(b->spec, '\n');
@@ -757,7 +759,7 @@ int64_t mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
         mv_init(&old);
         had_old = b->driver->read(f, ip, idlen, &old);
     }
-    if (o && o->ix.n > 0) {
+    if (o && o->ix.n > 0 && b->driver->write_ix) {
         mvx_ixop ops[IX_MAX_ITEMS * IX_MAX_VALS * 2];
         static ixvals pool[IX_MAX_ITEMS * 2];
         int nops = ix_diff(o, &old, had_old, rec, ops, pool);
@@ -847,7 +849,7 @@ int64_t mvx_delete_rec(mvx_ctx *ctx, const mv_value *fvar,
     open_file *o = find_open(st, f);
     int64_t r;
     if (o) ix_load(o);
-    if (o && o->ix.n > 0) {
+    if (o && o->ix.n > 0 && b->driver->del_ix) {
         mv_value old;
         mv_init(&old);
         int had = b->driver->read(f, ip, idlen, &old);
@@ -875,7 +877,7 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
                         const mv_value *item) {
     mvx_file *f = file_of(fvar, "INDEXBUILD");
     mvx_file_base *b = (mvx_file_base *)f;
-    if (!b->driver->write_ix) return -1;
+    if (!b->driver->write_ix && !b->driver->index_create) return -1;
     open_file *o = find_open(state(ctx), f);
     if (!o) return -1;
 
@@ -893,6 +895,11 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
     for (int k = 0; k < o->ix.n; k++)
         if (strcmp(o->ix.it[k].item, iname) == 0) slot = k;
     if (slot < 0) return -1;
+
+    /* Backend-maintained index (SQL CREATE INDEX on the mapped column): one
+       shot, no per-record backfill and no write_ix maintenance. */
+    if (b->driver->index_create)
+        return b->driver->index_create(f, iname);
 
     b->driver->index_drop(f, iname);    /* rebuild from empty */
 
@@ -1564,6 +1571,24 @@ int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
     for (int k = 0; k < o->ix.n; k++)
         if (strcmp(o->ix.it[k].item, iname) == 0) found = 1;
     if (!found) return 0;               /* not a registered index */
+
+    /* A backend-maintained index (no write_ix) is over the mapped *column*,
+       which holds the projected value.  The WITH filter compares the raw
+       attribute, so the index result equals the scan result only when the
+       projection is the identity — a TEXT column with no conversion.  For
+       any converted column, fall back to the scan (return 0) rather than
+       risk a wrong (sub/superset) result. */
+    if (!b->driver->write_ix) {
+        map_load(o);
+        int ok = 0;
+        for (int i = 0; i < o->map.nf; i++)
+            if (strcmp(o->map.names[i], iname) == 0) {
+                ok = strcmp(o->map.types[i], "TEXT") == 0 &&
+                     o->map.convs[i][0] == '\0';
+                break;
+            }
+        if (!ok) return 0;
+    }
 
     char kb[40];
     const char *kp;
