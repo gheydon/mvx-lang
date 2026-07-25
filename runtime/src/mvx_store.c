@@ -128,6 +128,7 @@ typedef struct ixmeta {
 typedef struct mapmeta {
     int loaded;
     int ensured;                        /* schema materialised this session */
+    int native;                         /* %MAPMODE% = native: strict writes */
     int nf;
     char *buf;                          /* owns the parsed field strings */
     char *names[MAP_MAXF], *convs[MAP_MAXF], *types[MAP_MAXF];
@@ -147,6 +148,8 @@ static void map_load(open_file *o);
 static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                            const char *id, int64_t idlen,
                            const mv_value *rec);
+static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec);
+static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av);
 
 typedef struct store_state {
     open_file *files;
@@ -713,6 +716,19 @@ int64_t mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
     open_file *o = find_open(st, f);
     int ok;
     if (o) ix_load(o);
+    /* Native mode: the projection is authoritative, so a value that does
+       not fit its typed column rejects the write before it commits (the
+       record is left untouched) — ON ERROR fires, else it is fatal.  Mirror
+       mode never blocks a write; it stores NULL for the same value below. */
+    if (o) {
+        map_load(o);
+        if (o->map.nf > 0 && o->map.native &&
+            !map_validate_one(ctx, &o->map, rec)) {
+            if (onerr) return -2;
+            mvx_fatal("WRITE rejected by native map on %s id %.*s",
+                      b->spec, (int)idlen, ip);
+        }
+    }
     if (o && o->ix.n > 0) {
         mv_value old;
         mv_init(&old);
@@ -729,14 +745,11 @@ int64_t mvx_write(mvx_ctx *ctx, const mv_value *rec, const mv_value *fvar,
         if (onerr) return -2;
         mvx_fatal("WRITE failed on %s id %.*s", b->spec, (int)idlen, ip);
     }
-    /* mirror-on-write: keep a declared relational mapping (%MAP%) current.
-       Best-effort — the record is the source of truth, so a projection
-       failure never fails the write. */
-    if (o) {
-        map_load(o);
-        if (o->map.nf > 0)
-            map_project_one(ctx, f, &o->map, ip, idlen, rec);
-    }
+    /* Keep a declared relational mapping (%MAP%) current.  In native mode
+       the record already passed validation above; in mirror mode this is
+       best-effort and any type mismatch was reduced to NULL. */
+    if (o && o->map.nf > 0)
+        map_project_one(ctx, f, &o->map, ip, idlen, rec);
     if (!keep_lock) {                   /* WRITE releases; WRITEU keeps */
         char *key = lock_key(f, ip, idlen);
         lock_drop(st, key);
@@ -918,7 +931,10 @@ static int64_t map_num(const char *in, int64_t len, char *out, size_t cap) {
 
 /* Extract attribute `ano` value `seq` (seq 0 = whole attribute), OCONV by
    `conv` if set, and coerce to `type` (NUMERIC is reduced to a plain
-   number), into a NUL-terminated scratch cell; returns its length. */
+   number), into a NUL-terminated scratch cell.  Returns the cell length,
+   0 for an empty cell (→ SQL NULL), or -1 when a *non-empty* value does not
+   fit the column type — a mismatch mirror mode tolerates (as NULL) but
+   native mode rejects. */
 static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
                         int64_t seq, const char *conv, const char *type,
                         mv_value *av, mv_value *ov, mv_value *code,
@@ -926,14 +942,16 @@ static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
     mv_extract_fn(av, rec, ano, seq, 0);
     /* DATE/TIME columns take the stored internal value (day/second count)
        straight to ISO-8601 — the dict display conversion is locale-shaped
-       and would be ambiguous to the backend.  A non-numeric internal (or an
-       empty cell) yields NULL, matching mirror mode's leniency. */
+       and would be ambiguous to the backend.  An empty cell is NULL; a
+       non-numeric internal is a type mismatch. */
     if (strcmp(type, "DATE") == 0 || strcmp(type, "TIME") == 0) {
         char ib[40];
         const char *ip;
         int64_t il = mv_val_chars(av, ib, sizeof ib, &ip);
-        return type[0] == 'D' ? mvx_iso_date_str(ip, il, dst, cap)
-                              : mvx_iso_time_str(ip, il, dst, cap);
+        if (il == 0) { dst[0] = '\0'; return 0; }
+        int64_t n = type[0] == 'D' ? mvx_iso_date_str(ip, il, dst, cap)
+                                   : mvx_iso_time_str(ip, il, dst, cap);
+        return n > 0 ? n : -1;
     }
     const mv_value *src = av;
     if (conv[0]) {
@@ -944,12 +962,37 @@ static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
     char tb[40];
     const char *tp;
     int64_t tl = mv_val_chars(src, tb, sizeof tb, &tp);
-    if (strcmp(type, "NUMERIC") == 0)
-        return map_num(tp, tl, dst, cap);
+    if (strcmp(type, "NUMERIC") == 0) {
+        int64_t n = map_num(tp, tl, dst, cap);
+        return (n == 0 && tl > 0) ? -1 : n;       /* non-numeric text */
+    }
     if (tl >= (int64_t)cap) tl = (int64_t)cap - 1;
     memcpy(dst, tp, (size_t)tl);
     dst[tl] = '\0';
     return tl;
+}
+
+/* Validate a record against a mapping without touching the backend: 1 if
+   every typed cell fits its column, 0 if any non-empty value mismatches.
+   Native mode calls this to reject a bad WRITE before it commits. */
+static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec) {
+    mv_value av, ov, code;
+    mv_init(&av); mv_init(&ov); mv_init(&code);
+    char cell[256];
+    int ok = 1;
+    for (int i = 0; i < m->nf && ok; i++) {
+        int nv = m->assocs[i][0] ? map_vcount(rec, m->anos[i], &av) : 0;
+        for (int seq = 0; seq <= nv; seq++) {
+            if (m->assocs[i][0] && seq == 0) continue;   /* MV: 1..nv only */
+            if (map_cell(ctx, rec, m->anos[i], seq, m->convs[i], m->types[i],
+                         &av, &ov, &code, cell, sizeof cell) < 0) {
+                ok = 0;
+                break;
+            }
+        }
+    }
+    mv_clear(&av); mv_clear(&ov); mv_clear(&code);
+    return ok;
 }
 
 /* Number of values in an attribute (0 if empty). */
@@ -1066,6 +1109,7 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
             vlens[k] = map_cell(ctx, rec, m->anos[i], 0, m->convs[i],
                                 m->types[i], &av, &ov, &code, ps[k],
                                 sizeof ps[0]);
+            if (vlens[k] < 0) { vlens[k] = 0; ps[k][0] = '\0'; }  /* -> NULL */
             vals[k] = ps[k];
         }
         if (!b->driver->map_apply(f, id, idlen, pcol, vals, vlens, npar))
@@ -1120,6 +1164,7 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                     cl[cell] = map_cell(ctx, rec, m->anos[i], seq,
                                         m->convs[i], m->types[i], &av, &ov,
                                         &code, dst, 256);
+                    if (cl[cell] < 0) { cl[cell] = 0; dst[0] = '\0'; }
                     cv[cell] = dst;
                 }
             if (!b->driver->map_child_apply(f, id, idlen, an[a], cc, nm, cv,
@@ -1165,6 +1210,16 @@ static void map_load(open_file *o) {
         }
     }
     mv_clear(&mp);
+    /* %MAPMODE% (absent = mirror) selects the write policy. */
+    mv_value mm;
+    mv_init(&mm);
+    if (o->map.nf > 0 && b->driver->read(d, "%MAPMODE%", 9, &mm)) {
+        char mb[16];
+        const char *mpp;
+        int64_t ml = mv_val_chars(&mm, mb, sizeof mb, &mpp);
+        if (ml == 6 && strncmp(mpp, "native", 6) == 0) o->map.native = 1;
+    }
+    mv_clear(&mm);
     b->driver->close(d);
 }
 
@@ -1206,6 +1261,40 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
     mv_clear(&rid); mv_clear(&rec);
     free(m.buf);
     return rc < 0 ? rc : count;
+}
+
+/* Count records that would fail native (strict) validation against spec,
+   without writing anything — the switch-to-native safety check.  Returns
+   the violation count (0 = every record fits), or -2 if unsupported. */
+int64_t mvx_mapcheck(mvx_ctx *ctx, const mv_value *fvar,
+                     const mv_value *spec) {
+    mvx_file *f = file_of(fvar, "MAPCHECK");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->select_begin) return -2;
+    char nb[40];
+    const char *sp;
+    int64_t slen = mv_val_chars(spec, nb, sizeof nb, &sp);
+    mapmeta m;
+    memset(&m, 0, sizeof m);
+    map_parse(sp, slen, &m);
+    if (m.nf == 0) { free(m.buf); return 0; }
+
+    mvx_cursor *c = b->driver->select_begin(f);
+    if (!c) { free(m.buf); return -2; }
+    int64_t bad = 0;
+    mv_value rid, rec;
+    mv_init(&rid); mv_init(&rec);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        if (!b->driver->read(f, rp, rl, &rec)) continue;
+        if (!map_validate_one(ctx, &m, &rec)) bad++;
+    }
+    b->driver->select_end(c);
+    mv_clear(&rid); mv_clear(&rec);
+    free(m.buf);
+    return bad;
 }
 
 /* Tear down a file's mapping (drop its columns + child tables).  spec is

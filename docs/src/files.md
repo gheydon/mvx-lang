@@ -178,12 +178,40 @@ Date (`D…`) and time (`MT…`) items likewise become real `date` and `time`
 columns. These project from the **stored internal value** — the Pick day
 count and seconds-past-midnight — rendered straight to ISO-8601
 (`2026-07-25`, `14:30:00`), not the locale-shaped display conversion,
-which a backend cannot parse unambiguously. An empty or non-numeric cell
-projects as `NULL`, the same mirror-mode leniency. So `WHEN >= DATE
-'2026-01-01'` and `date_trunc('month', "WHEN")` work in SQL while the
-record still reads through its `D4/` conversion in BASIC. Other items are
-`text`. The `native` mode (backend as source of truth) is the remaining
-phase of [#18](https://github.com/mvx-lang/mvx/issues/18).
+which a backend cannot parse unambiguously. An empty cell projects as
+`NULL`. So `WHEN >= DATE '2026-01-01'` and `date_trunc('month', "WHEN")`
+work in SQL while the record still reads through its `D4/` conversion in
+BASIC. Other items are `text`.
+
+**Mirror vs native mode.** A mapping has a write policy, shown and changed
+with `MAP-MODE file {native|mirror}` and defaulting to `mirror`:
+
+- **mirror** — the record blob is the source of truth; the projection is a
+  derived, best-effort view. A value that does not fit its typed column
+  (letters in a `numeric`, a non-date in a `date`) is stored as `NULL` and
+  the `WRITE` still succeeds. A projection is never allowed to block a
+  write.
+- **native** — the typed columns are authoritative, so a `WRITE` whose
+  value does not fit its column is *rejected before it commits*: the
+  statement takes its `ON ERROR` path (or aborts, as classic MV does for
+  an unhandled write failure) and the record is left unwritten. This is
+  how you enforce that what lands in the record is exactly what the
+  relational schema accepts.
+
+```
+> MAP-MODE ITEM native
+ITEM mapping mode: native
+```
+```
+WRITE "Widget":@AM:"1000" ON F, "I1" ON ERROR PRINT "rejected"   ;* ok
+WRITE "Broken":@AM:"abc"  ON F, "I2" ON ERROR PRINT "rejected"   ;* rejected
+```
+
+Switching an existing mapping to native first checks every record against
+the schema (via `MAPCHECK`) and refuses the switch if any record would
+violate it, naming the count — so you never enter native mode with data
+the schema would reject. This completes the mapping epic
+[#18](https://github.com/mvx-lang/mvx/issues/18).
 
 `LIST-MAPS` shows the account's mapped files and their fields, and
 `DELETE-MAP file` tears a mapping down — dropping its columns and child

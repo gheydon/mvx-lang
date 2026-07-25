@@ -235,6 +235,9 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
 /* Drop a file's mapping: -2 unsupported, -1 fail, 1 ok. */
 int64_t mvx_mapdrop(mvx_ctx *ctx, const mv_value *fvar,
                     const mv_value *spec);
+/* Count records failing native validation (0 = clean), -2 unsupported. */
+int64_t mvx_mapcheck(mvx_ctx *ctx, const mv_value *fvar,
+                     const mv_value *spec);
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);

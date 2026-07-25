@@ -1,0 +1,9 @@
+mapped 1 record(s); writes are now mirrored
+ITM mapping mode: native
+I2 ok
+I3 rejected
+done
+2 record(s) counted
+ITM mapping mode: mirror
+I9 written
+1 record(s) do not fit the mapping; still mirror

@@ -36,5 +36,6 @@ CASE RC < 0
    PRINT "map drop failed"
 CASE 1
    DELETE DD, "%MAP%"
+   DELETE DD, "%MAPMODE%"
    PRINT "mapping dropped for ":FN
 END CASE

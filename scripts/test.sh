@@ -875,6 +875,48 @@ DTEOF
   check tcl-mapdt "$(printf '%s\n' \
     'CREATE-MAP EVT NAME WHEN AT' \
     'SORT EVT BY NAME WHEN AT NAME' | "$TCL" -a "$VMACCT" 2>&1)"
+
+  # native mode (#33): the typed columns are authoritative, so a WRITE whose
+  # value does not fit its column is rejected (ON ERROR) and the record is
+  # not written — versus mirror mode, which stores NULL and proceeds.
+  # MAP-MODE views/sets the policy, refusing a switch that existing data
+  # would violate.
+  printf 'ITM @vpg\n' >> "$VMACCT/BINDINGS"
+  "$TCL" -a "$VMACCT" -c 'DELETE-FILE ITM' >/dev/null 2>&1
+  "$TCL" -a "$VMACCT" -c 'CREATE-FILE ITM USING @vpg' >/dev/null 2>&1
+  cat > "$TESTROOT/vmi.b" <<'IEOF'
+OPEN "ITM" TO F ELSE STOP
+WRITE "Widget":@AM:"1000" ON F, "I1"
+OPEN "DICT", "ITM" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+IEOF
+  "$MVX" "$TESTROOT/vmi.b" -o "$TESTROOT/vmibin" 2>/dev/null
+  (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmibin")
+  # native write: good row commits, bad (non-numeric price) row rejected
+  cat > "$TESTROOT/vmnat.b" <<'NEOF'
+OPEN "ITM" TO F ELSE STOP
+WRITE "Gadget":@AM:"2550" ON F, "I2" ON ERROR PRINT "I2 rejected"
+PRINT "I2 ok"
+WRITE "Broken":@AM:"abc" ON F, "I3" ON ERROR PRINT "I3 rejected"
+PRINT "done"
+NEOF
+  "$MVX" "$TESTROOT/vmnat.b" -o "$TESTROOT/vmnatbin" 2>/dev/null
+  # mirror write: the same bad row is tolerated (projects NULL)
+  cat > "$TESTROOT/vmmir.b" <<'MEOF'
+OPEN "ITM" TO F ELSE STOP
+WRITE "Junk":@AM:"notanum" ON F, "I9" ON ERROR PRINT "I9 rejected"
+PRINT "I9 written"
+MEOF
+  "$MVX" "$TESTROOT/vmmir.b" -o "$TESTROOT/vmmirbin" 2>/dev/null
+  check tcl-mapnative "$( \
+    printf '%s\n' 'CREATE-MAP ITM NAME PRICE' 'MAP-MODE ITM native' \
+      | "$TCL" -a "$VMACCT" 2>&1; \
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmnatbin"); \
+    printf 'COUNT ITM\n' | "$TCL" -a "$VMACCT" 2>&1; \
+    "$TCL" -a "$VMACCT" -c 'MAP-MODE ITM mirror' 2>&1; \
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmmirbin"); \
+    "$TCL" -a "$VMACCT" -c 'MAP-MODE ITM native' 2>&1)"
 else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi
