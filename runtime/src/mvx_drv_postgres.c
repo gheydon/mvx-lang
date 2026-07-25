@@ -526,6 +526,99 @@ static int pg_map_drop(mvx_file *fh, const mvx_mapfield *cols, int ncols,
     return 1;
 }
 
+/* Native read-back: pull the mapped parent columns for one id. */
+static int pg_map_read(mvx_file *fh, const char *id, int64_t idlen,
+                       const mvx_mapfield *cols, int ncols,
+                       char **vals, int64_t *lens) {
+    pg_file *f = (pg_file *)fh;
+    for (int i = 0; i < ncols; i++) { vals[i] = NULL; lens[i] = 0; }
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char sql[4096];
+    size_t p = 0;
+    p += (size_t)snprintf(sql + p, sizeof sql - p, "SELECT ");
+    if (ncols == 0) p += (size_t)snprintf(sql + p, sizeof sql - p, "1");
+    for (int i = 0; i < ncols && p < sizeof sql; i++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[i].name,
+                                      strlen(cols[i].name));
+        p += (size_t)snprintf(sql + p, sizeof sql - p, "%s%s",
+                              i ? ", " : "", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    }
+    snprintf(sql + p, sizeof sql - p, " FROM %s WHERE id=$1", qt);
+    const char *pv[1] = {id};
+    int pl[1] = {(int)idlen}, pf[1] = {1};
+    PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, pl, pf, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return -1;
+    }
+    if (PQntuples(r) == 0) { PQclear(r); return 0; }
+    for (int i = 0; i < ncols; i++) {
+        if (PQgetisnull(r, 0, i)) continue;
+        int L = PQgetlength(r, 0, i);
+        char *v = malloc((size_t)L + 1);
+        if (!v) continue;
+        memcpy(v, PQgetvalue(r, 0, i), (size_t)L);
+        v[L] = '\0';
+        vals[i] = v;
+        lens[i] = L;
+    }
+    PQclear(r);
+    return 1;
+}
+
+/* Native read-back: pull one association's child rows, ordered by seq. */
+static int pg_map_child_read(mvx_file *fh, const char *id, int64_t idlen,
+                             const char *assoc, const mvx_mapfield *cols,
+                             int ncols, char ***cells, int64_t **lens,
+                             int *nrows) {
+    pg_file *f = (pg_file *)fh;
+    *cells = NULL; *lens = NULL; *nrows = 0;
+    char qt[640];
+    child_qualify(f, assoc, qt, sizeof qt);
+    char sql[4096];
+    size_t p = 0;
+    p += (size_t)snprintf(sql + p, sizeof sql - p, "SELECT ");
+    if (ncols == 0) p += (size_t)snprintf(sql + p, sizeof sql - p, "1");
+    for (int c = 0; c < ncols && p < sizeof sql; c++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[c].name,
+                                      strlen(cols[c].name));
+        p += (size_t)snprintf(sql + p, sizeof sql - p, "%s%s",
+                              c ? ", " : "", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    }
+    snprintf(sql + p, sizeof sql - p, " FROM %s WHERE id=$1 ORDER BY seq", qt);
+    const char *pv[1] = {id};
+    int pl[1] = {(int)idlen}, pf[1] = {1};
+    PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, pl, pf, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return -1;
+    }
+    int nr = PQntuples(r);
+    if (nr == 0 || ncols == 0) { PQclear(r); *nrows = nr; return 1; }
+    size_t total = (size_t)nr * (size_t)ncols;
+    char **cv = calloc(total, sizeof *cv);
+    int64_t *cl = calloc(total, sizeof *cl);
+    if (!cv || !cl) { free(cv); free(cl); PQclear(r); return -1; }
+    for (int rr = 0; rr < nr; rr++)
+        for (int c = 0; c < ncols; c++) {
+            size_t idx = (size_t)rr * (size_t)ncols + (size_t)c;
+            if (PQgetisnull(r, rr, c)) continue;
+            int L = PQgetlength(r, rr, c);
+            char *v = malloc((size_t)L + 1);
+            if (!v) continue;
+            memcpy(v, PQgetvalue(r, rr, c), (size_t)L);
+            v[L] = '\0';
+            cv[idx] = v;
+            cl[idx] = L;
+        }
+    PQclear(r);
+    *cells = cv; *lens = cl; *nrows = nr;
+    return 1;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -538,6 +631,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_map_ensure, pg_map_apply,          /* relational mapping: parent */
     pg_map_child_ensure, pg_map_child_apply,   /* association child tables */
     pg_map_drop,                          /* tear down a mapping */
+    pg_map_read, pg_map_child_read,       /* native read-back */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

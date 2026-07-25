@@ -132,6 +132,22 @@ typedef struct mvx_driver {
     int (*map_drop)(mvx_file *f, const mvx_mapfield *cols, int ncols,
                     const char **assocs, int nassocs, char *err,
                     size_t errlen);
+    /* Native-read capability (may be NULL): read a mapped record back from
+       the relational form, so external writes to the columns/child tables
+       are visible.  map_read fills vals[i]/lens[i] for each parent column
+       (vals[i] = NULL for SQL NULL); returns 1 if the parent row exists, 0
+       if absent, -1 on error.  map_child_read allocates a row-major array
+       of (*nrows * ncols) cells (and lens) for one association's rows,
+       ordered by seq; returns 1 (including zero rows) or -1.  Every
+       non-NULL string the driver returns is malloc'd; the runtime frees
+       each cell, then *cells and *lens. */
+    int (*map_read)(mvx_file *f, const char *id, int64_t idlen,
+                    const mvx_mapfield *cols, int ncols,
+                    char **vals, int64_t *lens);
+    int (*map_child_read)(mvx_file *f, const char *id, int64_t idlen,
+                          const char *assoc, const mvx_mapfield *cols,
+                          int ncols, char ***cells, int64_t **lens,
+                          int *nrows);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

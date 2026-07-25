@@ -183,6 +183,37 @@ int64_t mvx_iso_time_str(const char *in, int64_t len, char *out, size_t cap) {
     return (n > 0 && (size_t)n < cap) ? n : 0;
 }
 
+/* Inverse of the ISO renderers: parse an ISO-8601 date/time back to the
+   Pick internal value (day count / seconds past midnight) as a plain
+   number, for native-mode read recomposition.  Return the length written,
+   or 0 when the text does not parse (leaving an empty string). */
+static int64_t iso_uint(const char **p, const char *e, int64_t *out) {
+    int64_t v = 0, n = 0;
+    while (*p < e && **p >= '0' && **p <= '9') { v = v * 10 + (**p - '0'); (*p)++; n++; }
+    *out = v;
+    return n;
+}
+
+int64_t mvx_iso_date_intern(const char *in, int64_t len, char *out, size_t cap) {
+    const char *p = in, *e = in + len;
+    int64_t y, m, d;
+    if (!iso_uint(&p, e, &y) || p >= e || *p++ != '-') { if (cap) out[0] = '\0'; return 0; }
+    if (!iso_uint(&p, e, &m) || p >= e || *p++ != '-') { if (cap) out[0] = '\0'; return 0; }
+    if (!iso_uint(&p, e, &d) || m < 1 || m > 12 || d < 1 || d > 31) { if (cap) out[0] = '\0'; return 0; }
+    int n = snprintf(out, cap, "%lld", (long long)(days_from_civil(y, m, d) + 732));
+    return (n > 0 && (size_t)n < cap) ? n : 0;
+}
+
+int64_t mvx_iso_time_intern(const char *in, int64_t len, char *out, size_t cap) {
+    const char *p = in, *e = in + len;
+    int64_t h, mi, s = 0;
+    if (!iso_uint(&p, e, &h) || p >= e || *p++ != ':') { if (cap) out[0] = '\0'; return 0; }
+    if (!iso_uint(&p, e, &mi)) { if (cap) out[0] = '\0'; return 0; }
+    if (p < e && *p == ':') { p++; iso_uint(&p, e, &s); }
+    int n = snprintf(out, cap, "%lld", (long long)(h * 3600 + mi * 60 + s));
+    return (n > 0 && (size_t)n < cap) ? n : 0;
+}
+
 static int oconv_md(mvx_ctx *ctx, mv_value *dst, span in, span code) {
     double dv;
     if (!span_num(in, &dv)) {

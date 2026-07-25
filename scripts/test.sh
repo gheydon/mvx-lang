@@ -762,6 +762,16 @@ rm -f "$ASOCK"
 # Records round-trip byte-exact through a table (id/rec BYTEA), bound
 # through a @connection; the schema isolates the namespace.
 if [ -n "${MVX_PG:-}" ]; then
+  # psql helper for the native-read test's "external writer" — parse the
+  # connection out of MVX_PG (address=host:port dbname=.. user=.. password=..)
+  PG_ADDR=$(printf '%s\n' "$MVX_PG" | sed -n 's/.*address=\([^ ]*\).*/\1/p')
+  PG_DB=$(printf '%s\n'   "$MVX_PG" | sed -n 's/.*dbname=\([^ ]*\).*/\1/p')
+  PG_USER=$(printf '%s\n' "$MVX_PG" | sed -n 's/.*user=\([^ ]*\).*/\1/p')
+  PG_PASS=$(printf '%s\n' "$MVX_PG" | sed -n 's/.*password=\([^ ]*\).*/\1/p')
+  PG_HOST=${PG_ADDR%%:*}; PG_PORT=${PG_ADDR##*:}
+  psql_ext() { PGPASSWORD="$PG_PASS" psql -h "$PG_HOST" -p "$PG_PORT" \
+                 -U "$PG_USER" -d "$PG_DB" -qtAc "$1"; }
+
   PGACCT="$TESTROOT/pgacct"; mkdir -p "$PGACCT"
   printf 'SET-CONNECTION pgtest driver=postgres %s namespace=mvxtest\n' \
     "$MVX_PG" | "$TCL" -a "$PGACCT" >/dev/null 2>&1
@@ -917,6 +927,56 @@ MEOF
     "$TCL" -a "$VMACCT" -c 'MAP-MODE ITM mirror' 2>&1; \
     (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmmirbin"); \
     "$TCL" -a "$VMACCT" -c 'MAP-MODE ITM native' 2>&1)"
+
+  # native read (#34): in native mode READ recomposes the record from the
+  # SQL columns/child rows, so an edit made straight to the tables (here via
+  # psql, an "external" writer) is what the program reads.  Needs psql.
+  if command -v psql >/dev/null 2>&1; then
+    printf 'ORD @vpg\n' >> "$VMACCT/BINDINGS"
+    "$TCL" -a "$VMACCT" -c 'DELETE-FILE ORD' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-FILE ORD USING @vpg' >/dev/null 2>&1
+    cat > "$TESTROOT/vmord.b" <<'OEOF'
+OPEN "ORD" TO F ELSE STOP
+R = ""
+R<1> = "Acme Corp"
+R<2> = ICONV("25 JUL 2026", "D")
+R<3> = "keep me"
+R<5> = "Widget":@VM:"Gadget"
+R<6> = "2":@VM:"1"
+WRITE R ON F, "O1"
+OPEN "DICT", "ORD" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"12L" ON D, "CUSTOMER"
+WRITE "D":@AM:"2":@AM:"D4/":@AM:"When":@AM:"12R" ON D, "WHEN"
+WRITE "D":@AM:"5":@AM:"":@AM:"Product":@AM:"10L":@AM:"ORDITEMS" ON D, "PRODUCT"
+WRITE "D":@AM:"6":@AM:"MR0":@AM:"Qty":@AM:"5R":@AM:"ORDITEMS" ON D, "QTY"
+OEOF
+    "$MVX" "$TESTROOT/vmord.b" -o "$TESTROOT/vmordbin" 2>/dev/null
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmordbin")
+    "$TCL" -a "$VMACCT" -c 'CREATE-MAP ORD CUSTOMER WHEN PRODUCT QTY' \
+      >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'MAP-MODE ORD native' >/dev/null 2>&1
+    # external edits straight to the tables (id 'O1' = \x4f31)
+    psql_ext "UPDATE vmtest.\"ORD\" SET \"CUSTOMER\"='Beta Ltd', \"WHEN\"=DATE '2027-01-15' WHERE id='\\x4f31'" >/dev/null
+    psql_ext "UPDATE vmtest.\"ORD_ORDITEMS\" SET \"QTY\"=99 WHERE id='\\x4f31' AND seq=1" >/dev/null
+    psql_ext "INSERT INTO vmtest.\"ORD_ORDITEMS\"(id,seq,\"PRODUCT\",\"QTY\") VALUES('\\x4f31',3,'Sprocket',5)" >/dev/null
+    psql_ext "INSERT INTO vmtest.\"ORD\"(id,\"CUSTOMER\",\"WHEN\") VALUES('\\x4f39','SQL Only',DATE '2026-12-31')" >/dev/null
+    cat > "$TESTROOT/vmordr.b" <<'REOF'
+OPEN "ORD" TO F ELSE STOP
+READ R FROM F, "O1" THEN
+   PRINT "O1 ":R<1>:" | ":OCONV(R<2>,"D4/"):" | note=":R<3>
+   PRINT "   items ":R<5>:" qty ":R<6>
+END
+READ R FROM F, "O9" THEN
+   PRINT "O9 ":R<1>:" | ":OCONV(R<2>,"D4/")
+END ELSE PRINT "O9 missing"
+REOF
+    "$MVX" "$TESTROOT/vmordr.b" -o "$TESTROOT/vmordrbin" 2>/dev/null
+    check tcl-mapnread "$( \
+      (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmordrbin"); \
+      printf 'COUNT ORD\n' | "$TCL" -a "$VMACCT" 2>&1)"
+  else
+    echo "  (tcl-mapnread skipped — psql not found)"
+  fi
 else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi

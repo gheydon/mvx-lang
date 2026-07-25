@@ -191,12 +191,27 @@ with `MAP-MODE file {native|mirror}` and defaulting to `mirror`:
   (letters in a `numeric`, a non-date in a `date`) is stored as `NULL` and
   the `WRITE` still succeeds. A projection is never allowed to block a
   write.
-- **native** — the typed columns are authoritative, so a `WRITE` whose
-  value does not fit its column is *rejected before it commits*: the
-  statement takes its `ON ERROR` path (or aborts, as classic MV does for
-  an unhandled write failure) and the record is left unwritten. This is
-  how you enforce that what lands in the record is exactly what the
-  relational schema accepts.
+- **native** — the typed columns are authoritative. A `WRITE` whose value
+  does not fit its column is *rejected before it commits*: the statement
+  takes its `ON ERROR` path (or aborts, as classic MV does for an unhandled
+  write failure) and the record is left unwritten. And a `READ` recomposes
+  the record *from* the columns and child rows, so a change made straight
+  to the SQL — by another application, a reporting tool, an `UPDATE` at the
+  console — is what the program reads back:
+
+  - single-valued attributes come from the parent columns, associations
+    from their child tables (ordered by `seq`), each reverse-converted from
+    the stored form to the internal value (`ICONV`; ISO date/time parsed
+    back to the day/second count);
+  - **un-mapped attributes are preserved** — the `rec` blob is the base and
+    only the mapped attributes are overlaid, so it doubles as the carrier
+    for everything the schema doesn't describe;
+  - a record that exists **only in SQL** (an external `INSERT`, never
+    written through MVX) is recomposed from an empty base, so `READ`,
+    `LIST`, and `COUNT` all see it.
+
+  This is how you make the relational tables the system of record while
+  MVX programs keep reading and writing normally.
 
 ```
 > MAP-MODE ITEM native

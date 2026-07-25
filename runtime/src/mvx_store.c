@@ -150,6 +150,8 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                            const mv_value *rec);
 static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec);
 static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av);
+static int map_recompose(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
+                         const char *id, int64_t idlen, mv_value *rec);
 
 typedef struct store_state {
     open_file *files;
@@ -697,7 +699,21 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
         l->next = st->locks;
         st->locks = l;
     }
-    return b->driver->read(f, ip, idlen, rec);
+    int had = b->driver->read(f, ip, idlen, rec);
+    /* Native mode: the relational form is the source of truth, so overlay
+       the mapped attributes from the columns/child tables — surfacing writes
+       an external tool made to the SQL directly, and even records it inserted
+       that MVX never wrote (present in SQL, no rec blob). */
+    open_file *o = find_open(state(ctx), f);
+    if (o) map_load(o);
+    if (o && o->map.nf > 0 && o->map.native &&
+        ((mvx_file_base *)f)->driver->map_read) {
+        if (!had) mv_set_str(rec, "", 0);   /* SQL-only insert: empty base */
+        int pr = map_recompose(ctx, f, &o->map, ip, idlen, rec);
+        if (pr > 0) return 1;
+        if (pr == 0 && !had) return 0;
+    }
+    return had;
 }
 
 /* Returns 0 on success, or -2 on a backend write failure when the caller
@@ -1175,6 +1191,123 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
     }
     mv_clear(&av); mv_clear(&ov); mv_clear(&code);
     return ok;
+}
+
+/* Inverse of map_cell: turn a stored column string back into the attribute's
+   internal value.  NULL (or empty) -> empty; DATE/TIME parse ISO back to the
+   internal count; a converted column ICONVs back; plain text is verbatim. */
+static void map_uncell(mvx_ctx *ctx, const char *type, const char *conv,
+                       const char *cv, int64_t cl, mv_value *dst,
+                       mv_value *tmp, mv_value *code) {
+    if (cv == NULL || cl == 0) { mv_set_str(dst, "", 0); return; }
+    if (strcmp(type, "DATE") == 0) {
+        char ib[32];
+        int64_t n = mvx_iso_date_intern(cv, cl, ib, sizeof ib);
+        mv_set_str(dst, ib, n);
+        return;
+    }
+    if (strcmp(type, "TIME") == 0) {
+        char ib[32];
+        int64_t n = mvx_iso_time_intern(cv, cl, ib, sizeof ib);
+        mv_set_str(dst, ib, n);
+        return;
+    }
+    if (conv[0]) {
+        mv_set_str(tmp, cv, cl);
+        mv_set_str(code, conv, (int64_t)strlen(conv));
+        mv_iconv(ctx, dst, tmp, code);
+        return;
+    }
+    mv_set_str(dst, cv, cl);
+}
+
+/* Native read: overlay the mapped attributes of `rec` with the current
+   values held in the backend's relational form, so writes made to the SQL
+   columns / child tables (by MVX or an external tool) are what the program
+   reads.  The rec blob is the base — it carries the un-mapped attributes —
+   and only the mapped attributes are replaced.  Returns 1 if the parent row
+   exists (record present in SQL), 0 if absent, -1 on error; on 0/-1 rec is
+   left as the caller's base. */
+static int map_recompose(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
+                         const char *id, int64_t idlen, mv_value *rec) {
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->map_read) return 0;
+    mv_value val, tmp, code;
+    mv_init(&val); mv_init(&tmp); mv_init(&code);
+
+    mvx_mapfield pcol[MAP_MAXF];
+    int pidx[MAP_MAXF], npar = 0;
+    for (int i = 0; i < m->nf; i++)
+        if (m->assocs[i][0] == '\0') {
+            pcol[npar].name = m->names[i];
+            pcol[npar].type = m->types[i];
+            pidx[npar++] = i;
+        }
+    char *vals[MAP_MAXF];
+    int64_t lens[MAP_MAXF];
+    for (int k = 0; k < npar; k++) { vals[k] = NULL; lens[k] = 0; }
+    int present = b->driver->map_read(f, id, idlen, pcol, npar, vals, lens);
+    if (present <= 0) {
+        for (int k = 0; k < npar; k++) free(vals[k]);
+        mv_clear(&val); mv_clear(&tmp); mv_clear(&code);
+        return present;
+    }
+    for (int k = 0; k < npar; k++) {
+        int i = pidx[k];
+        map_uncell(ctx, m->types[i], m->convs[i], vals[k], lens[k], &val,
+                   &tmp, &code);
+        mv_replace_fn(rec, rec, m->anos[i], 0, 0, &val);
+        free(vals[k]);
+    }
+
+    if (b->driver->map_child_read) {
+        char *an[MAP_MAXA];
+        int am[MAP_MAXA][MAP_MAXF], anm[MAP_MAXA], na = 0;
+        for (int i = 0; i < m->nf; i++) {
+            if (m->assocs[i][0] == '\0') continue;
+            int slot = -1;
+            for (int a = 0; a < na; a++)
+                if (strcmp(an[a], m->assocs[i]) == 0) slot = a;
+            if (slot < 0 && na < MAP_MAXA) {
+                slot = na; an[na] = m->assocs[i]; anm[na++] = 0;
+            }
+            if (slot >= 0 && anm[slot] < MAP_MAXF) am[slot][anm[slot]++] = i;
+        }
+        for (int a = 0; a < na; a++) {
+            int nm = anm[a];
+            mvx_mapfield cc[MAP_MAXF];
+            for (int k = 0; k < nm; k++) {
+                int i = am[a][k];
+                cc[k].name = m->names[i];
+                cc[k].type = m->types[i];
+            }
+            char **cells = NULL;
+            int64_t *clens = NULL;
+            int nrows = 0;
+            int rc = b->driver->map_child_read(f, id, idlen, an[a], cc, nm,
+                                               &cells, &clens, &nrows);
+            if (rc == 1) {           /* SQL is authoritative: rebuild attrs */
+                mv_set_str(&val, "", 0);
+                for (int k = 0; k < nm; k++)
+                    mv_replace_fn(rec, rec, m->anos[am[a][k]], 0, 0, &val);
+                for (int r = 0; r < nrows; r++)
+                    for (int k = 0; k < nm; k++) {
+                        int i = am[a][k];
+                        size_t cell = (size_t)r * (size_t)nm + (size_t)k;
+                        map_uncell(ctx, m->types[i], m->convs[i], cells[cell],
+                                   clens[cell], &val, &tmp, &code);
+                        mv_replace_fn(rec, rec, m->anos[i], r + 1, 0, &val);
+                    }
+            }
+            if (cells)
+                for (size_t x = 0; x < (size_t)nrows * (size_t)nm; x++)
+                    free(cells[x]);
+            free(cells);
+            free(clens);
+        }
+    }
+    mv_clear(&val); mv_clear(&tmp); mv_clear(&code);
+    return 1;
 }
 
 /* Load a file's declared mapping (%MAP% in its dictionary) into o->map,
