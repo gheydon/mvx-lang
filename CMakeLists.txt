@@ -78,6 +78,22 @@ target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 
 mvx_driver(lmdbnet runtime/src/mvx_drv_lmdbnet.c)
 
+# postgres driver — optional, built only when libpq is present.  libpq
+# is keg-only on Homebrew, so also probe its opt prefix.
+find_path(LIBPQ_INCLUDE_DIR libpq-fe.h
+  HINTS /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
+        /usr/include/postgresql)
+find_library(LIBPQ_LIBRARY pq
+  HINTS /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib)
+if(LIBPQ_INCLUDE_DIR AND LIBPQ_LIBRARY)
+  message(STATUS "Building postgres driver against ${LIBPQ_LIBRARY}")
+  mvx_driver(postgres runtime/src/mvx_drv_postgres.c)
+  target_include_directories(mvxdrv_postgres PRIVATE ${LIBPQ_INCLUDE_DIR})
+  target_link_libraries(mvxdrv_postgres PRIVATE ${LIBPQ_LIBRARY})
+else()
+  message(STATUS "libpq not found — skipping postgres driver")
+endif()
+
 # --- the networked LMDB daemon -----------------------------------------
 add_executable(mvx-lmdbd daemon/mvxd.c daemon/sha256.c)
 target_include_directories(mvx-lmdbd PRIVATE ${LMDB_INCLUDE_DIR})

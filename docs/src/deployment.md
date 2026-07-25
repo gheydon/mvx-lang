@@ -189,10 +189,34 @@ Move the daemon to a new host and you change **one** field —
 so a connection is the single place a file's whole remote binding lives;
 `LIST-CONNECTIONS` shows the profiles with secret fields masked. It is
 also how a container injects a target — set `MVXCONN_SALESDB_ADDRESS` and
-`MVXCONN_SALESDB_TOKEN` and no file is needed. The same mechanism will
-carry Postgres and other backends (`driver=postgres address=… dbname=…
-user=… password=…`). The older inline form (`CREATE-FILE … USING lmdbnet
-<addr>`) still works.
+`MVXCONN_SALESDB_TOKEN` and no file is needed. The same mechanism
+carries Postgres and other backends. The older inline form
+(`CREATE-FILE … USING lmdbnet <addr>`) still works.
+
+## Postgres
+
+A file can live on a PostgreSQL database instead of LMDB. Each
+account/namespace is a **schema**; each file is a **table**
+`(id BYTEA, rec BYTEA)`, so records round-trip byte-exact — value marks
+and all. Define a `postgres` connection and bind through it:
+
+```
+> SET-CONNECTION pgmain driver=postgres address=db:5432 dbname=mvx user=app password=<pw> namespace=sales
+> CREATE-FILE ORDERS USING @pgmain
+> LIST ORDERS NAME PRICE
+```
+
+`LIST`, `SELECT`, `SORT`, and `COUNT` work as on any file. The driver is
+built only where **libpq** is present (it is skipped otherwise), and it
+authenticates with the credentials in the connection profile
+(`.mvx-private`), never in committed config.
+
+This first cut implements the minimal storage contract. **Secondary
+indexes** are not yet native (queries scan; `CREATE-INDEX` on a Postgres
+file is unsupported for now), and the backend does **not** arbitrate
+record locks between processes (the process-local lock table applies) —
+both are tracked as follow-ups. For cross-process coordination today,
+use the `mvx-lmdbd` daemon.
 
 ## Credentials and secrets (`.mvx-private`)
 

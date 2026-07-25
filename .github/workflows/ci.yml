@@ -13,6 +13,18 @@ env:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mvx
+          POSTGRES_PASSWORD: mvx
+          POSTGRES_DB: mvx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mvx"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +33,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc g++ liblmdb-dev libedit-dev \
-            libgit2-dev pkg-config \
+            libgit2-dev libpq-dev pkg-config \
             zlib1g-dev libzstd-dev libncurses-dev \
             wget lsb-release software-properties-common gnupg ca-certificates
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
@@ -36,4 +48,6 @@ jobs:
           cmake --build build
 
       - name: Test
+        env:
+          MVX_PG: "address=localhost:5432 dbname=mvx user=mvx password=mvx"
         run: ./scripts/test.sh

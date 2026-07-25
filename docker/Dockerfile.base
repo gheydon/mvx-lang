@@ -14,7 +14,7 @@ ARG LLVM_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates wget gnupg lsb-release software-properties-common \
       cmake ninja-build gcc g++ \
-      liblmdb-dev libedit-dev \
+      liblmdb-dev libedit-dev libpq-dev \
  && wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
  && chmod +x /tmp/llvm.sh && /tmp/llvm.sh ${LLVM_VERSION} \
  && apt-get install -y --no-install-recommends \
@@ -41,7 +41,7 @@ FROM debian:bookworm-slim AS mvx
 # (crt*.o, libm.so, libdl.so) that mvx-basic needs to link programs; the
 # rest are the runtime's shared-library dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      gcc libc6-dev libstdc++6 liblmdb0 libedit2 ca-certificates \
+      gcc libc6-dev libstdc++6 liblmdb0 libedit2 libpq5 ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/bin   /usr/local/bin
 COPY --from=builder /usr/local/lib   /usr/local/lib

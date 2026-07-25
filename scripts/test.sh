@@ -750,6 +750,29 @@ check tcl-conn "$( \
 kill $APID 2>/dev/null
 rm -f "$ASOCK"
 
+# postgres backend — only when MVX_PG names a reachable database, e.g.
+#   MVX_PG='address=localhost:5432 dbname=mvx user=mvx password=mvx'
+# Records round-trip byte-exact through a table (id/rec BYTEA), bound
+# through a @connection; the schema isolates the namespace.
+if [ -n "${MVX_PG:-}" ]; then
+  PGACCT="$TESTROOT/pgacct"; mkdir -p "$PGACCT"
+  printf 'SET-CONNECTION pgtest driver=postgres %s namespace=mvxtest\n' \
+    "$MVX_PG" | "$TCL" -a "$PGACCT" >/dev/null 2>&1
+  # drop any leftover table from a prior run: bind manually so DELETE-FILE
+  # resolves to postgres, then start clean (the check re-creates it)
+  printf 'ORDERS @pgtest\n' > "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE ORDERS' >/dev/null 2>&1
+  printf 'OPEN "ORDERS" TO F ELSE STOP\nWRITE "Widget":@VM:"Gadget" ON F, "O1"\nWRITE "Acme" ON F, "O2"\nREAD V FROM F, "O1" THEN PRINT "read: ":V<1,1>:"/":V<1,2>\n' > "$TESTROOT/pg.b"
+  "$MVX" "$TESTROOT/pg.b" -o "$TESTROOT/pgbin" 2>/dev/null
+  check tcl-pg "$( \
+    "$TCL" -a "$PGACCT" -c 'CREATE-FILE ORDERS USING @pgtest' 2>&1; \
+    (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgbin"); \
+    printf 'COUNT ORDERS\nSELECT ORDERS\nLIST ORDERS\n' | \
+      "$TCL" -a "$PGACCT" 2>&1)"
+else
+  echo "  (postgres test skipped — set MVX_PG to run)"
+fi
+
 # ---------------------------------------------------------------- phase 3
 # The sieve result is deterministic (Count 78498); only its *execution*
 # on a loaded CI runner is occasionally flaky (a transient OOM during the
