@@ -858,6 +858,108 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
     return count;
 }
 
+/* --- relational mapping (see MAP / #18) -------------------------------
+   Build a mapped file's projection: create the columns via the driver and
+   backfill every record's projected value.  spec is an @AM list, one
+   field per element as "name <VM> attr# <VM> conv <VM> type".  Returns the
+   record count, -1 on error, or -2 when the backend has no mapping. */
+#define MAP_MAXF 64
+int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
+                     const mv_value *spec) {
+    mvx_file *f = file_of(fvar, "MAPBUILD");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->map_ensure || !b->driver->map_apply) return -2;
+
+    char nb[40];
+    const char *sp;
+    int64_t slen = mv_val_chars(spec, nb, sizeof nb, &sp);
+    char *buf = malloc((size_t)slen + 1);
+    if (!buf) return -1;
+    memcpy(buf, sp, (size_t)slen);
+    buf[slen] = '\0';
+
+    char *names[MAP_MAXF], *convs[MAP_MAXF], *types[MAP_MAXF];
+    int64_t anos[MAP_MAXF];
+    int nf = 0;
+    char *p = buf;
+    while (nf < MAP_MAXF && *p) {
+        char *amend = p;
+        while (*amend && *amend != (char)0xFE) amend++;
+        char save = *amend;
+        *amend = '\0';
+        char *parts[4] = {p, NULL, NULL, NULL};
+        int np = 0;
+        for (char *q = p; *q; q++)
+            if (*q == (char)0xFD) {
+                *q = '\0';
+                if (++np < 4) parts[np] = q + 1;
+            }
+        names[nf] = parts[0];
+        anos[nf] = parts[1] ? strtoll(parts[1], NULL, 10) : 0;
+        convs[nf] = parts[2] ? parts[2] : (char *)"";
+        types[nf] = parts[3] ? parts[3] : (char *)"TEXT";
+        nf++;
+        if (save == 0) break;
+        p = amend + 1;
+    }
+    if (nf == 0) { free(buf); return 0; }
+
+    mvx_mapfield cols[MAP_MAXF];
+    for (int i = 0; i < nf; i++) {
+        cols[i].name = names[i];
+        cols[i].type = types[i];
+    }
+    char err[256] = "";
+    if (!b->driver->map_ensure(f, cols, nf, err, sizeof err)) {
+        if (err[0]) fprintf(stderr, "MAPBUILD: %s\n", err);
+        free(buf);
+        return -1;
+    }
+
+    mvx_cursor *c = b->driver->select_begin(f);
+    if (!c) { free(buf); return -1; }
+    static char scratch[MAP_MAXF][256];
+    int64_t count = 0, rc = 0;
+    mv_value rid, rec, av, ov, code;
+    mv_init(&rid); mv_init(&rec); mv_init(&av);
+    mv_init(&ov); mv_init(&code);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        if (!b->driver->read(f, rp, rl, &rec)) continue;
+        const char *vals[MAP_MAXF];
+        int64_t vlens[MAP_MAXF];
+        for (int i = 0; i < nf; i++) {
+            mv_extract_fn(&av, &rec, anos[i], 0, 0);
+            const mv_value *src = &av;
+            if (convs[i][0]) {
+                mv_set_str(&code, convs[i], (int64_t)strlen(convs[i]));
+                mv_oconv(ctx, &ov, &av, &code);
+                src = &ov;
+            }
+            char tb[40];
+            const char *tp;
+            int64_t tl = mv_val_chars(src, tb, sizeof tb, &tp);
+            if (tl >= (int64_t)sizeof scratch[0]) tl = sizeof scratch[0] - 1;
+            memcpy(scratch[i], tp, (size_t)tl);
+            scratch[i][tl] = '\0';
+            vals[i] = scratch[i];
+            vlens[i] = tl;
+        }
+        if (!b->driver->map_apply(f, rp, rl, cols, vals, vlens, nf)) {
+            rc = -1;
+            break;
+        }
+        count++;
+    }
+    b->driver->select_end(c);
+    mv_clear(&rid); mv_clear(&rec); mv_clear(&av);
+    mv_clear(&ov); mv_clear(&code);
+    free(buf);
+    return rc < 0 ? rc : count;
+}
+
 int64_t mvx_index_drop(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *item) {
     mvx_file *f = file_of(fvar, "INDEXDROP");

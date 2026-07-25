@@ -225,6 +225,10 @@ int64_t mvx_index_drop(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *item);
 int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
                          const mv_value *item, const mv_value *key);
+/* Build a file's relational mapping (see MAP / #18): -2 unsupported,
+   -1 fail, else the projected record count. */
+int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
+                     const mv_value *spec);
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);

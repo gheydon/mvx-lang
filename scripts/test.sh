@@ -776,6 +776,25 @@ if [ -n "${MVX_PG:-}" ]; then
     (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgbin"); \
     printf 'COUNT ORDERS\nSELECT ORDERS\nLIST ORDERS\n' | \
       "$TCL" -a "$PGACCT" 2>&1)"
+
+  # mapping phase 2 (#23): BUILD-MAP projects single-valued attributes
+  # into columns on the record's table via the driver, then backfills.
+  printf 'CUST @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE CUST' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE CUST USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/pgmap.b" <<'MEOF'
+OPEN "CUST" TO F ELSE STOP
+WRITE "Acme Corp":@AM:"Sydney":@AM:"1500" ON F, "C1"
+WRITE "Beta Ltd":@AM:"Melbourne":@AM:"920" ON F, "C2"
+OPEN "DICT", "CUST" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"20L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"City":@AM:"12L" ON D, "CITY"
+WRITE "D":@AM:"3":@AM:"MD2":@AM:"Limit":@AM:"10R" ON D, "CREDIT"
+MEOF
+  "$MVX" "$TESTROOT/pgmap.b" -o "$TESTROOT/pgmapbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgmapbin")
+  check tcl-mapbuild "$(printf 'BUILD-MAP CUST NAME CITY CREDIT\n' | \
+    "$TCL" -a "$PGACCT" 2>&1)"
 else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi

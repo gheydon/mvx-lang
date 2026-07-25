@@ -322,6 +322,69 @@ static int pg_remove(const char *spec, char *err, size_t errlen) {
     return ok;
 }
 
+/* Relational mapping (#18): project single-valued attributes into columns
+   on the record's own table.  Phase-2 columns are text holding the
+   display value; typed columns and child tables follow. */
+static int pg_map_ensure(mvx_file *fh, const mvx_mapfield *cols, int ncols,
+                         char *err, size_t errlen) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    for (int i = 0; i < ncols; i++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[i].name,
+                                      strlen(cols[i].name));
+        char sql[768];
+        snprintf(sql, sizeof sql,
+                 "ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s text", qt,
+                 qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+        PGresult *r = PQexec(f->conn, sql);
+        int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+        if (!ok) {
+            snprintf(err, errlen, "postgres: %s", PQerrorMessage(f->conn));
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int pg_map_apply(mvx_file *fh, const char *id, int64_t idlen,
+                        const mvx_mapfield *cols, const char **vals,
+                        const int64_t *vlens, int ncols) {
+    pg_file *f = (pg_file *)fh;
+    if (ncols <= 0) return 1;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char sql[4096];
+    size_t p = 0;
+    p += (size_t)snprintf(sql + p, sizeof sql - p, "UPDATE %s SET ", qt);
+    for (int i = 0; i < ncols && p < sizeof sql; i++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[i].name,
+                                      strlen(cols[i].name));
+        p += (size_t)snprintf(sql + p, sizeof sql - p, "%s%s=$%d",
+                              i ? ", " : "", qc ? qc : "\"\"", i + 1);
+        if (qc) PQfreemem(qc);
+    }
+    snprintf(sql + p, sizeof sql - p, " WHERE id=$%d", ncols + 1);
+
+    const char *pv[64];
+    int pl[64], pf[64];
+    if (ncols > 63) return 0;
+    for (int i = 0; i < ncols; i++) {
+        pv[i] = vals[i];
+        pl[i] = (int)vlens[i];
+        pf[i] = 0;                        /* text */
+    }
+    pv[ncols] = id;
+    pl[ncols] = (int)idlen;
+    pf[ncols] = 1;                        /* binary id */
+    PGresult *r = PQexecParams(f->conn, sql, ncols + 1, NULL, pv, pl, pf, 0);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    return ok;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -331,6 +394,7 @@ static const mvx_driver mvx_driver_postgres = {
     NULL,                                 /* names: TODO */
     NULL, NULL, NULL, NULL,               /* no native indexes (yet) */
     NULL, NULL,                           /* no lock authority (yet) */
+    pg_map_ensure, pg_map_apply,          /* relational mapping */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

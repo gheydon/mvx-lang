@@ -39,6 +39,7 @@ standard verbs.
 | `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |
 | `SSELECT {DICT} file {WITH item op value} {BY item}` | like `SELECT`, but the list is sorted |
 | `MAP file {items...\|ALL} {DATA}` | the relational schema the named items imply (SQL mapping preview) |
+| `BUILD-MAP file field…` | materialise the mapping in the backend and backfill (SQL columns) |
 | `CT {DICT} file id` | show a record, numbered attributes |
 | `COPY file id TO {file2} id2` | copy a record |
 | `DELETE file id {id...}` | delete records |

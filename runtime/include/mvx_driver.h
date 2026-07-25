@@ -44,6 +44,14 @@ typedef struct mvx_ixop {
     int add;                            /* 1 = add entry, 0 = remove */
 } mvx_ixop;
 
+/* One column of a relational mapping (ARCHITECTURE / #18): the runtime
+   computes the fields (backend-neutral) and the projected values; the
+   driver renders them in its own form (SQL columns, document fields). */
+typedef struct mvx_mapfield {
+    const char *name;                   /* column / field name */
+    const char *type;                   /* abstract type: TEXT/NUMERIC/... */
+} mvx_mapfield;
+
 typedef struct mvx_driver {
     const char *name;
 
@@ -99,6 +107,16 @@ typedef struct mvx_driver {
        When NULL, the runtime's process-local lock table applies. */
     int (*lock)(mvx_file *f, const char *id, int64_t idlen);
     int (*unlock)(mvx_file *f, const char *id, int64_t idlen);
+
+    /* Optional relational-mapping capability (may be NULL): project a
+       mapped file's records into the backend's native relational form.
+       The runtime supplies the columns and the per-record projected
+       values; the driver materialises and persists them. */
+    int (*map_ensure)(mvx_file *f, const mvx_mapfield *cols, int ncols,
+                      char *err, size_t errlen);
+    int (*map_apply)(mvx_file *f, const char *id, int64_t idlen,
+                     const mvx_mapfield *cols, const char **vals,
+                     const int64_t *vlens, int ncols);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

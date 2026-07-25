@@ -124,10 +124,31 @@ CREATE TABLE ORDERS_ORDERITEMS (
 ```
 
 `MAP file DATA` also previews the projected rows (the record decomposed
-into its parent row and child rows). This is the design/preview stage of
-the SQL-mapping work
-([#18](https://github.com/mvx-lang/mvx/issues/18)); later phases maintain
-these tables live against a SQL backend (`mirror` / `native` modes).
+into its parent row and child rows).
+
+**`BUILD-MAP file field…`** materialises the mapping for real on a SQL
+backend: the runtime computes the projection and the driver adds the
+columns to the record's own table and backfills every record, so the raw
+`rec` blob and the queryable columns sit side by side:
+
+```
+> BUILD-MAP CUST NAME CITY CREDIT
+mapped 2 record(s) into 3 column(s)
+```
+```
+ id | rec_bytes |   NAME    |   CITY    | CREDIT
+----+-----------+-----------+-----------+--------
+ C1 |        21 | Acme Corp | Sydney    | 15.00
+```
+
+Values are stored in their `OCONV` display form (`CREDIT` above is the
+`MD2` conversion of the stored `1500`). This is the driver **mapping
+capability**: the runtime is backend-neutral, and each driver renders the
+projection in its own form (a non-SQL backend would leave the capability
+unimplemented). Currently single-valued attributes → columns on a
+Postgres file; association child tables, typed columns, and live
+maintenance on write are the remaining phases of
+[#18](https://github.com/mvx-lang/mvx/issues/18).
 
 ## Record locks
 
