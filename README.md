@@ -54,7 +54,7 @@ first.
 To reach me, either:
 
 - **Open a GitHub issue** at
-  [github.com/gheydon/mvx-lang/issues](https://github.com/gheydon/mvx-lang/issues),
+  [github.com/mvx-lang/mvx/issues](https://github.com/mvx-lang/mvx/issues),
   or
 - **Email Gordon Heydon — gordon@heydon.com.au**.
 
