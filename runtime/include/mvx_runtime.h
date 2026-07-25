@@ -249,6 +249,16 @@ int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
 int64_t mvx_editfile(mvx_ctx *ctx, const mv_value *path); /* unrestricted */
 void    mvx_tmpnam(mv_value *dst);
 
+/* --- account credential store, .mvx-private (see mvx_cred.c) ----------- */
+int64_t mvx_setcred(mvx_ctx *ctx, const mv_value *driver,
+                    const mv_value *target, const mv_value *key,
+                    const mv_value *fields);
+void    mvx_listcred(mvx_ctx *ctx, mv_value *dst);
+/* env override -> .mvx-private/credentials -> miss; for storage drivers. */
+int     mvx_cred_lookup(const char *driver, const char *target,
+                        const char *key, const char *field, char *out,
+                        size_t outlen);
+
 /* --- OS file access (see mvx_os.c) ------------------------------------- */
 void    mv_osread(mvx_ctx *ctx, mv_value *dst, const mv_value *path);
 int64_t mv_oswrite(mvx_ctx *ctx, const mv_value *data, const mv_value *path);
