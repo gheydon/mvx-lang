@@ -127,6 +127,16 @@ out="$TESTROOT/callmain"
   2>/dev/null && check callmain "$("$out" 2>&1)" \
   || check callmain "COMPILE FAILED"
 
+# user-defined FUNCTIONs (DEFFUN + RETURN(value)), linked from many sources
+out="$TESTROOT/funcs"
+if "$MVX" "$ROOT/tests/funcs.b" "$ROOT/tests/func_square.b" \
+     "$ROOT/tests/func_fact.b" "$ROOT/tests/func_greet.b" -o "$out" \
+     2>"$TESTROOT/cerr"; then
+  check funcs "$("$out" 2>&1)"
+else
+  check funcs "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # storage tests run inside their own account directory
 STACCT="$TESTROOT/stacct"
 mkdir -p "$STACCT/DIRDATA"

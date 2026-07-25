@@ -30,10 +30,15 @@ public:
         prog.sourcePath = sourcePath;
         skipEols();
 
-        if (at(Tok::KwSubroutine)) {
+        if (at(Tok::KwSubroutine) || at(Tok::KwFunction)) {
+            bool isFunc = cur().kind == Tok::KwFunction;
             advance();
-            prog.isSubroutine = true;
-            prog.name = expect(Tok::Ident, "subroutine name").text;
+            prog.isSubroutine = true;   // functions share the subroutine ABI
+            prog.isFunction = isFunc;
+            prog.name = expect(Tok::Ident,
+                               isFunc ? "function name" : "subroutine name")
+                            .text;
+            if (isFunc) deffuns_[prog.name] = -1;  // own body may recurse
             if (at(Tok::LParen)) {
                 advance();
                 if (!at(Tok::RParen)) {
@@ -72,11 +77,14 @@ private:
     // EQUATE bindings: a name expands to a clone of its expression at
     // every use site (compile-time; must be declared before use).
     std::unordered_map<std::string, ExprP> equates_;
+    // DEFFUN'd user functions: name -> argument count (-1 = unspecified).
+    std::unordered_map<std::string, int> deffuns_;
 
     static ExprP cloneExpr(const Expr &e) {
         auto c = std::make_unique<Expr>();
         c->kind = e.kind;
         c->line = e.line;
+        c->call = e.call;
         c->ival = e.ival;
         c->fval = e.fval;
         c->sval = e.sval;
@@ -328,6 +336,28 @@ private:
             thenElse(*s);
             break;
         }
+        case Tok::KwDeffun: {
+            // DEFFUN name(nargs) {CALLING "cat.name"}: declare a user
+            // function so name(...) is a call, not an array reference.
+            advance();
+            s = mk(Stmt::K::Nop);
+            std::string nm = expect(Tok::Ident, "function name after DEFFUN")
+                                 .text;
+            int nargs = -1;
+            if (at(Tok::LParen)) {
+                advance();
+                if (!at(Tok::RParen))
+                    nargs = (int)expect(Tok::IntLit, "argument count").ival;
+                expect(Tok::RParen, "')'");
+            }
+            if (at(Tok::KwCalling)) {   // cataloged name; recorded, not used
+                advance();
+                expect(Tok::StrLit, "cataloged name string");
+            }
+            deffuns_[nm] = nargs;
+            endStatementSoft();
+            break;
+        }
         case Tok::KwEcho: {
             advance();
             s = mk(Stmt::K::Echo);
@@ -462,6 +492,11 @@ private:
         case Tok::KwReturn:
             advance();
             s = mk(Stmt::K::Return);
+            if (at(Tok::LParen)) {          // RETURN(expr): function result
+                advance();
+                s->value = expression();
+                expect(Tok::RParen, "')' after RETURN value");
+            }
             endStatementSoft();
             break;
         case Tok::KwStop:
@@ -622,6 +657,7 @@ private:
                 }
             }
             expect(Tok::RParen, "')'");
+            if (deffuns_.count(e->sval)) e->call = true;   // user function
         } else {
             e->kind = Expr::K::Var;
         }

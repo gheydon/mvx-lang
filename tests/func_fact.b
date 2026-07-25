@@ -1,0 +1,4 @@
+* Recursive FUNCTION.
+FUNCTION FACT(N)
+   IF N <= 1 THEN RETURN(1)
+   RETURN(N * FACT(N - 1))

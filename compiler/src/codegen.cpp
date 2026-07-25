@@ -374,6 +374,7 @@ private:
 
     Function *fn_ = nullptr;
     Value *ctxArg_ = nullptr;
+    Value *funcResult_ = nullptr;   // FUNCTION result slot (argv[0])
     BasicBlock *retBB_ = nullptr;
 
     StructType *valTy_ = nullptr;
@@ -897,6 +898,7 @@ private:
     }
 
     void evalParenInto(const Expr &e, Value *dest) {
+        if (e.call) { evalFuncCall(e, dest); return; }   // user function
         if (arrayNames_.count(e.sval)) {
             call2("mv_copy", dest, arrayElemPtr(e));
             return;
@@ -1296,9 +1298,16 @@ private:
         }
 
         case Stmt::K::Return:
-            // With GOSUBs present, RETURN pops the return stack; with an
-            // empty stack it ends the program / returns to the caller.
-            b_.CreateBr(hasGosub_ ? gosubRetBB() : retBB_);
+            if (s.value) {   // RETURN(expr): a function result, returns now
+                if (!funcResult_)
+                    err(s.line, "RETURN(value) outside a FUNCTION");
+                evalInto(*s.value, funcResult_);
+                b_.CreateBr(retBB_);
+            } else {
+                // With GOSUBs present, RETURN pops the return stack; with an
+                // empty stack it ends the program / returns to the caller.
+                b_.CreateBr(hasGosub_ ? gosubRetBB() : retBB_);
+            }
             b_.SetInsertPoint(newBB("dead"));
             break;
         case Stmt::K::Stop:
@@ -2035,6 +2044,29 @@ private:
     // subroutines may live in this program, in cataloged LIB/ shared
     // libraries, in linked packages, or in the system account.
     // CALL @VAR takes the target name from the variable.
+    // X = NAME(args): a DEFFUN'd user function.  Shares the subroutine
+    // dispatch (mvx_call) with the result slot passed as argv[0]; args go
+    // by value into fresh temps so the callee cannot alter the caller.
+    void evalFuncCall(const Expr &e, Value *dest) {
+        size_t n = e.args.size();
+        // value-less RETURN leaves the result empty
+        callRt("mv_set_str", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
+               {dest, stringConst(""), ConstantInt::get(i64Ty_, 0)});
+        Value *argv = eb_.CreateAlloca(ptrTy_,
+                                       ConstantInt::get(i64Ty_, n + 1), "fargv");
+        b_.CreateStore(dest, b_.CreateGEP(ptrTy_, argv,
+                                          ConstantInt::get(i64Ty_, 0)));
+        for (size_t k = 0; k < n; k++) {
+            Value *a = acquireTemp();
+            evalInto(*e.args[k], a);
+            b_.CreateStore(a, b_.CreateGEP(ptrTy_, argv,
+                                           ConstantInt::get(i64Ty_, k + 1)));
+        }
+        callRt("mvx_call", voidTy_, {ptrTy_, ptrTy_, i32Ty_, ptrTy_},
+               {ctxArg_, stringConst(e.sval),
+                ConstantInt::get(i32Ty_, (int)n + 1), argv});
+    }
+
     void emitCall(const Stmt &s) {
         size_t n = s.args.size();
         Value *argv = eb_.CreateAlloca(ptrTy_, ConstantInt::get(i64Ty_, n ? n : 1),
@@ -2217,16 +2249,23 @@ private:
             Value *argv = fn_->getArg(2);
             argc->setName("argc");
             argv->setName("argv");
+            // A FUNCTION reserves argv[0] for its result; user parameters
+            // follow, so its ABI arity is one more than the declared count.
+            int off = prog_.isFunction ? 1 : 0;
             callRt("mvx_arity_check", voidTy_,
                    {ptrTy_, i32Ty_, i32Ty_},
                    {stringConst(prog_.name),
-                    ConstantInt::get(i32Ty_, (int)prog_.params.size()),
+                    ConstantInt::get(i32Ty_, (int)prog_.params.size() + off),
                     argc});
+            if (prog_.isFunction) {
+                Value *rcell = b_.CreateGEP(ptrTy_, argv,
+                                            ConstantInt::get(i64Ty_, 0));
+                funcResult_ = b_.CreateLoad(ptrTy_, rcell, "result");
+            }
             for (size_t k = 0; k < prog_.params.size(); k++) {
-                Value *cell = b_.CreateGEP(ptrTy_, argv,
-                                           ConstantInt::get(i64Ty_, k));
-                Value *p = b_.CreateLoad(ptrTy_, cell,
-                                         prog_.params[k]);
+                Value *cell = b_.CreateGEP(
+                    ptrTy_, argv, ConstantInt::get(i64Ty_, (int)k + off));
+                Value *p = b_.CreateLoad(ptrTy_, cell, prog_.params[k]);
                 if (arrayNames_.count(prog_.params[k]))
                     err(1, "parameter " + prog_.params[k] +
                                " conflicts with DIM");

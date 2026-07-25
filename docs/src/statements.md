@@ -32,6 +32,23 @@ Arguments pass by reference. Resolution happens at call time: the
 program itself, then cataloged `LIB/` libraries, linked packages, and
 the system account.
 
+### FUNCTION / DEFFUN
+```
+FUNCTION NAME(args...)       first line of a function program
+   ...
+   RETURN(value)             return a result (RETURN alone returns "")
+```
+```
+DEFFUN NAME(argcount)        declare a function so NAME(...) is a call
+X = NAME(a, b)               call it in any expression
+```
+A `FUNCTION` is a program that yields a value through `RETURN(expr)`; it
+compiles and catalogs like a subroutine and shares the same resolution.
+A caller `DEFFUN`s the function (before first use) so `NAME(...)` reads as
+a call rather than an array reference, then uses it anywhere an
+expression is allowed — including recursively. Arguments are passed by
+value.
+
 ### COMMON
 ```
 COMMON {/BLOCK/} item, item(dims), ...

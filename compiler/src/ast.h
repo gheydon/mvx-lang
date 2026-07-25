@@ -42,6 +42,7 @@ struct Expr {
     };
     K kind;
     int line = 0;
+    bool call = false;          // Paren is a user-function call (DEFFUN)
 
     int64_t ival = 0;
     double fval = 0.0;
@@ -113,6 +114,7 @@ struct Stmt {
 
 struct Program {
     bool isSubroutine = false;
+    bool isFunction = false;             // a FUNCTION: returns via RETURN(x)
     std::string name;                    // subroutine name; empty for main
     std::vector<std::string> params;
     std::vector<StmtP> body;
