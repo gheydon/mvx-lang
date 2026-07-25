@@ -148,17 +148,49 @@ target, key); the runtime resolves the secret from the store.
 > LIST-CREDENTIALS                       values are masked
 ```
 
-`.mvx-private/credentials` then holds:
+`.mvx-private/credentials` then holds one **field per line** — the first
+three whitespace tokens are `driver target key`, and the rest of the line
+is `field=value`, where the value runs to end-of-line and may contain
+spaces and other characters (so an arbitrary secret survives verbatim):
 
 ```
 lmdbnet  mvxdb-a:4300  SALES  token=abc123
-postgres db:5432       mvx    user=app password=s3cret
+postgres db:5432       mvx    user=app
+postgres db:5432       mvx    password=p@ss w0rd :/@
 ```
 
 An environment variable overrides the file so a container can inject a
 secret without writing one — `MVXCRED_<DRIVER>_<KEY>_<FIELD>`,
 upper-cased with non-alphanumerics as `_` (e.g. `MVXCRED_LMDBNET_SALES_TOKEN`).
 Resolution is env override, then the file, then a clear error.
+
+### Deploying secrets from CI / GitHub Actions
+
+The store is plain text with an end-of-line value, so a deploy job can
+pull secrets from GitHub Actions secrets and write them out. Two patterns:
+
+**Whole file as one secret** — keep the entire `credentials` file content
+in a single repository/environment secret and write it with a tight umask:
+
+```yaml
+- name: Write credentials
+  run: |
+    mkdir -p account/.mvx-private
+    ( umask 077; printf '%s' "${{ secrets.MVX_CREDENTIALS }}" \
+        > account/.mvx-private/credentials )
+```
+
+**Per-field env vars** — map individual secrets to the override variables
+and write no file at all:
+
+```yaml
+env:
+  MVXCRED_POSTGRES_MVX_PASSWORD: ${{ secrets.PG_PASSWORD }}
+  MVXCRED_LMDBNET_SALES_TOKEN:   ${{ secrets.SALES_TOKEN }}
+```
+
+Either way the secret never lands in git; `.mvx-private/` stays local to
+the deployed account.
 
 Keep `.mvx-private/` out of version control — it is a dotfile, so MVX's
 own account export already skips it; for an account kept in a plain git
