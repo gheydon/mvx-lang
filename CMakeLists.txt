@@ -18,6 +18,27 @@ find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Using LLVM ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
 
+# --- build options -----------------------------------------------------
+# Select which optional components to build.  Core (compiler, runtime,
+# shell, dir + lmdb drivers) is always built; because drivers are
+# dlopen'd, anything left out simply isn't available at run time — nothing
+# above the driver couples to it.  Each new backend adds one flag and one
+# guarded block.  MVX_WITH_POSTGRES is tri-state: AUTO builds it when
+# libpq is present, ON requires it (hard error if missing), OFF skips it.
+option(MVX_MINIMAL "Core only: skip optional backends and the daemon" OFF)
+if(MVX_MINIMAL)
+  set(_mvx_pg_default OFF)
+  set(_mvx_daemon_default OFF)
+else()
+  set(_mvx_pg_default AUTO)
+  set(_mvx_daemon_default ON)
+endif()
+set(MVX_WITH_POSTGRES "${_mvx_pg_default}" CACHE STRING
+  "Postgres driver: AUTO (build if libpq present), ON (require it), OFF")
+set_property(CACHE MVX_WITH_POSTGRES PROPERTY STRINGS AUTO ON OFF)
+option(MVX_WITH_DAEMON "Build the mvx-lmdbd daemon and admin tool"
+  ${_mvx_daemon_default})
+
 # --- runtime -----------------------------------------------------------
 # A SHARED library so its code is mapped once and shared across every mvx
 # process (each cataloged verb is its own executable), and so dlopen'd
@@ -78,34 +99,43 @@ target_link_libraries(mvxdrv_lmdb PRIVATE ${LMDB_LIBRARY})
 
 mvx_driver(lmdbnet runtime/src/mvx_drv_lmdbnet.c)
 
-# postgres driver — optional, built only when libpq is present.  libpq
-# is keg-only on Homebrew, so also probe its opt prefix.
-find_path(LIBPQ_INCLUDE_DIR libpq-fe.h
-  HINTS /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
-        /usr/include/postgresql)
-find_library(LIBPQ_LIBRARY pq
-  HINTS /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib)
-if(LIBPQ_INCLUDE_DIR AND LIBPQ_LIBRARY)
+# postgres driver — gated by MVX_WITH_POSTGRES.  libpq is keg-only on
+# Homebrew, so also probe its opt prefix.
+set(MVX_POSTGRES_ENABLED OFF)
+if(NOT MVX_WITH_POSTGRES STREQUAL "OFF")
+  find_path(LIBPQ_INCLUDE_DIR libpq-fe.h
+    HINTS /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
+          /usr/include/postgresql)
+  find_library(LIBPQ_LIBRARY pq
+    HINTS /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib)
+  if(LIBPQ_INCLUDE_DIR AND LIBPQ_LIBRARY)
+    set(MVX_POSTGRES_ENABLED ON)
+  elseif(MVX_WITH_POSTGRES STREQUAL "ON")
+    message(FATAL_ERROR
+      "MVX_WITH_POSTGRES=ON but libpq (libpq-fe.h / libpq) was not found")
+  endif()
+endif()
+if(MVX_POSTGRES_ENABLED)
   message(STATUS "Building postgres driver against ${LIBPQ_LIBRARY}")
   mvx_driver(postgres runtime/src/mvx_drv_postgres.c)
   target_include_directories(mvxdrv_postgres PRIVATE ${LIBPQ_INCLUDE_DIR})
   target_link_libraries(mvxdrv_postgres PRIVATE ${LIBPQ_LIBRARY})
-else()
-  message(STATUS "libpq not found — skipping postgres driver")
 endif()
 
-# --- the networked LMDB daemon -----------------------------------------
-add_executable(mvx-lmdbd daemon/mvxd.c daemon/sha256.c)
-target_include_directories(mvx-lmdbd PRIVATE ${LMDB_INCLUDE_DIR})
-target_link_libraries(mvx-lmdbd PRIVATE ${LMDB_LIBRARY})
-set_target_properties(mvx-lmdbd PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+# --- the networked LMDB daemon (optional) ------------------------------
+if(MVX_WITH_DAEMON)
+  add_executable(mvx-lmdbd daemon/mvxd.c daemon/sha256.c)
+  target_include_directories(mvx-lmdbd PRIVATE ${LMDB_INCLUDE_DIR})
+  target_link_libraries(mvx-lmdbd PRIVATE ${LMDB_LIBRARY})
+  set_target_properties(mvx-lmdbd PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# mvx-lmdbd-admin: standalone credential provisioning for the daemon host
-# (libc + vendored SHA-256 only — no MVX runtime, no LMDB).
-add_executable(mvx-lmdbd-admin daemon/mvxd_admin.c daemon/sha256.c)
-set_target_properties(mvx-lmdbd-admin PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  # mvx-lmdbd-admin: standalone credential provisioning for the daemon
+  # host (libc + vendored SHA-256 only — no MVX runtime, no LMDB).
+  add_executable(mvx-lmdbd-admin daemon/mvxd_admin.c daemon/sha256.c)
+  set_target_properties(mvx-lmdbd-admin PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
 
 # --- mvx-convert-acct: bootstrap tool for plain-git checkouts ----------
 add_executable(mvx-convert-acct tools/mvx_convert_acct.c)
@@ -204,11 +234,25 @@ endif()
 set_target_properties(mvx mvx-basic mvx-convert-acct PROPERTIES
   INSTALL_RPATH "${MVX_INSTALL_RPATH}")
 
-install(TARGETS mvx mvx-basic mvx-lmdbd mvx-lmdbd-admin mvx-convert-acct
-        RUNTIME DESTINATION bin)
-install(TARGETS mvxrt mvxdrv_dir mvxdrv_lmdb mvxdrv_lmdbnet
-        LIBRARY DESTINATION lib)
+set(MVX_INSTALL_BINS mvx mvx-basic mvx-convert-acct)
+if(MVX_WITH_DAEMON)
+  list(APPEND MVX_INSTALL_BINS mvx-lmdbd mvx-lmdbd-admin)
+endif()
+install(TARGETS ${MVX_INSTALL_BINS} RUNTIME DESTINATION bin)
+
+set(MVX_INSTALL_DRIVERS mvxrt mvxdrv_dir mvxdrv_lmdb mvxdrv_lmdbnet)
+if(MVX_POSTGRES_ENABLED)
+  list(APPEND MVX_INSTALL_DRIVERS mvxdrv_postgres)
+endif()
+install(TARGETS ${MVX_INSTALL_DRIVERS} LIBRARY DESTINATION lib)
 install(FILES ${CMAKE_BINARY_DIR}/lib/mvx_crt.o DESTINATION lib)
+
+# --- configuration summary ---------------------------------------------
+message(STATUS "")
+message(STATUS "MVX components:")
+message(STATUS "  postgres driver : ${MVX_POSTGRES_ENABLED}")
+message(STATUS "  lmdbd daemon    : ${MVX_WITH_DAEMON}")
+message(STATUS "")
 
 set(MVX_SOURCE_DIR ${CMAKE_SOURCE_DIR})
 configure_file(${CMAKE_SOURCE_DIR}/scripts/install-system.cmake.in

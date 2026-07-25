@@ -120,6 +120,26 @@ Produces `build/bin/mvx-basic`, `build/bin/mvx`, the runtime in
 `build/lib/`, and the system account (standard verbs) in
 `build/system/`.
 
+### Choosing components
+
+Core (compiler, runtime, shell, and the directory + LMDB drivers) always
+builds. Optional components are selected with CMake flags — a summary of
+what's enabled prints at the end of configuration:
+
+| flag | default | effect |
+|---|---|---|
+| `MVX_WITH_POSTGRES` | `AUTO` | Postgres driver: `AUTO` builds it when libpq is found, `ON` requires it (errors if missing), `OFF` skips it |
+| `MVX_WITH_DAEMON` | `ON` | the `mvx-lmdbd` daemon and `mvx-lmdbd-admin` |
+| `MVX_MINIMAL` | `OFF` | core only — sets the defaults above to `OFF` |
+
+```sh
+cmake -S . -B build -G Ninja -DMVX_WITH_POSTGRES=OFF   # no Postgres
+cmake -S . -B build -G Ninja -DMVX_MINIMAL=ON          # core only
+```
+
+Because drivers are dlopen'd, a backend left out simply isn't available
+at run time — nothing above the driver depends on it.
+
 Install a relocatable prefix (binaries in `bin/`, runtime and drivers in
 `lib/`, standard verbs in `share/mvx/system/`) with:
 
