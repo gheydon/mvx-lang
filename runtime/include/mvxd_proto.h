@@ -19,28 +19,31 @@
  * u32 length + bytes.  Integers are little-endian host order (the
  * daemon and its clients are assumed same-architecture for now).
  *
- * Requests carry the file spec each time — the protocol is stateless
- * apart from locks, which are leased to the CONNECTION and released
- * by the daemon when it drops (ARCHITECTURE.md 4.3).
+ * Every request begins with a u16 NAMESPACE (the target account, an
+ * LMDB environment of its own on the daemon: same-named files in
+ * different namespaces are isolated), then the fields below.  The
+ * protocol is stateless apart from locks, which are leased to the
+ * CONNECTION and released by the daemon when it drops (ARCHITECTURE.md
+ * 4.3); lock keys are scoped by namespace.
  */
 #ifndef MVXD_PROTO_H
 #define MVXD_PROTO_H
 
 enum {
-    MVXD_OP_OPEN = 1,       /* spec -> ok/notfound */
-    MVXD_OP_READ,           /* spec, id -> ok+data / notfound */
-    MVXD_OP_WRITE,          /* spec, id, data -> ok */
-    MVXD_OP_DEL,            /* spec, id -> ok/notfound */
-    MVXD_OP_SELECT,         /* spec -> count, ids (snapshot, then sent) */
-    MVXD_OP_CREATE,         /* spec -> ok / exists(no) */
-    MVXD_OP_REMOVE,         /* spec -> ok / absent(no) */
-    MVXD_OP_NAMES,          /* -> count, names */
-    MVXD_OP_LOCK,           /* spec, id -> ok / busy */
-    MVXD_OP_UNLOCK,         /* spec, id -> ok */
-    MVXD_OP_WRITE_IX,       /* spec, id, data, nops{item,key,add} -> ok */
-    MVXD_OP_DEL_IX,         /* spec, id, nops{item,key,add} -> ok/notfound */
-    MVXD_OP_IDX_SELECT,     /* spec, item, key -> count, ids / notfound */
-    MVXD_OP_IDX_DROP,       /* spec, item -> ok/notfound */
+    MVXD_OP_OPEN = 1,       /* ns, spec -> ok/notfound */
+    MVXD_OP_READ,           /* ns, spec, id -> ok+data / notfound */
+    MVXD_OP_WRITE,          /* ns, spec, id, data -> ok */
+    MVXD_OP_DEL,            /* ns, spec, id -> ok/notfound */
+    MVXD_OP_SELECT,         /* ns, spec -> count, ids (snapshot, then sent) */
+    MVXD_OP_CREATE,         /* ns, spec -> ok / exists(no) */
+    MVXD_OP_REMOVE,         /* ns, spec -> ok / absent(no) */
+    MVXD_OP_NAMES,          /* ns -> count, names */
+    MVXD_OP_LOCK,           /* ns, spec, id -> ok / busy */
+    MVXD_OP_UNLOCK,         /* ns, spec, id -> ok */
+    MVXD_OP_WRITE_IX,       /* ns, spec, id, data, nops{item,key,add} -> ok */
+    MVXD_OP_DEL_IX,         /* ns, spec, id, nops{item,key,add} -> ok/notfound */
+    MVXD_OP_IDX_SELECT,     /* ns, spec, item, key -> count, ids / notfound */
+    MVXD_OP_IDX_DROP,       /* ns, spec, item -> ok/notfound */
 };
 
 enum {

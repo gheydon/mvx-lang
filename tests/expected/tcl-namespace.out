@@ -1,0 +1,3 @@
+A reads: from A
+B reads: from B
+C via nsa: from A

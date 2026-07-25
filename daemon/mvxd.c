@@ -45,11 +45,23 @@
 
 #define MAX_CONNS 64
 #define MAX_FRAME (16u * 1024 * 1024)
+#define MAX_NS 16                       /* open environments kept (LRU) */
 
-static MDB_env *g_env;
+/* One LMDB environment per namespace (≈ Pick account), opened on demand
+   under <datadir>/<namespace>/, so same-named files in different
+   namespaces are isolated and each gets its own 126-sub-DB budget.
+   Least-recently-used environments are closed when the cache is full. */
+static const char *g_datadir;
+typedef struct {
+    char ns[128];
+    MDB_env *env;
+    unsigned used;
+} nsent;
+static nsent g_ns[MAX_NS];
+static unsigned g_clock;
 
 typedef struct lockent {
-    char *key;                          /* spec \x01 id */
+    char *key;                          /* ns \x01 spec \x01 id */
     int fd;
     struct lockent *next;
 } lockent;
@@ -138,14 +150,17 @@ static const char *istr16(inbuf *i, uint16_t *len) {
 
 /* -------------------------------------------------------------- locks */
 
-static char *lock_key(const char *spec, uint16_t sl, const char *id,
-                      uint16_t il) {
-    char *k = malloc((size_t)sl + 1 + il + 1);
+static char *lock_key(const char *ns, const char *spec, uint16_t sl,
+                      const char *id, uint16_t il) {
+    size_t nl = strlen(ns);
+    char *k = malloc(nl + 1 + (size_t)sl + 1 + il + 1);
     if (!k) exit(70);
-    memcpy(k, spec, sl);
-    k[sl] = '\x01';
-    memcpy(k + sl + 1, id, il);
-    k[sl + 1 + il] = '\0';
+    memcpy(k, ns, nl);
+    k[nl] = '\x01';
+    memcpy(k + nl + 1, spec, sl);
+    k[nl + 1 + sl] = '\x01';
+    memcpy(k + nl + 1 + sl + 1, id, il);
+    k[nl + 1 + sl + 1 + il] = '\0';
     return k;
 }
 
@@ -188,6 +203,59 @@ static void conn_reap(int fd) {
     }
 }
 
+/* ---------------------------------------------------------- namespaces */
+
+/* A namespace names a directory under the data dir, so reject anything
+   that could escape it or is empty. */
+static int ns_ok(const char *ns) {
+    if (!ns[0] || strcmp(ns, ".") == 0 || strcmp(ns, "..") == 0) return 0;
+    for (const char *c = ns; *c; c++)
+        if (*c == '/' || *c == '\\') return 0;
+    return 1;
+}
+
+/* The environment for a namespace, opened on demand at
+   <datadir>/<ns>/mvxdata.lmdb.  Closes the least-recently-used
+   environment when the cache is full.  NULL on a bad name or open
+   failure. */
+static MDB_env *env_for(const char *ns) {
+    if (!ns_ok(ns)) return NULL;
+    for (int i = 0; i < MAX_NS; i++)
+        if (g_ns[i].env && strcmp(g_ns[i].ns, ns) == 0) {
+            g_ns[i].used = ++g_clock;
+            return g_ns[i].env;
+        }
+    int slot = -1;
+    unsigned lru = ~0u;
+    for (int i = 0; i < MAX_NS; i++) {
+        if (!g_ns[i].env) { slot = i; break; }
+        if (g_ns[i].used < lru) { lru = g_ns[i].used; slot = i; }
+    }
+    if (g_ns[slot].env) {
+        mdb_env_close(g_ns[slot].env);
+        g_ns[slot].env = NULL;
+    }
+    char dir[4096], envp[4096];
+    snprintf(dir, sizeof dir, "%s/%s", g_datadir, ns);
+    mkdir(g_datadir, 0775);
+    mkdir(dir, 0775);
+    snprintf(envp, sizeof envp, "%s/mvxdata.lmdb", dir);
+    mkdir(envp, 0775);
+    MDB_env *e = NULL;
+    if (mdb_env_create(&e) || mdb_env_set_maxdbs(e, 126) ||
+        mdb_env_set_mapsize(e, (size_t)1 << 30) ||
+        mdb_env_open(e, envp, 0, 0664)) {
+        if (e) mdb_env_close(e);
+        return NULL;
+    }
+    int dead = 0;
+    mdb_reader_check(e, &dead);
+    snprintf(g_ns[slot].ns, sizeof g_ns[slot].ns, "%s", ns);
+    g_ns[slot].env = e;
+    g_ns[slot].used = ++g_clock;
+    return e;
+}
+
 /* ---------------------------------------------------------------- lmdb */
 
 static int dbi_of(MDB_txn *txn, const char *spec, uint16_t sl,
@@ -216,8 +284,17 @@ static int idx_dbi_of(MDB_txn *txn, const char *spec, uint16_t sl,
 static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
                    uint8_t *status) {
     *status = MVXD_ST_ERR;
-    uint16_t sl = 0, il = 0;
+    uint16_t nsl = 0, sl = 0, il = 0;
     const char *spec = NULL;
+
+    /* every request names its namespace first */
+    const char *nsp = istr16(in, &nsl);
+    if (in->bad || nsl == 0 || nsl >= 128) return;
+    char ns[128];
+    memcpy(ns, nsp, nsl);
+    ns[nsl] = '\0';
+    MDB_env *env = env_for(ns);
+    if (!env) return;
 
     if (op != MVXD_OP_NAMES) {
         spec = istr16(in, &sl);
@@ -229,21 +306,21 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
 
     switch (op) {
     case MVXD_OP_OPEN: {
-        if (mdb_txn_begin(g_env, NULL, MDB_RDONLY, &txn)) return;
+        if (mdb_txn_begin(env, NULL, MDB_RDONLY, &txn)) return;
         *status = dbi_of(txn, spec, sl, 0, &dbi) == 0 ? MVXD_ST_OK
                                                       : MVXD_ST_NO;
         mdb_txn_abort(txn);
         return;
     }
     case MVXD_OP_CREATE: {
-        if (mdb_txn_begin(g_env, NULL, 0, &txn)) return;
+        if (mdb_txn_begin(env, NULL, 0, &txn)) return;
         if (dbi_of(txn, spec, sl, 0, &dbi) == 0) {
             mdb_txn_abort(txn);
             *status = MVXD_ST_NO;       /* already exists */
             return;
         }
         mdb_txn_abort(txn);
-        if (mdb_txn_begin(g_env, NULL, 0, &txn)) return;
+        if (mdb_txn_begin(env, NULL, 0, &txn)) return;
         if (dbi_of(txn, spec, sl, MDB_CREATE, &dbi) == 0 &&
             mdb_txn_commit(txn) == 0)
             *status = MVXD_ST_OK;
@@ -252,7 +329,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
         return;
     }
     case MVXD_OP_REMOVE: {
-        if (mdb_txn_begin(g_env, NULL, 0, &txn)) return;
+        if (mdb_txn_begin(env, NULL, 0, &txn)) return;
         if (dbi_of(txn, spec, sl, 0, &dbi) != 0) {
             mdb_txn_abort(txn);
             *status = MVXD_ST_NO;
@@ -267,7 +344,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
     case MVXD_OP_READ: {
         const char *id = istr16(in, &il);
         if (in->bad) return;
-        if (mdb_txn_begin(g_env, NULL, MDB_RDONLY, &txn)) return;
+        if (mdb_txn_begin(env, NULL, MDB_RDONLY, &txn)) return;
         if (dbi_of(txn, spec, sl, 0, &dbi) != 0) {
             mdb_txn_abort(txn);
             *status = MVXD_ST_NO;
@@ -291,7 +368,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
         uint32_t dl = i32(in);
         const char *data = itake(in, dl);
         if (in->bad) return;
-        if (mdb_txn_begin(g_env, NULL, 0, &txn)) return;
+        if (mdb_txn_begin(env, NULL, 0, &txn)) return;
         if (dbi_of(txn, spec, sl, 0, &dbi) != 0) {
             mdb_txn_abort(txn);
             *status = MVXD_ST_NO;
@@ -341,7 +418,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
     case MVXD_OP_DEL_IX: {
         const char *id = istr16(in, &il);
         if (in->bad) return;
-        if (mdb_txn_begin(g_env, NULL, 0, &txn)) return;
+        if (mdb_txn_begin(env, NULL, 0, &txn)) return;
         if (dbi_of(txn, spec, sl, 0, &dbi) != 0) {
             mdb_txn_abort(txn);
             *status = MVXD_ST_NO;
@@ -382,7 +459,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
         return;
     }
     case MVXD_OP_SELECT: {
-        if (mdb_txn_begin(g_env, NULL, MDB_RDONLY, &txn)) return;
+        if (mdb_txn_begin(env, NULL, MDB_RDONLY, &txn)) return;
         if (dbi_of(txn, spec, sl, 0, &dbi) != 0) {
             mdb_txn_abort(txn);
             *status = MVXD_ST_NO;
@@ -411,7 +488,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
         const char *item = istr16(in, &itl);
         const char *key = istr16(in, &kl);
         if (in->bad) return;
-        if (mdb_txn_begin(g_env, NULL, MDB_RDONLY, &txn)) return;
+        if (mdb_txn_begin(env, NULL, MDB_RDONLY, &txn)) return;
         MDB_dbi xdbi;
         if (idx_dbi_of(txn, spec, sl, item, itl, 0, &xdbi) != 0) {
             mdb_txn_abort(txn);
@@ -442,7 +519,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
         uint16_t itl;
         const char *item = istr16(in, &itl);
         if (in->bad) return;
-        if (mdb_txn_begin(g_env, NULL, 0, &txn)) return;
+        if (mdb_txn_begin(env, NULL, 0, &txn)) return;
         MDB_dbi xdbi;
         if (idx_dbi_of(txn, spec, sl, item, itl, 0, &xdbi) != 0) {
             mdb_txn_abort(txn);
@@ -456,7 +533,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
         return;
     }
     case MVXD_OP_NAMES: {
-        if (mdb_txn_begin(g_env, NULL, MDB_RDONLY, &txn)) return;
+        if (mdb_txn_begin(env, NULL, MDB_RDONLY, &txn)) return;
         MDB_dbi main_dbi;
         if (mdb_dbi_open(txn, NULL, 0, &main_dbi) != 0) {
             mdb_txn_abort(txn);
@@ -484,7 +561,7 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
     case MVXD_OP_UNLOCK: {
         const char *id = istr16(in, &il);
         if (in->bad) return;
-        char *key = lock_key(spec, sl, id, il);
+        char *key = lock_key(ns, spec, sl, id, il);
         if (op == MVXD_OP_LOCK)
             *status = lock_try(key, fd) ? MVXD_ST_OK : MVXD_ST_BUSY;
         else {
@@ -523,18 +600,9 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
 
-    char envpath[4096];
-    snprintf(envpath, sizeof envpath, "%s/mvxdata.lmdb", datadir);
+    /* Environments open lazily, one per namespace, under the data dir. */
+    g_datadir = datadir;
     mkdir(datadir, 0775);
-    mkdir(envpath, 0775);
-    if (mdb_env_create(&g_env) || mdb_env_set_maxdbs(g_env, 126) ||
-        mdb_env_set_mapsize(g_env, (size_t)1 << 30) ||
-        mdb_env_open(g_env, envpath, 0, 0664)) {
-        fprintf(stderr, "mvx-lmdbd: cannot open environment at %s\n", envpath);
-        return 1;
-    }
-    int dead = 0;
-    mdb_reader_check(g_env, &dead);
 
     int lfd;
     if (sockpath) {
@@ -562,7 +630,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    fprintf(stderr, "mvx-lmdbd: serving %s on %s\n", envpath,
+    fprintf(stderr, "mvx-lmdbd: serving %s on %s\n", datadir,
             sockpath ? sockpath : "tcp");
 
     struct pollfd fds[MAX_CONNS + 1];

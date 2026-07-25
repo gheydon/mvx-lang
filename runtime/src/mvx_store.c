@@ -295,6 +295,29 @@ static void lock_drop(store_state *st, const char *key) {
 
 /* ----------------------------------------------------------------- API */
 
+/* The account's default namespace on a daemon: the basename of the
+   resolved MVXACCOUNT path (so ".", "./acct", and "/x/acct" all agree),
+   or "default".  Shared by the store and the lmdbnet driver so a
+   whole-account binding and its LISTF land in the same namespace. */
+void mvx_account_namespace(char *out, size_t outlen) {
+    const char *a = getenv("MVXACCOUNT");
+    if (!a || !a[0]) a = ".";
+    char rp[4096];
+    const char *path = realpath(a, rp) ? rp : a;
+    size_t n = strlen(path);
+    while (n > 1 && path[n - 1] == '/') n--;
+    size_t s = n;
+    while (s > 0 && path[s - 1] != '/') s--;
+    size_t len = n - s;
+    if (len == 0 || (len == 1 && path[s] == '.')) {
+        snprintf(out, outlen, "default");
+        return;
+    }
+    if (len >= outlen) len = outlen - 1;
+    memcpy(out, path + s, len);
+    out[len] = '\0';
+}
+
 /* Does this file have a backend binding?  Consult the account's
    BINDINGS record, whose lines are "SPEC driver {params...}" (an exact
    spec, or "*" for every LMDB file); driver names a storage driver
@@ -312,8 +335,10 @@ static int binding_for(const char *cspec, char *driver, size_t dcap,
     FILE *fp = fopen(path, "r");
     if (!fp) {
         if (envd && envd[0]) {
+            char nsb[128];
+            mvx_account_namespace(nsb, sizeof nsb);
             snprintf(driver, dcap, "lmdbnet");
-            snprintf(params, pcap, "%s", envd);
+            snprintf(params, pcap, "%s %s", envd, nsb);
             return 1;
         }
         return 0;
@@ -366,6 +391,20 @@ static int binding_for(const char *cspec, char *driver, size_t dcap,
         mvx_fatal("file %s is bound to lmdbnet but no daemon address "
                   "is configured (BINDINGS line or $MVXDAEMON)", cspec);
     snprintf(driver, dcap, "%s", ud);
+    /* lmdbnet params are "addr [namespace]"; supply the account's
+       default namespace when the binding names only an address. */
+    static char nsparm[640];
+    if (strcmp(ud, "lmdbnet") == 0) {
+        const char *sp = up;
+        while (*sp && *sp != ' ' && *sp != '\t') sp++;
+        while (*sp == ' ' || *sp == '\t') sp++;
+        if (!*sp) {
+            char nsb[128];
+            mvx_account_namespace(nsb, sizeof nsb);
+            snprintf(nsparm, sizeof nsparm, "%s %s", up, nsb);
+            up = nsparm;
+        }
+    }
     snprintf(params, pcap, "%s", up);
     return 1;
 }

@@ -88,46 +88,54 @@ keep daemon and clients on the same architecture for now.
 
 ## Multiple accounts on one daemon
 
-Several accounts can share one `mvx-lmdbd`. Understand the model before
-you point production accounts at a shared daemon:
+Several accounts can share one `mvx-lmdbd`, isolated by **namespace**:
 
-- **One flat, shared file namespace — no account isolation.** The daemon
-  addresses a file by its **bare name** (the account is not part of the
-  key). Two accounts that each bind a file called `ORDERS` to the same
-  daemon read and write the **same** data. That is the point of the
-  shared-data pattern (`docker/compose.demo.yaml`), but there is
-  currently **no way to keep unrelated same-named files private** per
-  account on one daemon — put private files on a local backend, or run a
-  separate daemon per trust domain.
-- **Locking is coordinated across accounts.** The daemon — not the
-  client — is the single lock authority, so a `READU` on `ORDERS`/`O1`
-  from one account genuinely blocks another account's `READU` on the
-  same record. Locks are keyed by file name + record id and leased to
-  the connection (dropped on disconnect).
-- **No authentication or authorization.** Any client that can reach the
-  port can read, write, create, lock, and **`DELETE-FILE` (drop)** any
-  file — there is no login and no per-file permission. Treat the daemon
-  as trusted infrastructure: bind it to a private network (as the demo
-  does), never expose the port publicly.
-- **No drop protection.** `DELETE-FILE` drops the shared database
-  immediately, with no reference counting — one account can remove a
-  file another account is actively using.
-- **Dictionaries are per-account views.** A remote data file's
-  dictionary (and its `%FILE%`/`%INDEXES%` control records) lives with
-  the account that binds it, so different accounts can hold different
-  column definitions over the same shared data. Index *data* is shared
-  on the daemon; index *definitions* are local, so building an index in
-  one account does not advertise it to another.
-- **Whole-account `$MVXDAEMON` binding sees every file on the daemon.**
-  `LISTF` through a whole-account daemon binding enumerates all files the
-  daemon holds, across accounts. Per-file `BINDINGS` is the way to attach
-  only the specific shared files an account should see.
-- **Single-threaded, serialised.** Requests are handled one at a time,
-  so a slow or partial client can stall others (head-of-line blocking).
+- **One environment per namespace.** Every request names a namespace
+  (≈ a Pick account), and the daemon keeps a separate LMDB environment
+  for each under `<datadir>/<namespace>/`. Same-named files in different
+  namespaces are fully isolated — two accounts can each have their own
+  private `ORDERS` — and each namespace gets its own budget of files
+  rather than sharing one global cap.
+- **The namespace defaults to the account name.** A file bound to a
+  daemon uses the account's own namespace (the basename of its account
+  directory) unless the binding says otherwise. So pointing two accounts
+  at one daemon isolates them automatically.
+- **Sharing is explicit — the Q-pointer analog.** To share a file, name
+  its home namespace in the `BINDINGS` line: `SPEC lmdbnet addr namespace`.
+  Any account that names `SALES` reads `SALES`'s data:
 
-If you need isolation, authentication, or drop protection, follow the
-issues linked from the multi-account investigation
-([#5](https://github.com/mvx-lang/mvx/issues/5)).
+  ```
+  ORDERS     lmdbnet  mvxdb-a:4300  SALES
+  CUSTOMERS  lmdbnet  mvxdb-a:4300  SALES
+  ```
+
+  Omit the namespace and the account gets its own. `$MVXDAEMON` binds the
+  whole account to a daemon in the account's own namespace.
+- **Locking is coordinated, and namespace-scoped.** The daemon is the
+  single lock authority; a `READU` from one account blocks another only
+  when they address the *same* namespace + file + record. Locks are
+  leased to the connection (dropped on disconnect).
+- **Dictionaries are per-account views.** A remote data file's dictionary
+  (and its `%FILE%`/`%INDEXES%` control records) lives with the account
+  that binds it, so different accounts can hold different column
+  definitions over the same shared data. Index *data* is shared in the
+  namespace; index *definitions* are local.
+- **No cross-daemon atomicity.** An account can bind files on several
+  daemons at once, but each daemon is its own lock and transaction
+  authority — a unit of work spanning two daemons cannot be one
+  transaction.
+
+Still open (see the investigation, [#5](https://github.com/mvx-lang/mvx/issues/5)):
+the daemon has **no authentication** and **no drop protection** — any
+client that can reach the port can access or drop any namespace
+([#9](https://github.com/mvx-lang/mvx/issues/9)), and a slow client can
+stall others ([#10](https://github.com/mvx-lang/mvx/issues/10)). Keep the
+daemon on a trusted network until those land.
+
+*Migration note:* pre-namespace data written by an earlier daemon lived
+in a single `<datadir>/mvxdata.lmdb`; it is not read by the namespaced
+daemon (which looks under `<datadir>/<namespace>/`). There is no
+production data at this stage, so no migration path is provided.
 
 ## Credentials and secrets (`.mvx-private`)
 

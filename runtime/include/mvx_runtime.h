@@ -259,6 +259,10 @@ int     mvx_cred_lookup(const char *driver, const char *target,
                         const char *key, const char *field, char *out,
                         size_t outlen);
 
+/* The account's default daemon namespace (basename of MVXACCOUNT); used
+   by the store and the lmdbnet driver.  See mvx_store.c. */
+void    mvx_account_namespace(char *out, size_t outlen);
+
 /* --- OS file access (see mvx_os.c) ------------------------------------- */
 void    mv_osread(mvx_ctx *ctx, mv_value *dst, const mv_value *path);
 int64_t mv_oswrite(mvx_ctx *ctx, const mv_value *data, const mv_value *path);

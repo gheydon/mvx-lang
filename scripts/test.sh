@@ -679,6 +679,32 @@ check tcl-mixed "$( \
   (cd "$MACCT" && MVXACCOUNT=. "$TESTROOT/mixbin"); \
   printf 'LISTF\n' | "$TCL" -a "$MACCT" 2>&1)"
 
+# namespace isolation: two accounts (nsa, nsb) with different names share
+# ONE daemon; the same file name ORDERS holds different data in each and
+# is mutually invisible.  A third account (nsc) names nsa's namespace
+# explicitly in BINDINGS and reads nsa's data — the Q-pointer analog.
+NSA="$TESTROOT/nsa"; NSB="$TESTROOT/nsb"; NSC="$TESTROOT/nsc"
+mkdir -p "$NSA" "$NSB" "$NSC"
+printf 'OPEN "ORDERS" TO F ELSE STOP\nWRITE "from A" ON F, "O1"\n' > "$TESTROOT/wa.b"
+printf 'OPEN "ORDERS" TO F ELSE STOP\nWRITE "from B" ON F, "O1"\n' > "$TESTROOT/wb.b"
+printf 'OPEN "ORDERS" TO F ELSE STOP\nREAD V FROM F, "O1" THEN PRINT V ELSE PRINT "(none)"\n' > "$TESTROOT/rd.b"
+"$MVX" "$TESTROOT/wa.b" -o "$TESTROOT/wa" 2>/dev/null
+"$MVX" "$TESTROOT/wb.b" -o "$TESTROOT/wb" 2>/dev/null
+"$MVX" "$TESTROOT/rd.b" -o "$TESTROOT/rd" 2>/dev/null
+check tcl-namespace "$( \
+  export MVXDAEMON="$DSOCK"; \
+  "$TCL" -a "$NSA" -c "CREATE-FILE VOC" >/dev/null 2>&1; \
+  "$TCL" -a "$NSA" -c "CREATE-FILE ORDERS" >/dev/null 2>&1; \
+  "$TCL" -a "$NSB" -c "CREATE-FILE VOC" >/dev/null 2>&1; \
+  "$TCL" -a "$NSB" -c "CREATE-FILE ORDERS" >/dev/null 2>&1; \
+  (cd "$NSA" && MVXACCOUNT=. "$TESTROOT/wa"); \
+  (cd "$NSB" && MVXACCOUNT=. "$TESTROOT/wb"); \
+  printf 'A reads: '; (cd "$NSA" && MVXACCOUNT=. "$TESTROOT/rd"); \
+  printf 'B reads: '; (cd "$NSB" && MVXACCOUNT=. "$TESTROOT/rd"); \
+  unset MVXDAEMON; \
+  printf 'ORDERS lmdbnet %s nsa\n' "$DSOCK" > "$NSC/BINDINGS"; \
+  printf 'C via nsa: '; (cd "$NSC" && MVXACCOUNT=. "$TESTROOT/rd") )"
+
 kill $DPID 2>/dev/null
 rm -f "$DSOCK"
 

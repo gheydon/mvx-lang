@@ -39,6 +39,7 @@ typedef struct {
     mvx_file_base base;
     int fd;                             /* connection to this file's daemon */
     const char *rspec;                  /* spec without the address prefix */
+    char ns[128];                       /* target namespace on the daemon */
 } net_file;
 
 struct mvx_cursor {
@@ -69,6 +70,23 @@ static const char *split_addr(const char *spec, char *addr, size_t cap) {
     const char *e = getenv("MVXDAEMON");
     snprintf(addr, cap, "%s", e ? e : "");
     return spec;
+}
+
+/* The pre-spec location is "addr [namespace]" (the store supplies the
+   namespace).  Split it; default the namespace to the account's own. */
+static void split_loc(const char *loc, char *addr, size_t acap, char *ns,
+                      size_t ncap) {
+    const char *sp = loc;
+    while (*sp && *sp != ' ' && *sp != '\t') sp++;
+    size_t al = (size_t)(sp - loc);
+    if (al >= acap) al = acap - 1;
+    memcpy(addr, loc, al);
+    addr[al] = '\0';
+    while (*sp == ' ' || *sp == '\t') sp++;
+    if (*sp)
+        snprintf(ns, ncap, "%s", sp);
+    else
+        mvx_account_namespace(ns, ncap);
 }
 
 static int send_all(int fd, const void *buf, size_t n) {
@@ -213,11 +231,13 @@ static int roundtrip(int fd, uint8_t op, reqbuf *b, char **resp,
 static const mvx_driver mvx_driver_lmdbnet;
 
 static mvx_file *net_open(const char *spec, char *err, size_t errlen) {
-    char addr[512];
-    const char *rspec = split_addr(spec, addr, sizeof addr);
+    char loc[512], addr[512], ns[128];
+    const char *rspec = split_addr(spec, loc, sizeof loc);
+    split_loc(loc, addr, sizeof addr, ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return NULL;
     reqbuf b = {0, 0, 0};
+    rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
     char *resp;
     uint32_t rlen;
@@ -230,6 +250,7 @@ static mvx_file *net_open(const char *spec, char *err, size_t errlen) {
     f->base.spec = strdup(spec);
     f->fd = fd;
     f->rspec = f->base.spec + (rspec - spec);
+    snprintf(f->ns, sizeof f->ns, "%s", ns);
     return (mvx_file *)f;
 }
 
@@ -242,6 +263,7 @@ static void net_close(mvx_file *fh) {
 static reqbuf spec_req(mvx_file *fh) {
     reqbuf b = {0, 0, 0};
     net_file *f = (net_file *)fh;
+    rstr16(&b, f->ns, strlen(f->ns));   /* namespace first, every op */
     rstr16(&b, f->rspec, strlen(f->rspec));
     return b;
 }
@@ -338,11 +360,13 @@ static void net_select_end(mvx_cursor *c) {
 }
 
 static int net_create(const char *spec, char *err, size_t errlen) {
-    char addr[512];
-    const char *rspec = split_addr(spec, addr, sizeof addr);
+    char loc[512], addr[512], ns[128];
+    const char *rspec = split_addr(spec, loc, sizeof loc);
+    split_loc(loc, addr, sizeof addr, ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
     reqbuf b = {0, 0, 0};
+    rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
     char *resp;
     uint32_t rlen;
@@ -352,11 +376,13 @@ static int net_create(const char *spec, char *err, size_t errlen) {
 }
 
 static int net_remove(const char *spec, char *err, size_t errlen) {
-    char addr[512];
-    const char *rspec = split_addr(spec, addr, sizeof addr);
+    char loc[512], addr[512], ns[128];
+    const char *rspec = split_addr(spec, loc, sizeof loc);
+    split_loc(loc, addr, sizeof addr, ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
     reqbuf b = {0, 0, 0};
+    rstr16(&b, ns, strlen(ns));
     rstr16(&b, rspec, strlen(rspec));
     char *resp;
     uint32_t rlen;
@@ -366,11 +392,13 @@ static int net_remove(const char *spec, char *err, size_t errlen) {
 }
 
 static int net_names(mv_value *out, char *err, size_t errlen) {
-    char addr[512];
+    char addr[512], ns[128];
     split_addr("", addr, sizeof addr);  /* default daemon */
+    mvx_account_namespace(ns, sizeof ns);
     int fd = daemon_connect(addr, err, errlen);
     if (fd < 0) return 0;
     reqbuf b = {0, 0, 0};
+    rstr16(&b, ns, strlen(ns));
     char *resp;
     uint32_t rlen;
     int st = roundtrip(fd, MVXD_OP_NAMES, &b, &resp, &rlen);
