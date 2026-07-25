@@ -1,5 +1,8 @@
 # MVX
 
+[![ci](https://github.com/mvx-lang/mvx/actions/workflows/ci.yml/badge.svg)](https://github.com/mvx-lang/mvx/actions/workflows/ci.yml)
+[![license: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](LICENSE)
+
 A native compiler and runtime environment for Pick/MultiValue BASIC.
 BASIC source compiles straight to object code via LLVM — no C
 transpilation — with DWARF debug info against BASIC source lines, and
@@ -12,6 +15,28 @@ first-class git version control of hash-file records.
 See `ARCHITECTURE.md` for the full design, `DECISIONS.md` for settled
 implementation decisions, and `docs/` for the book (`mdbook serve
 docs`).
+
+## Try it
+
+Run the demo account — Snake and a full-screen file demo, cataloged as
+verbs — straight from a published image (no build needed):
+
+```sh
+docker run --rm -it ghcr.io/mvx-lang/mvx-demo
+demo> SNAKE          # arrows steer; q or ESC quits
+demo> FSDEMO
+```
+
+Or grab a relocatable Linux build (amd64 / arm64) from the
+[latest release](https://github.com/mvx-lang/mvx/releases/latest),
+unpack it, and put `bin/` on your `PATH`:
+
+```sh
+tar xzf mvx-lang-*-linux-amd64.tar.gz     # or -arm64
+./mvx-lang/bin/mvx -a myaccount
+```
+
+To build from source instead, see **Build** below.
 
 ## Why I built this
 
