@@ -992,20 +992,23 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
 
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
-    DIR *d = opendir(acct);
-    if (d) {
-        struct dirent *e;
-        while ((e = readdir(d))) {
-            if (e->d_name[0] == '.') continue;
-            if (strcmp(e->d_name, "mvxdata.lmdb") == 0) continue;
+    /* scandir + alphasort, not readdir: directory order is filesystem-
+       dependent (APFS returns sorted, ext4 hash order), so LISTF would
+       otherwise vary by platform.  A file listing should be stable. */
+    struct dirent **ents = NULL;
+    int ne = scandir(acct, &ents, NULL, alphasort);
+    for (int i = 0; i < ne; i++) {
+        const char *nm = ents[i]->d_name;
+        if (nm[0] != '.' && strcmp(nm, "mvxdata.lmdb") != 0) {
             char p[4096];
-            snprintf(p, sizeof p, "%s/%s", acct, e->d_name);
+            snprintf(p, sizeof p, "%s/%s", acct, nm);
             struct stat sb;
-            if (stat(p, &sb) != 0 || !S_ISDIR(sb.st_mode)) continue;
-            FL_PUT(e->d_name, strlen(e->d_name), 'D');
+            if (stat(p, &sb) == 0 && S_ISDIR(sb.st_mode))
+                FL_PUT(nm, strlen(nm), 'D');
         }
-        closedir(d);
+        free(ents[i]);
     }
+    free(ents);
 
     const mvx_driver *lmdb = driver_load("lmdb");
     if (lmdb->names) {

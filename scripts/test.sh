@@ -71,7 +71,13 @@ check() { # name actual-text
 }
 
 normalise() {
-  sed -e "s#$TESTROOT#@TESTROOT@#g" -e "s#$ROOT#@ROOT@#g"
+  # Substitute absolute roots, then collapse the column padding that
+  # trails a substituted path.  A verb that FMT-pads a path column (e.g.
+  # LIST-PKGS) sizes the padding from the *absolute* path length, which
+  # differs by platform; @ROOT@ hides the path but not the trailing
+  # spaces, so squeeze 2+ spaces after a normalised path token to one.
+  sed -E -e "s#$TESTROOT#@TESTROOT@#g" -e "s#$ROOT#@ROOT@#g" \
+         -e "s#(@(TEST)?ROOT@[^ ]*)  +#\1 #g"
 }
 
 # ---------------------------------------------------------------- phase 1
