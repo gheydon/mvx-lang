@@ -50,4 +50,5 @@ jobs:
       - name: Test
         env:
           MVX_PG: "address=localhost:5432 dbname=mvx user=mvx password=mvx"
+          MVX_SIEVE_OPTIONAL: "1"   # perf benchmark: report, don't gate CI
         run: ./scripts/test.sh

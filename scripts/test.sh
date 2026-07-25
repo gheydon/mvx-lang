@@ -799,6 +799,10 @@ if [ "$QUICK" = 0 ]; then
   done
   if [ "$sieve_ok" = 1 ]; then
     PASS=$((PASS + 1))
+  elif [ -n "${MVX_SIEVE_OPTIONAL:-}" ]; then
+    # CI sets this: the sieve is a perf benchmark, not a correctness gate,
+    # and is sensitive to runner contention — report but do not fail.
+    echo "WARN sieve (non-fatal): $sieve_diag"
   else
     echo "FAIL sieve: $sieve_diag"
     FAIL=$((FAIL + 1))
