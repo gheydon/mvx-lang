@@ -91,6 +91,7 @@ ISPECS = ""
 CONVS = ""
 HEADS = ""
 MASKS = ""
+ASSOCS = ""
 BAD = ""
 FOR C = 1 TO CN
    NM = COLS<C>
@@ -99,6 +100,7 @@ FOR C = 1 TO CN
    CV = ""
    HD = NM
    MK = "L#10"
+   ASN = ""
    IF NM = "@ID" THEN
       ANO = 0
    END ELSE
@@ -125,6 +127,7 @@ FOR C = 1 TO CN
                   MK = "L#":W
                END
             END
+            ASN = DI<6>
             GOT = 1
          END
       END
@@ -137,6 +140,7 @@ FOR C = 1 TO CN
    CONVS<C> = CV
    HEADS<C> = HD
    MASKS<C> = MK
+   ASSOCS<C> = ASN
 NEXT C
 IF BAD # "" THEN
    PRINT BAD:" is not a dictionary item in ":FN
@@ -290,7 +294,9 @@ N = DCOUNT(IDS, @AM)
 FOR K = 1 TO N
    ID = IDS<K>
    READ R FROM F, ID ELSE R = ""
-   ROW = FMT(ID, "L#12")
+   * gather each column's raw value and its value count
+   CVAL = ""
+   VCNT = ""
    FOR C = 1 TO CN
       BEGIN CASE
       CASE ANOS<C> = 0
@@ -302,12 +308,49 @@ FOR K = 1 TO N
       CASE 1
          V = R<ANOS<C>>
       END CASE
-      IF CONVS<C> # "" THEN
-         V = OCONV(V, CONVS<C>)
-      END
-      ROW = ROW:" ":FMT(V, MASKS<C>)
+      CVAL<C> = V
+      VCNT<C> = DCOUNT(V, @VM)
    NEXT C
-   PRINT ROW
+   * a column in an association takes its value count from the
+   * controlling member (the one with the lowest attribute number), so
+   * dependents align to it.  NV is the tallest column: one sub-row per
+   * value, single-valued columns shown once and blank thereafter.
+   NV = 1
+   FOR C = 1 TO CN
+      EC = VCNT<C>
+      IF ASSOCS<C> # "" THEN
+         CTL = C
+         FOR C2 = 1 TO CN
+            IF ASSOCS<C2> = ASSOCS<C> AND ANOS<C2> < ANOS<CTL> THEN
+               CTL = C2
+            END
+         NEXT C2
+         EC = VCNT<CTL>
+      END
+      ECNT<C> = EC
+      IF EC > NV THEN
+         NV = EC
+      END
+   NEXT C
+   FOR SR = 1 TO NV
+      IF SR = 1 THEN
+         ROW = FMT(ID, "L#12")
+      END ELSE
+         ROW = FMT("", "L#12")
+      END
+      FOR C = 1 TO CN
+         IF SR <= ECNT<C> THEN
+            V = FIELD(CVAL<C>, @VM, SR)
+         END ELSE
+            V = ""
+         END
+         IF V # "" AND CONVS<C> # "" THEN
+            V = OCONV(V, CONVS<C>)
+         END
+         ROW = ROW:" ":FMT(V, MASKS<C>)
+      NEXT C
+      PRINT ROW
+   NEXT SR
 NEXT K
 PRINT N:" record(s) listed"
 STOP

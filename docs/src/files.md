@@ -39,6 +39,7 @@ attr 2: attribute number
 attr 3: conversion (an OCONV code, e.g. MD2$ or D2/)
 attr 4: column heading
 attr 5: format, e.g. 12L or 8R
+attr 6: association name (optional — see Multivalues below)
 ```
 
 **Control records** (ids starting with `%`) hold file metadata, not
@@ -63,6 +64,37 @@ reads program metadata straight out of source docblocks.
 `LIST` and `SELECT` drive columns, filters (`WITH`), and ordering
 (`BY` — numeric when the item's format is right-justified) entirely
 from the dictionary.
+
+### Multivalues and associations
+
+An attribute may hold several values, separated by value marks (`@VM`).
+`LIST` and `SORT` **explode** a multivalued attribute vertically — one
+sub-row per value — rather than printing the marks. Single-valued
+columns (and `@ID`) show on the record's first sub-row and stay blank on
+the continuations, so each record reads as one block.
+
+Related multivalues that vary together — an order's line items, say —
+are declared an **association** by giving their dictionary items the same
+name in **attribute 6**. Associated columns then align value-by-value,
+their row count driven by the **controlling** member (the one with the
+lowest attribute number):
+
+```
+PRODUCT:  D ^ 5 ^      ^ Product ^ 10L ^ ORDERITEMS
+QTY:      D ^ 6 ^      ^ Qty     ^ 5R  ^ ORDERITEMS
+PRICE:    D ^ 7 ^ MD2$ ^ Price   ^ 8R  ^ ORDERITEMS      (^ = @AM)
+```
+```
+> LIST ORDERS CUSTOMER PRODUCT QTY PRICE
+@ID          Customer     Product      Qty    Price
+O1           Acme Corp    Widget         2    $9.99
+                          Gadget         1    $4.50
+O2           Beta Ltd     Sprocket       5    $1.25
+```
+
+Conversions and formats apply per value. Two *different* associations of
+unequal length in one listing currently share a single explosion height
+(the tallest column) rather than each exploding independently.
 
 ## Record locks
 

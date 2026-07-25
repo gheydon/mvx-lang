@@ -210,6 +210,40 @@ check tcl-sort "$(printf '%s\n' \
   'SSELECT PARTS WITH COLOR = blue' \
   'LIST PARTS NAME' | tclrun)"
 
+# multivalue explosion + dictionary associations (D-item attr 6): an
+# ORDERS file whose PRODUCT/QTY/PRICE are a parallel-multivalue group.
+# O1 has two line items, O2 one; the associated columns explode onto
+# aligned sub-rows while the single-valued Customer shows once.
+oseed="$TESTROOT/oseed.b"
+cat > "$oseed" <<'EOF'
+X = CREATEFILE("ORDERS")
+OPEN "ORDERS" TO F ELSE STOP
+R = ""
+R<1> = "Acme Corp"
+R<5> = "Widget":@VM:"Gadget"
+R<6> = "2":@VM:"1"
+R<7> = "999":@VM:"450"
+WRITE R ON F, "O1"
+R = ""
+R<1> = "Beta Ltd"
+R<5> = "Sprocket"
+R<6> = "5"
+R<7> = "125"
+WRITE R ON F, "O2"
+OPEN "DICT", "ORDERS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"12L" ON D, "CUSTOMER"
+WRITE "D":@AM:"5":@AM:"":@AM:"Product":@AM:"10L":@AM:"ORDERITEMS" ON D, "PRODUCT"
+WRITE "D":@AM:"6":@AM:"":@AM:"Qty":@AM:"5R":@AM:"ORDERITEMS" ON D, "QTY"
+WRITE "D":@AM:"7":@AM:"MD2$":@AM:"Price":@AM:"8R":@AM:"ORDERITEMS" ON D, "PRICE"
+PRINT "seeded"
+EOF
+"$MVX" "$oseed" -o "$TESTROOT/oseedbin" 2>/dev/null
+(cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/oseedbin") >/dev/null
+
+check tcl-assoc "$(printf '%s\n' \
+  'LIST ORDERS CUSTOMER PRODUCT QTY PRICE' \
+  'SORT ORDERS CUSTOMER PRODUCT QTY PRICE' | tclrun)"
+
 # record verbs + ED scripted session
 check tcl-records "$(printf '%s\n' \
   'COPY PARTS W100 TO W900' \
