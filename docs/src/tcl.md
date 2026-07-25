@@ -35,7 +35,9 @@ standard verbs.
 | `LISTF` | the account's files |
 | `COUNT {DICT} file` | record count (uses an active select list) |
 | `LIST {DICT} file {items} {WITH item op value} {BY item}` | query |
+| `SORT {DICT} file {items} {WITH item op value} {BY item}` | like `LIST`, but sorted by id (or the `BY` key) |
 | `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |
+| `SSELECT {DICT} file {WITH item op value} {BY item}` | like `SELECT`, but the list is sorted |
 | `CT {DICT} file id` | show a record, numbered attributes |
 | `COPY file id TO {file2} id2` | copy a record |
 | `DELETE file id {id...}` | delete records |

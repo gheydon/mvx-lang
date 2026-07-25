@@ -1,0 +1,21 @@
+@ID          Name              Price Colour  
+G200         Gadget            $4.50 red     
+S300         Sprocket          $1.25 blue    
+W100         Widget            $9.99 blue    
+3 record(s) listed
+@ID          Name              Price
+S300         Sprocket          $1.25
+G200         Gadget            $4.50
+W100         Widget            $9.99
+3 record(s) listed
+3 record(s) selected
+@ID          Name        
+G200         Gadget      
+S300         Sprocket    
+W100         Widget      
+3 record(s) listed
+2 record(s) selected
+@ID          Name        
+S300         Sprocket    
+W100         Widget      
+2 record(s) listed

@@ -200,6 +200,16 @@ check tcl-query "$(printf '%s\n' \
   'LIST DICT PARTS' \
   'CT DICT PARTS PRICE' | tclrun)"
 
+# SORT (LIST sorted by id by default, or BY key) and SSELECT (a sorted
+# select list feeding the next command)
+check tcl-sort "$(printf '%s\n' \
+  'SORT PARTS NAME PRICE COLOR' \
+  'SORT PARTS NAME PRICE BY PRICE' \
+  'SSELECT PARTS' \
+  'LIST PARTS NAME' \
+  'SSELECT PARTS WITH COLOR = blue' \
+  'LIST PARTS NAME' | tclrun)"
+
 # record verbs + ED scripted session
 check tcl-records "$(printf '%s\n' \
   'COPY PARTS W100 TO W900' \
