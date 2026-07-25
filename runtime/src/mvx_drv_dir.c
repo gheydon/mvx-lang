@@ -72,7 +72,9 @@ static mvx_file *dir_open(const char *spec, char *err, size_t errlen) {
         snprintf(path, sizeof path, "%s/%s", acct, spec);
 
     struct stat sb;
-    if (stat(path, &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+    if (stat(path, &sb) != 0)
+        return NULL;                     /* missing = a silent not-found */
+    if (!S_ISDIR(sb.st_mode)) {
         snprintf(err, errlen, "dir: %s is not a directory", path);
         return NULL;
     }

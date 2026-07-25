@@ -177,6 +177,12 @@ for now; **`DATE`/`TIME`** typed columns and the `native` mode (backend
 as source of truth) are the remaining phases of
 [#18](https://github.com/mvx-lang/mvx/issues/18).
 
+`LIST-MAPS` shows the account's mapped files and their fields, and
+`DELETE-MAP file` tears a mapping down — dropping its columns and child
+tables and removing `%MAP%`, so writes stop mirroring — the full lifecycle
+alongside `CREATE-MAP`/`BUILD-MAP` (as `LIST-INDEXES`/`DELETE-INDEX` are
+to indexing).
+
 ## Record locks
 
 `READU` locks a record until `WRITE`, `DELETE`, or `RELEASE`

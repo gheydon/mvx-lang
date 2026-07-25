@@ -824,6 +824,28 @@ W3EOF
     printf 'CREATE-MAP MORD CUSTOMER PRODUCT QTY PRICE\n' | \
       "$TCL" -a "$PGACCT" 2>&1; \
     (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgw3bin"))"
+
+  # LIST-MAPS / DELETE-MAP (#31), in a fresh account so LIST-MAPS is clean
+  VMACCT="$TESTROOT/vmacct"; mkdir -p "$VMACCT"
+  printf 'SET-CONNECTION vpg driver=postgres %s namespace=vmtest\n' \
+    "$MVX_PG" | "$TCL" -a "$VMACCT" >/dev/null 2>&1
+  printf 'PARTS @vpg\n' > "$VMACCT/BINDINGS"
+  "$TCL" -a "$VMACCT" -c 'DELETE-FILE PARTS' >/dev/null 2>&1
+  "$TCL" -a "$VMACCT" -c 'CREATE-FILE PARTS USING @vpg' >/dev/null 2>&1
+  cat > "$TESTROOT/vm.b" <<'VMEOF'
+OPEN "PARTS" TO F ELSE STOP
+WRITE "Widget":@AM:"999" ON F, "P1"
+OPEN "DICT", "PARTS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+VMEOF
+  "$MVX" "$TESTROOT/vm.b" -o "$TESTROOT/vmbin" 2>/dev/null
+  (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmbin")
+  check tcl-mapverbs "$(printf '%s\n' \
+    'CREATE-MAP PARTS NAME PRICE' \
+    'LIST-MAPS' \
+    'DELETE-MAP PARTS' \
+    'LIST-MAPS' | "$TCL" -a "$VMACCT" 2>&1)"
 else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi

@@ -1197,6 +1197,46 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
     return rc < 0 ? rc : count;
 }
 
+/* Tear down a file's mapping (drop its columns + child tables).  spec is
+   the same %MAP% string.  Returns 1, -1 on error, or -2 if unsupported. */
+int64_t mvx_mapdrop(mvx_ctx *ctx, const mv_value *fvar,
+                    const mv_value *spec) {
+    (void)ctx;
+    mvx_file *f = file_of(fvar, "MAPDROP");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->map_drop) return -2;
+    char nb[40];
+    const char *sp;
+    int64_t slen = mv_val_chars(spec, nb, sizeof nb, &sp);
+    mapmeta m;
+    memset(&m, 0, sizeof m);
+    map_parse(sp, slen, &m);
+    if (m.nf == 0) { free(m.buf); return 0; }
+    mvx_mapfield pcol[MAP_MAXF];
+    int npar = 0;
+    for (int i = 0; i < m.nf; i++)
+        if (m.assocs[i][0] == '\0') {
+            pcol[npar].name = m.names[i];
+            pcol[npar].type = m.types[i];
+            npar++;
+        }
+    char *an[MAP_MAXA];
+    int na = 0;
+    for (int i = 0; i < m.nf; i++) {
+        if (m.assocs[i][0] == '\0') continue;
+        int seen = 0;
+        for (int a = 0; a < na; a++)
+            if (strcmp(an[a], m.assocs[i]) == 0) seen = 1;
+        if (!seen && na < MAP_MAXA) an[na++] = m.assocs[i];
+    }
+    char err[256] = "";
+    int ok = b->driver->map_drop(f, pcol, npar, (const char **)an, na, err,
+                                 sizeof err);
+    if (!ok && err[0]) fprintf(stderr, "MAPDROP: %s\n", err);
+    free(m.buf);
+    return ok ? 1 : -1;
+}
+
 int64_t mvx_index_drop(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *item) {
     mvx_file *f = file_of(fvar, "INDEXDROP");

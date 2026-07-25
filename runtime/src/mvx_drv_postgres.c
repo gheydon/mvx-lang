@@ -490,6 +490,40 @@ static int pg_map_child_apply(mvx_file *fh, const char *id, int64_t idlen,
     return 1;
 }
 
+static int pg_map_drop(mvx_file *fh, const mvx_mapfield *cols, int ncols,
+                       const char **assocs, int nassocs, char *err,
+                       size_t errlen) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    for (int i = 0; i < ncols; i++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[i].name,
+                                      strlen(cols[i].name));
+        char sql[768];
+        snprintf(sql, sizeof sql,
+                 "ALTER TABLE %s DROP COLUMN IF EXISTS %s", qt,
+                 qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+        PGresult *r = PQexec(f->conn, sql);
+        int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (!ok && r) snprintf(err, errlen, "postgres: %s",
+                               PQerrorMessage(f->conn));
+        if (r) PQclear(r);
+        if (!ok) return 0;
+    }
+    for (int a = 0; a < nassocs; a++) {
+        char cqt[640];
+        child_qualify(f, assocs[a], cqt, sizeof cqt);
+        char sql[720];
+        snprintf(sql, sizeof sql, "DROP TABLE IF EXISTS %s", cqt);
+        PGresult *r = PQexec(f->conn, sql);
+        int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+        if (r) PQclear(r);
+        if (!ok) return 0;
+    }
+    return 1;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -501,6 +535,7 @@ static const mvx_driver mvx_driver_postgres = {
     NULL, NULL,                           /* no lock authority (yet) */
     pg_map_ensure, pg_map_apply,          /* relational mapping: parent */
     pg_map_child_ensure, pg_map_child_apply,   /* association child tables */
+    pg_map_drop,                          /* tear down a mapping */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

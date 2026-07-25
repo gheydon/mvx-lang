@@ -127,6 +127,11 @@ typedef struct mvx_driver {
                            const char *assoc, const mvx_mapfield *cols,
                            int ncols, const char **vals,
                            const int64_t *vlens, int nrows);
+    /* Tear down a mapping: drop the parent columns and the association
+       child tables (may be NULL). */
+    int (*map_drop)(mvx_file *f, const mvx_mapfield *cols, int ncols,
+                    const char **assocs, int nassocs, char *err,
+                    size_t errlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
