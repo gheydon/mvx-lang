@@ -1,0 +1,10 @@
+@ID          Customer     Product      Qty    Price
+O1           Acme Corp    Widget         2    $9.99
+                          Gadget         1    $4.50
+O2           Beta Ltd     Sprocket       5    $1.25
+2 record(s) listed
+@ID          Customer     Product      Qty    Price
+O1           Acme Corp    Widget         2    $9.99
+                          Gadget         1    $4.50
+O2           Beta Ltd     Sprocket       5    $1.25
+2 record(s) listed
