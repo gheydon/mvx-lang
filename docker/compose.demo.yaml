@@ -1,0 +1,87 @@
+# A shared MVX database with two application accounts.
+#
+#   docker compose -f docker/compose.demo.yaml up -d
+#   docker compose -f docker/compose.demo.yaml exec app1 mvx -a /acct
+#   app1> COUNT ORDERS            # 2 records, served by the daemon
+#   ... in another terminal ...
+#   docker compose -f docker/compose.demo.yaml exec app2 mvx -a /acct
+#   app2> COUNT ORDERS            # app2 sees the same shared data
+#
+# Each app keeps its own VOC and BP (source) in a *local* LMDB database;
+# the ORDERS and CUSTOMERS *data* files live on the shared mvx-lmdbd
+# daemon over the network, so both apps read and write the same records.
+#
+# SPDX-License-Identifier: GPL-2.0-only
+services:
+  # The shared database server.  Its LMDB data persists on a volume.
+  mvxdb:
+    image: mvx-lang/mvx-lmdbd:latest
+    restart: unless-stopped
+    volumes:
+      - mvxdata:/data
+
+  # One-shot: create the shared data files on the daemon and seed a few
+  # records.  Runs once, then exits; the apps wait for it to finish.
+  init:
+    image: mvx-lang/mvx:latest
+    depends_on: [mvxdb]
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        A=/tmp/init
+        mkdir -p "$$A"
+        mvx -a "$$A" -c "CREATE-FILE VOC" >/dev/null
+        # wait for the daemon to accept connections, then create the files
+        until mvx -a "$$A" -c "CREATE-FILE ORDERS USING lmdbnet mvxdb:4300" 2>/dev/null; do
+          sleep 1
+        done
+        mvx -a "$$A" -c "CREATE-FILE CUSTOMERS USING lmdbnet mvxdb:4300"
+        printf 'OPEN "ORDERS" TO F ELSE STOP\nWRITE "Widget":@AM:"9.99" ON F,"O1"\nWRITE "Gadget":@AM:"4.50" ON F,"O2"\nOPEN "CUSTOMERS" TO C ELSE STOP\nWRITE "Acme Corp" ON C,"C1"\n' > /tmp/seed.b
+        mvx-basic /tmp/seed.b -o /tmp/seed
+        cd "$$A" && MVXACCOUNT=. /tmp/seed
+        echo "seeded shared ORDERS and CUSTOMERS"
+
+  app1:
+    image: mvx-lang/mvx:latest
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    stdin_open: true
+    tty: true
+    volumes:
+      - app1:/acct
+    environment:
+      APPNAME: app1
+    command: &provision
+      - sh
+      - -c
+      - |
+        if [ ! -f /acct/.mvx ]; then
+          # VOC and BP (source) are local to this account's LMDB
+          mvx -a /acct -c "CREATE-FILE VOC"
+          mvx -a /acct -c "CREATE-FILE BP"
+          # ORDERS and CUSTOMERS resolve to the shared daemon
+          printf 'ORDERS lmdbnet mvxdb:4300\nCUSTOMERS lmdbnet mvxdb:4300\n' > /acct/BINDINGS
+          printf 'name = %s\nversion = 1\n' "$${APPNAME}" > /acct/.mvx
+        fi
+        exec tail -f /dev/null
+
+  app2:
+    image: mvx-lang/mvx:latest
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    stdin_open: true
+    tty: true
+    volumes:
+      - app2:/acct
+    environment:
+      APPNAME: app2
+    command: *provision
+
+volumes:
+  mvxdata:
+  app1:
+  app2:

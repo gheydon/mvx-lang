@@ -62,6 +62,53 @@ CREATE-FILE ORDERS USING lmdbnet host.docker.internal:4300
 docker run --rm -it -e MVXDAEMON=host.docker.internal:4300 mvx
 ```
 
+## Compose: a shared database, local application code
+
+`docker/compose.demo.yaml` wires a daemon to two application accounts,
+modelling the classic MultiValue split: each app keeps its **VOC and BP
+(source) in a local LMDB database**, while the **data files live on the
+shared daemon** over the network — so both apps read and write the same
+records.
+
+```sh
+docker compose -f docker/compose.demo.yaml up -d
+```
+
+Services:
+
+- **`mvxdb`** — the `mvx-lmdbd` daemon; its data persists on a volume.
+- **`init`** — a one-shot that creates the shared `ORDERS` and
+  `CUSTOMERS` files on the daemon (`CREATE-FILE ... USING lmdbnet
+  mvxdb:4300`) and seeds a few records, then exits.
+- **`app1`, `app2`** — application accounts. Each creates a **local**
+  `VOC` and `BP`, then writes a `BINDINGS` record so `ORDERS` and
+  `CUSTOMERS` resolve to the daemon:
+
+  ```
+  ORDERS    lmdbnet mvxdb:4300
+  CUSTOMERS lmdbnet mvxdb:4300
+  ```
+
+Log on to either and the picture is the same shared data:
+
+```sh
+docker compose -f docker/compose.demo.yaml exec app1 mvx -a /acct
+app1> LISTF
+File                     Type
+BP                       lmdb          # local to app1
+VOC                      lmdb          # local to app1
+ORDERS                   lmdbnet       # shared, on mvxdb
+CUSTOMERS                lmdbnet       # shared, on mvxdb
+app1> COUNT ORDERS
+2 record(s) counted
+```
+
+A record written from `app1` is visible from `app2` immediately — they
+are the same file on the one daemon — while each app's cataloged verbs
+and source stay private to its own account. The per-file `BINDINGS`
+record is how a second account attaches to a data file the first one
+created; `$MVXDAEMON` instead binds a whole account to a daemon.
+
 ## `mvx-demo` — the example account
 
 Boots straight into a `/demo` account with the example programs
