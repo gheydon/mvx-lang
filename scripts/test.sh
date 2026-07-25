@@ -777,23 +777,34 @@ if [ -n "${MVX_PG:-}" ]; then
     printf 'COUNT ORDERS\nSELECT ORDERS\nLIST ORDERS\n' | \
       "$TCL" -a "$PGACCT" 2>&1)"
 
-  # mapping phase 2 (#23): BUILD-MAP projects single-valued attributes
-  # into columns on the record's table via the driver, then backfills.
-  printf 'CUST @pgtest\n' >> "$PGACCT/BINDINGS"
-  "$TCL" -a "$PGACCT" -c 'DELETE-FILE CUST' >/dev/null 2>&1
-  "$TCL" -a "$PGACCT" -c 'CREATE-FILE CUST USING @pgtest' >/dev/null 2>&1
+  # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
+  # columns on the record's table and each association into a child table.
+  printf 'MORD @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE MORD' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE MORD USING @pgtest' >/dev/null 2>&1
   cat > "$TESTROOT/pgmap.b" <<'MEOF'
-OPEN "CUST" TO F ELSE STOP
-WRITE "Acme Corp":@AM:"Sydney":@AM:"1500" ON F, "C1"
-WRITE "Beta Ltd":@AM:"Melbourne":@AM:"920" ON F, "C2"
-OPEN "DICT", "CUST" TO D ELSE STOP
-WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"20L" ON D, "NAME"
-WRITE "D":@AM:"2":@AM:"":@AM:"City":@AM:"12L" ON D, "CITY"
-WRITE "D":@AM:"3":@AM:"MD2":@AM:"Limit":@AM:"10R" ON D, "CREDIT"
+OPEN "MORD" TO F ELSE STOP
+R = ""
+R<1> = "Acme Corp"
+R<5> = "Widget":@VM:"Gadget"
+R<6> = "2":@VM:"1"
+R<7> = "999":@VM:"450"
+WRITE R ON F, "O1"
+R = ""
+R<1> = "Beta Ltd"
+R<5> = "Sprocket"
+R<6> = "5"
+R<7> = "125"
+WRITE R ON F, "O2"
+OPEN "DICT", "MORD" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"20L" ON D, "CUSTOMER"
+WRITE "D":@AM:"5":@AM:"":@AM:"Product":@AM:"10L":@AM:"ORDERITEMS" ON D, "PRODUCT"
+WRITE "D":@AM:"6":@AM:"":@AM:"Qty":@AM:"5R":@AM:"ORDERITEMS" ON D, "QTY"
+WRITE "D":@AM:"7":@AM:"MD2$":@AM:"Price":@AM:"8R":@AM:"ORDERITEMS" ON D, "PRICE"
 MEOF
   "$MVX" "$TESTROOT/pgmap.b" -o "$TESTROOT/pgmapbin" 2>/dev/null
   (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgmapbin")
-  check tcl-mapbuild "$(printf 'BUILD-MAP CUST NAME CITY CREDIT\n' | \
+  check tcl-mapbuild "$(printf 'BUILD-MAP MORD CUSTOMER PRODUCT QTY PRICE\n' | \
     "$TCL" -a "$PGACCT" 2>&1)"
 else
   echo "  (postgres test skipped — set MVX_PG to run)"

@@ -117,6 +117,16 @@ typedef struct mvx_driver {
     int (*map_apply)(mvx_file *f, const char *id, int64_t idlen,
                      const mvx_mapfield *cols, const char **vals,
                      const int64_t *vlens, int ncols);
+    /* Association child tables (may be NULL): one table per association,
+       rows keyed (id, seq).  map_child_apply replaces a record's rows;
+       vals/vlens are row-major (nrows x ncols): cell (r,c) at r*ncols+c. */
+    int (*map_child_ensure)(mvx_file *f, const char *assoc,
+                            const mvx_mapfield *cols, int ncols,
+                            char *err, size_t errlen);
+    int (*map_child_apply)(mvx_file *f, const char *id, int64_t idlen,
+                           const char *assoc, const mvx_mapfield *cols,
+                           int ncols, const char **vals,
+                           const int64_t *vlens, int nrows);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

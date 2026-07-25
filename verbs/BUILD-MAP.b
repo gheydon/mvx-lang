@@ -9,8 +9,8 @@
 * SPDX-License-Identifier: GPL-2.0-only
 * BUILD-MAP file field {field...} — materialise the file's relational
 * mapping in its backend and backfill every record.  Single-valued
-* attributes become columns on the record's table (via the driver).
-* Associations and typed columns come later (#18).
+* attributes become columns on the record's table; associated attributes
+* become a child table per association (via the driver).
 S = TRIM(SENTENCE())
 FN = FIELD(S, " ", 2)
 NT = DCOUNT(S, " ")
@@ -28,7 +28,7 @@ NS = 0
 FOR I = 3 TO NT
    FLD = FIELD(S, " ", I)
    READ DI FROM DD, FLD THEN
-      IF DI<1>[1, 1] = "D" AND DI<6> = "" THEN
+      IF DI<1>[1, 1] = "D" THEN
          CONV = DI<3>
          C2 = CONV[1, 2]
          T = "TEXT"
@@ -36,9 +36,9 @@ FOR I = 3 TO NT
          IF C2 = "MT" THEN T = "TIME"
          IF CONV[1, 1] = "D" THEN T = "DATE"
          NS = NS + 1
-         SPEC<NS> = FLD:@VM:DI<2>:@VM:CONV:@VM:T
+         SPEC<NS> = FLD:@VM:DI<2>:@VM:CONV:@VM:T:@VM:DI<6>
       END ELSE
-         PRINT FLD:" is not a single-valued dictionary item (skipped)"
+         PRINT FLD:" is not a mappable dictionary item (skipped)"
       END
    END ELSE
       PRINT FLD:" is not a dictionary item (skipped)"
@@ -59,5 +59,5 @@ CASE RC = -2
 CASE RC < 0
    PRINT "map build failed"
 CASE 1
-   PRINT "mapped ":RC:" record(s) into ":NS:" column(s)"
+   PRINT "mapped ":RC:" record(s), ":NS:" field(s)"
 END CASE

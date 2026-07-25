@@ -142,12 +142,25 @@ mapped 2 record(s) into 3 column(s)
 ```
 
 Values are stored in their `OCONV` display form (`CREDIT` above is the
-`MD2` conversion of the stored `1500`). This is the driver **mapping
-capability**: the runtime is backend-neutral, and each driver renders the
-projection in its own form (a non-SQL backend would leave the capability
-unimplemented). Currently single-valued attributes → columns on a
-Postgres file; association child tables, typed columns, and live
-maintenance on write are the remaining phases of
+`MD2` conversion of the stored `1500`).
+
+**Associations become child tables.** Map associated attributes and each
+association gets its own table keyed `(id, seq)`, one row per value
+position — the line items:
+
+```
+> BUILD-MAP ORDERS CUSTOMER PRODUCT QTY PRICE
+ORDERS            (id, rec, CUSTOMER)
+ORDERS_ORDERITEMS (id, seq, PRODUCT, QTY, PRICE)
+  O1,1,Widget,2,$9.99 | O1,2,Gadget,1,$4.50 | O2,1,Sprocket,5,$1.25
+```
+
+This is the driver **mapping capability**: the runtime is backend-neutral
+(it computes the columns, the child rows, and the projected values), and
+each driver renders it in its own form — Postgres as parent columns +
+child tables, a non-SQL backend as it sees fit (or not at all). Columns
+are text holding the display value; **typed columns** and **live
+maintenance on write** (`mirror` mode) are the remaining phases of
 [#18](https://github.com/mvx-lang/mvx/issues/18).
 
 ## Record locks

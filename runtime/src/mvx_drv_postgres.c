@@ -385,6 +385,104 @@ static int pg_map_apply(mvx_file *fh, const char *id, int64_t idlen,
     return ok;
 }
 
+/* An association's child table: <schema>."<table>_<assoc>". */
+static void child_qualify(pg_file *f, const char *assoc, char *out,
+                          size_t cap) {
+    char t[384];
+    snprintf(t, sizeof t, "%s_%s", f->table, assoc);
+    qualify(f->conn, f->schema, t, out, cap);
+}
+
+static int pg_map_child_ensure(mvx_file *fh, const char *assoc,
+                               const mvx_mapfield *cols, int ncols,
+                               char *err, size_t errlen) {
+    pg_file *f = (pg_file *)fh;
+    char qt[640];
+    child_qualify(f, assoc, qt, sizeof qt);
+    char sql[4096];
+    size_t p = 0;
+    p += (size_t)snprintf(sql + p, sizeof sql - p,
+                          "CREATE TABLE IF NOT EXISTS %s (id bytea, seq int",
+                          qt);
+    for (int i = 0; i < ncols && p < sizeof sql; i++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[i].name,
+                                      strlen(cols[i].name));
+        p += (size_t)snprintf(sql + p, sizeof sql - p, ", %s text",
+                              qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    }
+    snprintf(sql + p, sizeof sql - p, ", PRIMARY KEY (id, seq))");
+    PGresult *r = PQexec(f->conn, sql);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (!ok && r)
+        snprintf(err, errlen, "postgres: %s", PQerrorMessage(f->conn));
+    if (r) PQclear(r);
+    return ok;
+}
+
+static int pg_map_child_apply(mvx_file *fh, const char *id, int64_t idlen,
+                              const char *assoc, const mvx_mapfield *cols,
+                              int ncols, const char **vals,
+                              const int64_t *vlens, int nrows) {
+    pg_file *f = (pg_file *)fh;
+    char qt[640];
+    child_qualify(f, assoc, qt, sizeof qt);
+
+    /* replace: delete the record's rows, then insert the new ones */
+    char dsql[720];
+    snprintf(dsql, sizeof dsql, "DELETE FROM %s WHERE id=$1", qt);
+    const char *dpv[1] = {id};
+    int dpl[1] = {(int)idlen};
+    int dpf[1] = {1};
+    PGresult *dr = PQexecParams(f->conn, dsql, 1, NULL, dpv, dpl, dpf, 0);
+    int ok = dr && PQresultStatus(dr) == PGRES_COMMAND_OK;
+    if (dr) PQclear(dr);
+    if (!ok) return 0;
+
+    /* column-name list for the INSERT */
+    char collist[2048];
+    size_t cp = 0;
+    for (int c = 0; c < ncols; c++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[c].name,
+                                      strlen(cols[c].name));
+        cp += (size_t)snprintf(collist + cp, sizeof collist - cp, ", %s",
+                               qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    }
+    collist[sizeof collist - 1] = '\0';
+
+    for (int r = 0; r < nrows; r++) {
+        char isql[3072];
+        size_t ip = 0;
+        ip += (size_t)snprintf(isql + ip, sizeof isql - ip,
+                               "INSERT INTO %s (id, seq%s) VALUES ($1, $2",
+                               qt, collist);
+        for (int c = 0; c < ncols; c++)
+            ip += (size_t)snprintf(isql + ip, sizeof isql - ip, ", $%d",
+                                   c + 3);
+        snprintf(isql + ip, sizeof isql - ip, ")");
+
+        char seqbuf[16];
+        snprintf(seqbuf, sizeof seqbuf, "%d", r + 1);
+        const char *pv[66];
+        int pl[66], pf[66];
+        if (ncols > 63) return 0;
+        pv[0] = id; pl[0] = (int)idlen; pf[0] = 1;          /* id (binary) */
+        pv[1] = seqbuf; pl[1] = 0; pf[1] = 0;               /* seq (text) */
+        for (int c = 0; c < ncols; c++) {
+            pv[c + 2] = vals[r * ncols + c];
+            pl[c + 2] = (int)vlens[r * ncols + c];
+            pf[c + 2] = 0;
+        }
+        PGresult *ir =
+            PQexecParams(f->conn, isql, ncols + 2, NULL, pv, pl, pf, 0);
+        int iok = ir && PQresultStatus(ir) == PGRES_COMMAND_OK;
+        if (ir) PQclear(ir);
+        if (!iok) return 0;
+    }
+    return 1;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -394,7 +492,8 @@ static const mvx_driver mvx_driver_postgres = {
     NULL,                                 /* names: TODO */
     NULL, NULL, NULL, NULL,               /* no native indexes (yet) */
     NULL, NULL,                           /* no lock authority (yet) */
-    pg_map_ensure, pg_map_apply,          /* relational mapping */
+    pg_map_ensure, pg_map_apply,          /* relational mapping: parent */
+    pg_map_child_ensure, pg_map_child_apply,   /* association child tables */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

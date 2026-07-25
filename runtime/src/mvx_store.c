@@ -859,11 +859,50 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
 }
 
 /* --- relational mapping (see MAP / #18) -------------------------------
-   Build a mapped file's projection: create the columns via the driver and
-   backfill every record's projected value.  spec is an @AM list, one
-   field per element as "name <VM> attr# <VM> conv <VM> type".  Returns the
+   Build a mapped file's projection.  spec is an @AM list, one field per
+   element as "name <VM> attr# <VM> conv <VM> type <VM> assoc" (empty
+   assoc = a single-valued parent column; otherwise a member of that
+   association's child table).  The runtime decomposes each record; the
+   driver materialises columns / child tables and persists.  Returns the
    record count, -1 on error, or -2 when the backend has no mapping. */
 #define MAP_MAXF 64
+#define MAP_MAXA 16
+
+/* Extract attribute `ano` value `seq` (seq 0 = whole attribute), OCONV by
+   `conv` if set, into a NUL-terminated scratch cell; returns its length. */
+static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
+                        int64_t seq, const char *conv, mv_value *av,
+                        mv_value *ov, mv_value *code, char *dst,
+                        size_t cap) {
+    mv_extract_fn(av, rec, ano, seq, 0);
+    const mv_value *src = av;
+    if (conv[0]) {
+        mv_set_str(code, conv, (int64_t)strlen(conv));
+        mv_oconv(ctx, ov, av, code);
+        src = ov;
+    }
+    char tb[40];
+    const char *tp;
+    int64_t tl = mv_val_chars(src, tb, sizeof tb, &tp);
+    if (tl >= (int64_t)cap) tl = (int64_t)cap - 1;
+    memcpy(dst, tp, (size_t)tl);
+    dst[tl] = '\0';
+    return tl;
+}
+
+/* Number of values in an attribute (0 if empty). */
+static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av) {
+    mv_extract_fn(av, rec, ano, 0, 0);
+    char tb[40];
+    const char *tp;
+    int64_t tl = mv_val_chars(av, tb, sizeof tb, &tp);
+    if (tl == 0) return 0;
+    int n = 1;
+    for (int64_t x = 0; x < tl; x++)
+        if (tp[x] == (char)0xFD) n++;
+    return n;
+}
+
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
                      const mv_value *spec) {
     mvx_file *f = file_of(fvar, "MAPBUILD");
@@ -878,7 +917,9 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
     memcpy(buf, sp, (size_t)slen);
     buf[slen] = '\0';
 
+    /* parse fields: name, ano, conv, type, assoc */
     char *names[MAP_MAXF], *convs[MAP_MAXF], *types[MAP_MAXF];
+    char *assocs[MAP_MAXF];
     int64_t anos[MAP_MAXF];
     int nf = 0;
     char *p = buf;
@@ -887,38 +928,81 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
         while (*amend && *amend != (char)0xFE) amend++;
         char save = *amend;
         *amend = '\0';
-        char *parts[4] = {p, NULL, NULL, NULL};
+        char *parts[5] = {p, NULL, NULL, NULL, NULL};
         int np = 0;
         for (char *q = p; *q; q++)
             if (*q == (char)0xFD) {
                 *q = '\0';
-                if (++np < 4) parts[np] = q + 1;
+                if (++np < 5) parts[np] = q + 1;
             }
         names[nf] = parts[0];
         anos[nf] = parts[1] ? strtoll(parts[1], NULL, 10) : 0;
         convs[nf] = parts[2] ? parts[2] : (char *)"";
         types[nf] = parts[3] ? parts[3] : (char *)"TEXT";
+        assocs[nf] = parts[4] ? parts[4] : (char *)"";
         nf++;
         if (save == 0) break;
         p = amend + 1;
     }
     if (nf == 0) { free(buf); return 0; }
 
-    mvx_mapfield cols[MAP_MAXF];
+    /* split into parent columns and per-association member lists */
+    mvx_mapfield pcol[MAP_MAXF];
+    int pidx[MAP_MAXF], npar = 0;
+    for (int i = 0; i < nf; i++)
+        if (assocs[i][0] == '\0') {
+            pcol[npar].name = names[i];
+            pcol[npar].type = types[i];
+            pidx[npar++] = i;
+        }
+    char *anames[MAP_MAXA];
+    int amem[MAP_MAXA][MAP_MAXF], anmem[MAP_MAXA], na = 0;
     for (int i = 0; i < nf; i++) {
-        cols[i].name = names[i];
-        cols[i].type = types[i];
+        if (assocs[i][0] == '\0') continue;
+        int slot = -1;
+        for (int a = 0; a < na; a++)
+            if (strcmp(anames[a], assocs[i]) == 0) slot = a;
+        if (slot < 0 && na < MAP_MAXA) {
+            slot = na;
+            anames[na] = assocs[i];
+            anmem[na++] = 0;
+        }
+        if (slot >= 0 && anmem[slot] < MAP_MAXF)
+            amem[slot][anmem[slot]++] = i;
     }
+
     char err[256] = "";
-    if (!b->driver->map_ensure(f, cols, nf, err, sizeof err)) {
+    if (npar > 0 &&
+        !b->driver->map_ensure(f, pcol, npar, err, sizeof err)) {
         if (err[0]) fprintf(stderr, "MAPBUILD: %s\n", err);
         free(buf);
         return -1;
     }
+    if (na > 0 &&
+        (!b->driver->map_child_ensure || !b->driver->map_child_apply)) {
+        fprintf(stderr,
+                "MAPBUILD: backend has no association child tables\n");
+        free(buf);
+        return -1;
+    }
+    mvx_mapfield ccol[MAP_MAXA][MAP_MAXF];
+    for (int a = 0; a < na; a++) {
+        for (int m = 0; m < anmem[a]; m++) {
+            int i = amem[a][m];
+            ccol[a][m].name = names[i];
+            ccol[a][m].type = types[i];
+        }
+        if (!b->driver->map_child_ensure(f, anames[a], ccol[a], anmem[a],
+                                         err, sizeof err)) {
+            if (err[0]) fprintf(stderr, "MAPBUILD: %s\n", err);
+            free(buf);
+            return -1;
+        }
+    }
 
     mvx_cursor *c = b->driver->select_begin(f);
     if (!c) { free(buf); return -1; }
-    static char scratch[MAP_MAXF][256];
+    static char pscratch[MAP_MAXF][256];
     int64_t count = 0, rc = 0;
     mv_value rid, rec, av, ov, code;
     mv_init(&rid); mv_init(&rec); mv_init(&av);
@@ -928,29 +1012,59 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
         const char *rp;
         int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
         if (!b->driver->read(f, rp, rl, &rec)) continue;
-        const char *vals[MAP_MAXF];
-        int64_t vlens[MAP_MAXF];
-        for (int i = 0; i < nf; i++) {
-            mv_extract_fn(&av, &rec, anos[i], 0, 0);
-            const mv_value *src = &av;
-            if (convs[i][0]) {
-                mv_set_str(&code, convs[i], (int64_t)strlen(convs[i]));
-                mv_oconv(ctx, &ov, &av, &code);
-                src = &ov;
+
+        if (npar > 0) {
+            const char *vals[MAP_MAXF];
+            int64_t vlens[MAP_MAXF];
+            for (int k = 0; k < npar; k++) {
+                int i = pidx[k];
+                vlens[k] = map_cell(ctx, &rec, anos[i], 0, convs[i], &av,
+                                    &ov, &code, pscratch[k],
+                                    sizeof pscratch[0]);
+                vals[k] = pscratch[k];
             }
-            char tb[40];
-            const char *tp;
-            int64_t tl = mv_val_chars(src, tb, sizeof tb, &tp);
-            if (tl >= (int64_t)sizeof scratch[0]) tl = sizeof scratch[0] - 1;
-            memcpy(scratch[i], tp, (size_t)tl);
-            scratch[i][tl] = '\0';
-            vals[i] = scratch[i];
-            vlens[i] = tl;
+            if (!b->driver->map_apply(f, rp, rl, pcol, vals, vlens, npar)) {
+                rc = -1;
+                break;
+            }
         }
-        if (!b->driver->map_apply(f, rp, rl, cols, vals, vlens, nf)) {
-            rc = -1;
-            break;
+
+        for (int a = 0; a < na; a++) {
+            int nm = anmem[a];
+            int nv = 0;
+            for (int m = 0; m < nm; m++) {
+                int vc = map_vcount(&rec, anos[amem[a][m]], &av);
+                if (vc > nv) nv = vc;
+            }
+            if (nv == 0) {
+                b->driver->map_child_apply(f, rp, rl, anames[a], ccol[a],
+                                           nm, NULL, NULL, 0);
+                continue;
+            }
+            size_t ncell = (size_t)nv * (size_t)nm;
+            const char **cv = malloc(ncell * sizeof *cv);
+            int64_t *cl = malloc(ncell * sizeof *cl);
+            char *arena = malloc(ncell * 256);
+            if (!cv || !cl || !arena) {
+                free(cv); free(cl); free(arena);
+                rc = -1;
+                break;
+            }
+            for (int seq = 1; seq <= nv; seq++)
+                for (int m = 0; m < nm; m++) {
+                    int i = amem[a][m];
+                    size_t cell = (size_t)(seq - 1) * nm + m;
+                    char *dst = arena + cell * 256;
+                    cl[cell] = map_cell(ctx, &rec, anos[i], seq, convs[i],
+                                        &av, &ov, &code, dst, 256);
+                    cv[cell] = dst;
+                }
+            int ok = b->driver->map_child_apply(f, rp, rl, anames[a],
+                                                ccol[a], nm, cv, cl, nv);
+            free(cv); free(cl); free(arena);
+            if (!ok) { rc = -1; break; }
         }
+        if (rc < 0) break;
         count++;
     }
     b->driver->select_end(c);
