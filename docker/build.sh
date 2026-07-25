@@ -21,7 +21,7 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-REGISTRY="${REGISTRY:-gheydon}"
+REGISTRY="${REGISTRY:-mvx-lang}"
 TAG="${TAG:-latest}"
 LLVM_VERSION="${LLVM_VERSION:-21}"
 
@@ -34,12 +34,14 @@ docker build -f docker/Dockerfile.base \
   --build-arg "LLVM_VERSION=${LLVM_VERSION}" \
   -t "${BASE}:${TAG}" -t mvx:latest .
 
-# The daemon and demo layer on the freshly built base (tagged mvx:latest).
+# The daemon and demo layer on the freshly built base.
 echo "==> daemon ${LMDBD}:${TAG}"
-docker build -f docker/Dockerfile.lmdbd -t "${LMDBD}:${TAG}" .
+docker build -f docker/Dockerfile.lmdbd --build-arg "BASE=mvx:latest" \
+  -t "${LMDBD}:${TAG}" .
 
 echo "==> demo   ${DEMO}:${TAG}"
-docker build -f docker/Dockerfile.demo -t "${DEMO}:${TAG}" .
+docker build -f docker/Dockerfile.demo --build-arg "BASE=mvx:latest" \
+  -t "${DEMO}:${TAG}" .
 
 if [ "${PUSH:-0}" = 1 ]; then
   for img in "${BASE}" "${LMDBD}" "${DEMO}"; do

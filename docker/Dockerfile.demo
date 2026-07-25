@@ -5,7 +5,8 @@
 #   docker run --rm -it mvx-demo            # then type: SNAKE   or   FSDEMO
 #
 # SPDX-License-Identifier: GPL-2.0-only
-FROM mvx AS mvx-demo
+ARG BASE=mvx
+FROM ${BASE} AS mvx-demo
 
 # developer tier lets CATALOG run during provisioning
 ENV MVXPRIV=developer

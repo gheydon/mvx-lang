@@ -11,13 +11,20 @@ Three images ship MVX to Docker, built from `docker/` in the repo:
 Build all three (base first, since the others layer on it):
 
 ```sh
-docker/build.sh                       # gheydon/mvx{,-lmdbd,-demo}:latest
+docker/build.sh                       # mvx-lang/mvx{,-lmdbd,-demo}:latest
 REGISTRY=you TAG=0.1 docker/build.sh  # custom namespace / tag
 PUSH=1 docker/build.sh                # build, then docker push each
 ```
 
 Each has its own Dockerfile (`docker/Dockerfile.base`, `.lmdbd`,
-`.demo`) if you prefer to build them one at a time.
+`.demo`) if you prefer to build them one at a time. The daemon and demo
+`FROM` the base via a `BASE` build-arg (default `mvx`), so a published
+base can be layered on directly.
+
+On a `v*` git tag, the `release` GitHub Actions workflow builds and
+pushes all three images multi-arch (`linux/amd64` and `linux/arm64`) to
+Docker Hub under `mvx-lang/`, alongside the native Linux binary
+tarballs — see *Publishing*.
 
 ## `mvx` — the base system
 
@@ -71,6 +78,17 @@ to look under the hood.
 
 ## Publishing
 
-`docker/build.sh` tags images `${REGISTRY}/mvx{,-lmdbd,-demo}:${TAG}`
-(`REGISTRY` defaults to `gheydon`). Log in with `docker login`, then run
-with `PUSH=1` to publish to Docker Hub.
+Releases are automated. Pushing a `v*` tag runs the `release` workflow,
+which publishes the three images multi-arch to Docker Hub under
+`mvx-lang/` and attaches per-architecture Linux binary tarballs to the
+GitHub release:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The workflow needs two repository secrets — `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN` (a token with push rights to the `mvx-lang` Docker Hub
+org). To publish by hand instead, `docker/build.sh` tags images
+`${REGISTRY}/mvx{,-lmdbd,-demo}:${TAG}` (`REGISTRY` defaults to
+`mvx-lang`); `docker login`, then run with `PUSH=1`.

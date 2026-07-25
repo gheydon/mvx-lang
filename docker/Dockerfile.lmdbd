@@ -9,7 +9,8 @@
 # or the whole account with  MVXDAEMON=host:4300.
 #
 # SPDX-License-Identifier: GPL-2.0-only
-FROM mvx AS mvx-lmdbd
+ARG BASE=mvx
+FROM ${BASE} AS mvx-lmdbd
 
 # The database lives on a volume so it survives the container.
 VOLUME /data

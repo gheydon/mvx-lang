@@ -1,0 +1,38 @@
+# Build MVX and run the test suite on every push and pull request.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  LLVM_VERSION: "21"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc g++ liblmdb-dev libedit-dev \
+            zlib1g-dev libzstd-dev libncurses-dev \
+            wget lsb-release software-properties-common gnupg ca-certificates
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh "${LLVM_VERSION}"
+          sudo apt-get install -y --no-install-recommends "llvm-${LLVM_VERSION}-dev"
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="/usr/lib/llvm-${LLVM_VERSION}"
+          cmake --build build
+
+      - name: Test
+        run: ./scripts/test.sh
