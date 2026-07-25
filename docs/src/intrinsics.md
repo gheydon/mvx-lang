@@ -41,6 +41,8 @@ matches any one. So `"01-234" MATCHES "2N'-'3N"` is true, and
 | `REPLACE(A, a{,v{,s}}, x)` | copy with element replaced |
 | `INSERT(A, a{,v{,s}}, x)` | copy with element inserted |
 | `DELETE(A, a{,v{,s}})` | copy with element removed |
+| `SUM(A)` | reduce the lowest delimiter level by addition (keeps higher structure) |
+| `MAXIMUM(A)` / `MINIMUM(A)` | largest / smallest numeric field at any level |
 
 System constants: `@AM`/`@FM` (attribute mark), `@VM` (value mark),
 `@SM`/`@SVM` (subvalue mark).

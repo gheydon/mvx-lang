@@ -1029,6 +1029,12 @@ private:
                    {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
                     numIndex(*e.args[2])});
             return; }
+        if (f == "SUM")     { need(1); call2("mv_sum",    dest,
+                                             evalPtr(*e.args[0])); return; }
+        if (f == "MAXIMUM") { need(1); call2("mv_max_fn", dest,
+                                             evalPtr(*e.args[0])); return; }
+        if (f == "MINIMUM") { need(1); call2("mv_min_fn", dest,
+                                             evalPtr(*e.args[0])); return; }
         if (f == "TIME")   { need(0); call1("mv_time", dest); return; }
         if (f == "SYSTEM") { need(1);
             call3("mv_system_fn", ctxArg_, dest, evalPtr(*e.args[0]));

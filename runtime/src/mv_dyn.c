@@ -313,3 +313,79 @@ int64_t mv_dcount_fn(const mv_value *src, const mv_value *delim) {
     if (s.len == 0) return 0;
     return mv_count_fn(src, delim) + 1;
 }
+
+/* ---- SUM / MAXIMUM / MINIMUM -------------------------------------------- */
+
+static int64_t fmt_num(double d, char *buf, size_t cap) {
+    if (d == (double)(int64_t)d && d >= -1e15 && d <= 1e15)
+        return snprintf(buf, cap, "%lld", (long long)d);
+    int64_t n = snprintf(buf, cap, "%.4f", d);
+    while (n > 0 && buf[n - 1] == '0') buf[--n] = '\0';
+    if (n > 0 && buf[n - 1] == '.') buf[--n] = '\0';
+    return n;
+}
+
+/* SUM: reduce the lowest delimiter level by summation, keeping the higher
+   structure — "1\xFD2\xFE3\xFD4" -> "3\xFE7"; non-numeric fields count 0. */
+void mv_sum(mv_value *dst, const mv_value *src) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    char level = AM;
+    int hasV = 0, hasS = 0;
+    for (int64_t i = 0; i < s.len; i++) {
+        unsigned char c = (unsigned char)s.p[i];
+        if (c == 0xFD) hasV = 1; else if (c == 0xFC) hasS = 1;
+    }
+    if (hasS) level = SM; else if (hasV) level = VM;
+    dbuf out = {0, 0, 0};
+    const char *end = s.p + s.len, *fs = s.p;
+    double sum = 0;
+    char b[40];
+    for (const char *p = s.p;; p++) {
+        int atend = (p == end);
+        unsigned char m = atend ? 0 : (unsigned char)*p;
+        if (atend || m == 0xFE || m == 0xFD || m == 0xFC) {
+            double d;
+            span f = {fs, p - fs};
+            if (num_parse(f, &d)) sum += d;
+            if (atend) { bput(&out, b, fmt_num(sum, b, sizeof b)); break; }
+            fs = p + 1;
+            if (m == (unsigned char)level) continue;   /* same level */
+            bput(&out, b, fmt_num(sum, b, sizeof b));
+            bch(&out, (char)m);
+            sum = 0;
+        }
+    }
+    mv_set_str(dst, out.d ? out.d : "", out.len);
+    free(out.d);
+}
+
+/* MAXIMUM / MINIMUM: the largest / smallest numeric field at any level,
+   or "" when the value has no numeric field. */
+static void mv_extreme(mv_value *dst, const mv_value *src, int want_max) {
+    char nb[40];
+    span s = val_span(src, nb, sizeof nb);
+    const char *end = s.p + s.len, *fs = s.p;
+    double best = 0;
+    int have = 0;
+    for (const char *p = s.p;; p++) {
+        int atend = (p == end);
+        unsigned char m = atend ? 0 : (unsigned char)*p;
+        if (atend || m == 0xFE || m == 0xFD || m == 0xFC) {
+            double d;
+            span f = {fs, p - fs};
+            if (num_parse(f, &d)) {
+                if (!have || (want_max ? d > best : d < best)) best = d;
+                have = 1;
+            }
+            if (atend) break;
+            fs = p + 1;
+        }
+    }
+    if (!have) { mv_set_str(dst, "", 0); return; }
+    char b[40];
+    mv_set_str(dst, b, fmt_num(best, b, sizeof b));
+}
+
+void mv_max_fn(mv_value *dst, const mv_value *src) { mv_extreme(dst, src, 1); }
+void mv_min_fn(mv_value *dst, const mv_value *src) { mv_extreme(dst, src, 0); }

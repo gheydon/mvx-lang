@@ -107,6 +107,7 @@ lang include
 lang matches
 lang loopctl
 lang assign
+lang vector
 
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)
