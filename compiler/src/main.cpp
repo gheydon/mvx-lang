@@ -108,6 +108,7 @@ int main(int argc, char **argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
+        if (a == "-h" || a == "--help") { usage(); return 0; }
         if (a == "-c") compileOnly = true;
         else if (a == "-shared") shared = true;
         else if (a == "-o") {

@@ -56,7 +56,12 @@ jobs:
 
       - name: Smoke test the install
         run: |
-          "$PWD/stage/mvx-lang/bin/mvx-basic" --help >/dev/null
+          BIN="$PWD/stage/mvx-lang/bin"
+          printf 'PRINT "install-ok ":2+2\n' > /tmp/smoke.b
+          "$BIN/mvx-basic" /tmp/smoke.b -o /tmp/smoke
+          out="$(/tmp/smoke)"
+          echo "$out"
+          test "$out" = "install-ok 4"
 
       - name: Package tarball
         id: pkg
