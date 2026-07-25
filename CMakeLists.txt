@@ -8,6 +8,12 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# The runtime uses glibc extensions (memmem, dladdr).  Without _GNU_SOURCE
+# glibc leaves them undeclared, so C89 implicit-declaration rules make them
+# return int — truncating the returned 64-bit pointer to a crash.  Set it
+# tree-wide; it is a no-op on macOS, where these live in the base headers.
+add_compile_definitions(_GNU_SOURCE)
+
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Using LLVM ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
@@ -31,6 +37,13 @@ add_library(mvxrt SHARED
   runtime/src/mvx_os.c
   runtime/src/mvx_acct.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
+# The runtime calls libm (sin/pow/sqrt/... for the numeric intrinsics);
+# glibc keeps libm separate, so link it explicitly (a no-op on macOS,
+# where it lives in libSystem).
+find_library(M_LIBRARY m)
+if(M_LIBRARY)
+  target_link_libraries(mvxrt PRIVATE ${M_LIBRARY})
+endif()
 target_compile_definitions(mvxrt PRIVATE
   MVX_DRIVER_DIR="${CMAKE_BINARY_DIR}/lib"
   MVX_BIN_DIR="${CMAKE_BINARY_DIR}/bin"

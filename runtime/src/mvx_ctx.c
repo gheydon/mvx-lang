@@ -10,6 +10,10 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE           /* glibc: dladdr / Dl_info */
+#endif
+
 #include "mvx_runtime.h"
 
 #include <dlfcn.h>

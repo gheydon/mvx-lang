@@ -442,7 +442,10 @@ int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
     }
 
     store_state *st = state(ctx);
-    open_file *o = malloc(sizeof(open_file));
+    /* calloc, not malloc: the index metadata (o->ix) must start zeroed,
+       or ix_load reads a garbage "loaded" flag and skips initialising it,
+       leaving ix_diff to walk a garbage index count. */
+    open_file *o = calloc(1, sizeof(open_file));
     if (!o) mvx_fatal("out of memory in OPEN");
     o->f = f;
     o->next = st->files;

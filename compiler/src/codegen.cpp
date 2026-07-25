@@ -21,6 +21,7 @@
 #include "codegen.h"
 #include "parser.h"     // CompileError
 
+#include "llvm/Config/llvm-config.h"   // LLVM_VERSION_MAJOR
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/IRBuilder.h"
@@ -48,6 +49,18 @@ using namespace llvm;
 namespace mvx {
 
 namespace {
+
+// LLVM version shims: the codebase tracks the newest LLVM, but the
+// containers and packaged distributions build against the latest
+// *released* one.  These smooth over the API renames between them.
+inline Function *intrinsicDecl(Module *m, Intrinsic::ID id,
+                               ArrayRef<Type *> tys) {
+#if LLVM_VERSION_MAJOR >= 20
+    return Intrinsic::getOrInsertDeclaration(m, id, tys);
+#else
+    return Intrinsic::getDeclaration(m, id, tys);
+#endif
+}
 
 const std::set<std::string> kIntrinsics = {
     "TIME", "SYSTEM", "INT", "SQRT", "ABS", "MOD",
@@ -518,7 +531,7 @@ private:
 
     // Saturating double -> i64; plain fptosi is UB out of range.
     Value *dblToI64(Value *v) {
-        Function *f = Intrinsic::getOrInsertDeclaration(
+        Function *f = intrinsicDecl(
             &mod_, Intrinsic::fptosi_sat, {i64Ty_, dblTy_});
         return b_.CreateCall(f, {v});
     }
@@ -585,7 +598,7 @@ private:
 
     Value *fpIntrinsic(Intrinsic::ID id, ArrayRef<Value *> args) {
         Function *f =
-            Intrinsic::getOrInsertDeclaration(&mod_, id, {dblTy_});
+            intrinsicDecl(&mod_, id, {dblTy_});
         return b_.CreateCall(f, args);
     }
 
@@ -715,7 +728,7 @@ private:
             if (f == "ABS") {
                 const Expr &a = *e.args[0];
                 if (num_.kindOf(a) == NK::Int) {
-                    Function *fn = Intrinsic::getOrInsertDeclaration(
+                    Function *fn = intrinsicDecl(
                         &mod_, Intrinsic::abs, {i64Ty_});
                     return b_.CreateCall(fn, {evalNum(a), b_.getFalse()});
                 }
@@ -756,7 +769,7 @@ private:
             case BinOp::Div:
                 return b_.CreateFDiv(asDbl(*e.lhs), asDbl(*e.rhs));
             case BinOp::Pow: {
-                Function *f = Intrinsic::getOrInsertDeclaration(
+                Function *f = intrinsicDecl(
                     &mod_, Intrinsic::pow, {dblTy_});
                 return b_.CreateCall(f, {asDbl(*e.lhs), asDbl(*e.rhs)});
             }
@@ -2012,9 +2025,15 @@ private:
                                   p.parent_path().string());
         // DWARF has no standard language code for BASIC; use the
         // vendor-reserved range.  Debuggers step by line table regardless.
+#if LLVM_VERSION_MAJOR >= 22
         DICompileUnit *cu = dib_.createCompileUnit(
             DISourceLanguageName(dwarf::DW_LANG_lo_user), diFile_,
             "mvx-basic 0.1.0", opts_.optLevel > 0, "", 0);
+#else
+        DICompileUnit *cu = dib_.createCompileUnit(
+            dwarf::DW_LANG_lo_user, diFile_,
+            "mvx-basic 0.1.0", opts_.optLevel > 0, "", 0);
+#endif
         (void)cu;
 
         DIType *i64d = dib_.createBasicType("INT64", 64,
@@ -2157,13 +2176,24 @@ void CodeGen::run(const std::string &outPath) {
 
     Triple triple(sys::getDefaultTargetTriple());
     std::string lookupErr;
+    TargetOptions topts;
+    // The TargetRegistry / TargetMachine / Module APIs took a Triple in
+    // place of a triple string in LLVM 21.
+#if LLVM_VERSION_MAJOR >= 21
     const Target *target = TargetRegistry::lookupTarget(triple, lookupErr);
     if (!target) report_fatal_error(Twine(lookupErr));
-    TargetOptions topts;
     TargetMachine *tm = target->createTargetMachine(
         triple, sys::getHostCPUName(), "", topts, Reloc::PIC_);
     mod_.setDataLayout(tm->createDataLayout());
     mod_.setTargetTriple(triple);
+#else
+    const Target *target = TargetRegistry::lookupTarget(triple.str(), lookupErr);
+    if (!target) report_fatal_error(Twine(lookupErr));
+    TargetMachine *tm = target->createTargetMachine(
+        triple.str(), sys::getHostCPUName(), "", topts, Reloc::PIC_);
+    mod_.setDataLayout(tm->createDataLayout());
+    mod_.setTargetTriple(triple.str());
+#endif
 
     // Optimisation.
     if (opts_.optLevel > 0) {

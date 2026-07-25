@@ -236,6 +236,7 @@ int main(int argc, char **argv) {
     }
 #ifndef __APPLE__
     cmd += " -ldl";                     // dlopen for storage drivers
+    cmd += " -lm";                      // libm for lowered math intrinsics
     if (!shared)
         cmd += " -rdynamic";            // expose mvx_sub_* to runtime CALL
 #endif

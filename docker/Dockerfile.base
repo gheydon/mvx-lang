@@ -1,0 +1,58 @@
+# MVX base image — the compiler, shell, runtime, drivers, and the
+# standard verbs, installed to /usr/local so `mvx` runs from PATH.
+#
+#   docker build -f docker/Dockerfile.base -t mvx .
+#   docker run --rm -it mvx                 # MVX shell in a scratch account
+#   docker run --rm -it mvx mvx-basic -h    # or run any tool directly
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
+# ---- builder: compile MVX and install to a clean /usr/local -----------
+ARG LLVM_VERSION=21
+FROM debian:bookworm-slim AS builder
+ARG LLVM_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates wget gnupg lsb-release software-properties-common \
+      cmake ninja-build gcc g++ \
+      liblmdb-dev libedit-dev \
+ && wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
+ && chmod +x /tmp/llvm.sh && /tmp/llvm.sh ${LLVM_VERSION} \
+ && apt-get install -y --no-install-recommends \
+      llvm-${LLVM_VERSION}-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# LLVM's exported CMake targets reference these compression / terminfo
+# libraries; their -dev packages must be present for find_package(LLVM).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      zlib1g-dev libzstd-dev libncurses-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY . /src
+WORKDIR /src
+RUN cmake -S . -B build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH=/usr/lib/llvm-${LLVM_VERSION} \
+ && cmake --build build \
+ && cmake --install build --prefix /usr/local
+
+# ---- runtime: the install plus a C toolchain to compile BASIC ---------
+FROM debian:bookworm-slim AS mvx
+# gcc + libc6-dev provide `cc` and the C runtime objects / link stubs
+# (crt*.o, libm.so, libdl.so) that mvx-basic needs to link programs; the
+# rest are the runtime's shared-library dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc libc6-dev libstdc++6 liblmdb0 libedit2 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/bin   /usr/local/bin
+COPY --from=builder /usr/local/lib   /usr/local/lib
+COPY --from=builder /usr/local/share /usr/local/share
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/mvx.conf && ldconfig
+
+# Developer tier so BASIC / CATALOG / COMPILE() work out of the box.
+ENV MVXPRIV=developer
+# A scratch account to log on to by default.
+RUN mkdir -p /work \
+ && mvx -a /work -c "CREATE-FILE VOC" \
+ && printf '# MVX account descriptor\nname = work\nversion = 1\n' > /work/.mvx
+WORKDIR /work
+CMD ["mvx", "-a", "/work"]

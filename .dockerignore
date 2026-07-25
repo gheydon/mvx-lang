@@ -1,0 +1,10 @@
+build
+.git
+*.o
+*.dylib
+*.so
+mvxdata.lmdb
+demo/mvxdata.lmdb
+docs/book
+node_modules
+.DS_Store

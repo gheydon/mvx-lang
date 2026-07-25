@@ -12,4 +12,5 @@
 - [Version Control](git.md)
 - [Packages](packages.md)
 - [Deployment and the Daemon](deployment.md)
+- [Containers](containers.md)
 - [Tooling](tooling.md)

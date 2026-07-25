@@ -1,0 +1,28 @@
+# MVX demo image — a ready-to-run account with the example programs
+# cataloged as verbs.  Layers on the base image.
+#
+#   docker build -f docker/Dockerfile.demo -t mvx-demo .
+#   docker run --rm -it mvx-demo            # then type: SNAKE   or   FSDEMO
+#
+# SPDX-License-Identifier: GPL-2.0-only
+FROM mvx AS mvx-demo
+
+# developer tier lets CATALOG run during provisioning
+ENV MVXPRIV=developer
+COPY examples/ /tmp/examples/
+
+# Provision /demo: a VOC, a BP source file holding the examples, and the
+# examples cataloged into runnable verbs (SNAKE, FSDEMO).
+RUN mkdir -p /demo/CATALOG \
+ && mvx -a /demo -c "CREATE-FILE VOC" \
+ && mvx -a /demo -c "CREATE-FILE BP DIR" \
+ && cp /tmp/examples/SNAKE.b  /demo/BP/SNAKE \
+ && cp /tmp/examples/FSDEMO.b /demo/BP/FSDEMO \
+ && mvx -a /demo -c "CATALOG BP SNAKE" \
+ && mvx -a /demo -c "CATALOG BP FSDEMO" \
+ && test -x /demo/CATALOG/SNAKE && test -x /demo/CATALOG/FSDEMO \
+ && printf '# MVX account descriptor\nname = demo\nversion = 1\n' > /demo/.mvx \
+ && rm -rf /tmp/examples
+
+WORKDIR /demo
+CMD ["mvx", "-a", "/demo"]
