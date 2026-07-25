@@ -322,9 +322,13 @@ static int pg_remove(const char *spec, char *err, size_t errlen) {
     return ok;
 }
 
-/* Relational mapping (#18): project single-valued attributes into columns
-   on the record's own table.  Phase-2 columns are text holding the
-   display value; typed columns and child tables follow. */
+/* Relational mapping (#18): project attributes into columns / child
+   tables.  NUMERIC fields get a numeric column; others are text. */
+static const char *pg_sqltype(const char *t) {
+    if (strcmp(t, "NUMERIC") == 0) return "numeric";
+    return "text";                        /* DATE/TIME/TEXT as text (yet) */
+}
+
 static int pg_map_ensure(mvx_file *fh, const mvx_mapfield *cols, int ncols,
                          char *err, size_t errlen) {
     pg_file *f = (pg_file *)fh;
@@ -335,8 +339,8 @@ static int pg_map_ensure(mvx_file *fh, const mvx_mapfield *cols, int ncols,
                                       strlen(cols[i].name));
         char sql[768];
         snprintf(sql, sizeof sql,
-                 "ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s text", qt,
-                 qc ? qc : "\"\"");
+                 "ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s", qt,
+                 qc ? qc : "\"\"", pg_sqltype(cols[i].type));
         if (qc) PQfreemem(qc);
         PGresult *r = PQexec(f->conn, sql);
         int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
@@ -379,6 +383,8 @@ static int pg_map_apply(mvx_file *fh, const char *id, int64_t idlen,
     pv[ncols] = id;
     pl[ncols] = (int)idlen;
     pf[ncols] = 1;                        /* binary id */
+    for (int i = 0; i < ncols; i++)
+        if (vlens[i] == 0) pv[i] = NULL;  /* empty -> SQL NULL */
     PGresult *r = PQexecParams(f->conn, sql, ncols + 1, NULL, pv, pl, pf, 0);
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
     if (r) PQclear(r);
@@ -407,8 +413,8 @@ static int pg_map_child_ensure(mvx_file *fh, const char *assoc,
     for (int i = 0; i < ncols && p < sizeof sql; i++) {
         char *qc = PQescapeIdentifier(f->conn, cols[i].name,
                                       strlen(cols[i].name));
-        p += (size_t)snprintf(sql + p, sizeof sql - p, ", %s text",
-                              qc ? qc : "\"\"");
+        p += (size_t)snprintf(sql + p, sizeof sql - p, ", %s %s",
+                              qc ? qc : "\"\"", pg_sqltype(cols[i].type));
         if (qc) PQfreemem(qc);
     }
     snprintf(sql + p, sizeof sql - p, ", PRIMARY KEY (id, seq))");
@@ -470,8 +476,9 @@ static int pg_map_child_apply(mvx_file *fh, const char *id, int64_t idlen,
         pv[0] = id; pl[0] = (int)idlen; pf[0] = 1;          /* id (binary) */
         pv[1] = seqbuf; pl[1] = 0; pf[1] = 0;               /* seq (text) */
         for (int c = 0; c < ncols; c++) {
-            pv[c + 2] = vals[r * ncols + c];
-            pl[c + 2] = (int)vlens[r * ncols + c];
+            int64_t vl = vlens[r * ncols + c];
+            pv[c + 2] = vl > 0 ? vals[r * ncols + c] : NULL;  /* -> NULL */
+            pl[c + 2] = (int)vl;
             pf[c + 2] = 0;
         }
         PGresult *ir =

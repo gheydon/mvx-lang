@@ -895,12 +895,34 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
    driver materialises columns / child tables and persists.  Returns the
    record count, -1 on error, or -2 when the backend has no mapping. */
 
+/* Reduce a display value to a plain number (drop currency/grouping/mask
+   characters), keeping a sign and one decimal point.  Empty (-> SQL NULL)
+   when there are no digits — the mirror-mode policy for a value that
+   doesn't fit a numeric column. */
+static int64_t map_num(const char *in, int64_t len, char *out, size_t cap) {
+    int neg = 0;
+    for (int64_t i = 0; i < len; i++)
+        if (in[i] == '-') neg = 1;
+    size_t o = 0;
+    int dot = 0, digits = 0;
+    if (neg && o < cap - 1) out[o++] = '-';
+    for (int64_t i = 0; i < len && o < cap - 1; i++) {
+        char ch = in[i];
+        if (ch >= '0' && ch <= '9') { out[o++] = ch; digits = 1; }
+        else if (ch == '.' && !dot) { out[o++] = '.'; dot = 1; }
+    }
+    if (!digits) { out[0] = '\0'; return 0; }
+    out[o] = '\0';
+    return (int64_t)o;
+}
+
 /* Extract attribute `ano` value `seq` (seq 0 = whole attribute), OCONV by
-   `conv` if set, into a NUL-terminated scratch cell; returns its length. */
+   `conv` if set, and coerce to `type` (NUMERIC is reduced to a plain
+   number), into a NUL-terminated scratch cell; returns its length. */
 static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
-                        int64_t seq, const char *conv, mv_value *av,
-                        mv_value *ov, mv_value *code, char *dst,
-                        size_t cap) {
+                        int64_t seq, const char *conv, const char *type,
+                        mv_value *av, mv_value *ov, mv_value *code,
+                        char *dst, size_t cap) {
     mv_extract_fn(av, rec, ano, seq, 0);
     const mv_value *src = av;
     if (conv[0]) {
@@ -911,6 +933,8 @@ static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
     char tb[40];
     const char *tp;
     int64_t tl = mv_val_chars(src, tb, sizeof tb, &tp);
+    if (strcmp(type, "NUMERIC") == 0)
+        return map_num(tp, tl, dst, cap);
     if (tl >= (int64_t)cap) tl = (int64_t)cap - 1;
     memcpy(dst, tp, (size_t)tl);
     dst[tl] = '\0';
@@ -1028,8 +1052,9 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
         int64_t vlens[MAP_MAXF];
         for (int k = 0; k < npar; k++) {
             int i = pidx[k];
-            vlens[k] = map_cell(ctx, rec, m->anos[i], 0, m->convs[i], &av,
-                                &ov, &code, ps[k], sizeof ps[0]);
+            vlens[k] = map_cell(ctx, rec, m->anos[i], 0, m->convs[i],
+                                m->types[i], &av, &ov, &code, ps[k],
+                                sizeof ps[0]);
             vals[k] = ps[k];
         }
         if (!b->driver->map_apply(f, id, idlen, pcol, vals, vlens, npar))
@@ -1082,8 +1107,8 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                     size_t cell = (size_t)(seq - 1) * nm + k;
                     char *dst = arena + cell * 256;
                     cl[cell] = map_cell(ctx, rec, m->anos[i], seq,
-                                        m->convs[i], &av, &ov, &code, dst,
-                                        256);
+                                        m->convs[i], m->types[i], &av, &ov,
+                                        &code, dst, 256);
                     cv[cell] = dst;
                 }
             if (!b->driver->map_child_apply(f, id, idlen, an[a], cc, nm, cv,

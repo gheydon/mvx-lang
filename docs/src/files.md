@@ -166,9 +166,15 @@ projection is **kept live**: every `WRITE` to the file mirrors the record
 into its columns and child rows automatically, no rebuild needed
 (`BUILD-MAP` is the on-demand backfill). The projection is a derived
 view, so a write is never blocked by it; the `rec` blob stays the source
-of truth (`mirror` mode). Columns currently hold the display value as
-text; **typed columns** and the `native` mode (backend as source of
-truth) are the remaining phases of
+of truth (`mirror` mode).
+
+Columns are **typed** from the conversion: a masked-decimal item (`MD…`)
+becomes a real `numeric` column, so `sum("PRICE")` works in SQL. The
+value is reduced from its display form to a plain number (`$9.99` → the
+numeric `9.99`); a value that isn't a number projects as `NULL` rather
+than failing the write — the mirror-mode policy. Other items are `text`
+for now; **`DATE`/`TIME`** typed columns and the `native` mode (backend
+as source of truth) are the remaining phases of
 [#18](https://github.com/mvx-lang/mvx/issues/18).
 
 ## Record locks
