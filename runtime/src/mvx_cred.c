@@ -18,16 +18,20 @@
  * `.mvx-private/`, which the git tooling ignores, so a clone/BUILD
  * provisions an account without carrying its credentials.
  *
- * The store is one file, `.mvx-private/credentials`, netrc/pgpass-style,
- * one entry per line:
+ * The store is one file, `.mvx-private/credentials`, plain text, **one
+ * field per line** — the first three whitespace tokens are the
+ * non-secret reference (driver, target, key) and the rest of the line
+ * is `field=value`, where the value runs to end-of-line and may contain
+ * spaces and other characters (a CI step can write an arbitrary GitHub
+ * Actions secret verbatim):
  *
- *     driver  target        key      field=value [field=value ...]
- *     lmdbnet mvxdb-a:4300   SALES    token=abc123
- *     postgres db:5432       mvx      user=app password=s3cret
+ *     lmdbnet  mvxdb-a:4300  SALES  token=abc123
+ *     postgres db:5432       mvx    user=app
+ *     postgres db:5432       mvx    password=p@ss w0rd :/@
  *
- * BINDINGS names only the non-secret reference (driver, target, key);
- * a driver resolves the secret with mvx_cred_lookup().  An environment
- * variable overrides the file so containers can inject secrets:
+ * BINDINGS names only (driver, target, key); a driver resolves the
+ * secret with mvx_cred_lookup().  An environment variable overrides the
+ * file so containers can inject secrets with no file on disk:
  * MVXCRED_<DRIVER>_<KEY>_<FIELD>, upper-cased, non-alphanumerics as '_'.
  */
 #include "mvx_runtime.h"
@@ -87,6 +91,31 @@ static int next_tok(const char **p, char *out, size_t cap) {
     return 1;
 }
 
+/* Parse one stored line into (driver, target, key, field) plus a pointer
+   to the value, which runs to end-of-line (may contain spaces).  Returns
+   1 on a valid entry, 0 for blank / comment / malformed. */
+static int parse_entry(const char *ln, char *d, size_t dc, char *t,
+                       size_t tc, char *k, size_t kc, char *field,
+                       size_t fc, const char **val, size_t *vlen) {
+    const char *p = ln;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0') return 0;
+    if (!next_tok(&p, d, dc) || !next_tok(&p, t, tc) || !next_tok(&p, k, kc))
+        return 0;
+    const char *rem = p;                 /* field=value, value to EOL */
+    const char *e = rem;
+    while (*e && *e != '\n' && *e != '\r') e++;
+    const char *eq = memchr(rem, '=', (size_t)(e - rem));
+    if (!eq) return 0;
+    size_t fn = (size_t)(eq - rem);
+    if (fn >= fc) fn = fc - 1;
+    memcpy(field, rem, fn);
+    field[fn] = '\0';
+    *val = eq + 1;
+    *vlen = (size_t)(e - (eq + 1));
+    return 1;
+}
+
 /* MVXCRED_<DRIVER>_<KEY>_<FIELD>, sanitised. */
 static int env_override(const char *driver, const char *key,
                         const char *field, char *out, size_t outlen) {
@@ -116,52 +145,64 @@ int mvx_cred_lookup(const char *driver, const char *target,
     FILE *fp = fopen(path, "r");
     if (!fp) return 0;
 
-    char ln[1152];
+    char ln[2048];
     int found = 0;
-    size_t flen = strlen(field);
     while (!found && fgets(ln, sizeof ln, fp)) {
-        const char *p = ln;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0') continue;
-        char d[64], t[512], k[256];
-        if (!next_tok(&p, d, sizeof d) || !next_tok(&p, t, sizeof t) ||
-            !next_tok(&p, k, sizeof k))
+        char d[64], t[512], k[256], f[64];
+        const char *val;
+        size_t vlen;
+        if (!parse_entry(ln, d, sizeof d, t, sizeof t, k, sizeof k, f,
+                         sizeof f, &val, &vlen))
             continue;
-        if (strcmp(d, driver) != 0 || strcmp(t, target) != 0 ||
-            strcmp(k, key) != 0)
+        if (strcmp(d, driver) || strcmp(t, target) || strcmp(k, key) ||
+            strcmp(f, field))
             continue;
-        /* p now points at the field list: scan for "<field>=". */
-        char fv[512];
-        while (next_tok(&p, fv, sizeof fv)) {
-            if (strncmp(fv, field, flen) == 0 && fv[flen] == '=') {
-                snprintf(out, outlen, "%s", fv + flen + 1);
-                found = 1;
-                break;
-            }
-        }
+        if (vlen >= outlen) vlen = outlen - 1;
+        memcpy(out, val, vlen);
+        out[vlen] = '\0';
+        found = 1;
     }
     fclose(fp);
     return found;
 }
 
-/* Rewrite the store, replacing the entry that matches (driver,target,key)
-   with `line` (or appending it).  Ensures 0700 dir / 0600 file. */
+/* Store secrets.  `fields` is one or more whitespace-separated
+   field=value tokens (as typed to SET-CREDENTIAL); each becomes its own
+   line, upserted per (driver, target, key, field).  Ensures 0700 dir /
+   0600 file. */
 int64_t mvx_setcred(mvx_ctx *ctx, const mv_value *driver,
                     const mv_value *target, const mv_value *key,
                     const mv_value *fields) {
     (void)ctx;
-    char db[64], tb[512], kb[256], fb[512];
+    char db[64], tb[512], kb[256], fb[1024];
     const char *dp, *tp, *kp, *fp2;
     mv_val_chars(driver, db, sizeof db, &dp);
     mv_val_chars(target, tb, sizeof tb, &tp);
     mv_val_chars(key, kb, sizeof kb, &kp);
     mv_val_chars(fields, fb, sizeof fb, &fp2);
-    char drv[64], tgt[512], ky[256], fld[512];
+    char drv[64], tgt[512], ky[256], flds[1024];
     snprintf(drv, sizeof drv, "%s", dp);
     snprintf(tgt, sizeof tgt, "%s", tp);
     snprintf(ky, sizeof ky, "%s", kp);
-    snprintf(fld, sizeof fld, "%s", fp2);
+    snprintf(flds, sizeof flds, "%s", fp2);
     if (!drv[0] || !tgt[0] || !ky[0]) return 0;
+
+    /* split `flds` into field=value tokens */
+    char fname[16][64], ftok[16][512];
+    int nf = 0;
+    const char *fp = flds;
+    char tok[512];
+    while (nf < 16 && next_tok(&fp, tok, sizeof tok)) {
+        const char *eq = strchr(tok, '=');
+        if (!eq || eq == tok) continue;
+        size_t kn = (size_t)(eq - tok);
+        if (kn >= sizeof fname[0]) kn = sizeof fname[0] - 1;
+        memcpy(fname[nf], tok, kn);
+        fname[nf][kn] = '\0';
+        snprintf(ftok[nf], sizeof ftok[nf], "%s", tok);
+        nf++;
+    }
+    if (nf == 0) return 0;
 
     char dir[4096], path[4096], tmp[4096];
     priv_dir(dir, sizeof dir);
@@ -170,7 +211,6 @@ int64_t mvx_setcred(mvx_ctx *ctx, const mv_value *driver,
     chmod(dir, 0700);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
 
-    /* Read existing lines, dropping any that match this (driver,target,key). */
     FILE *in = fopen(path, "r");
     int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) {
@@ -184,22 +224,24 @@ int64_t mvx_setcred(mvx_ctx *ctx, const mv_value *driver,
         return 0;
     }
     if (in) {
-        char ln[1152];
+        char ln[2048];
         while (fgets(ln, sizeof ln, in)) {
-            const char *p = ln;
-            while (*p == ' ' || *p == '\t') p++;
-            char d[64], t[512], k[256];
-            const char *q = p;
-            if (*p != '#' && next_tok(&q, d, sizeof d) &&
-                next_tok(&q, t, sizeof t) && next_tok(&q, k, sizeof k) &&
-                strcmp(d, drv) == 0 && strcmp(t, tgt) == 0 &&
-                strcmp(k, ky) == 0)
-                continue;               /* replaced below */
-            fputs(ln, out);
+            char d[64], t[512], k[256], f[64];
+            const char *val;
+            size_t vlen;
+            int drop = 0;
+            if (parse_entry(ln, d, sizeof d, t, sizeof t, k, sizeof k, f,
+                            sizeof f, &val, &vlen) &&
+                !strcmp(d, drv) && !strcmp(t, tgt) && !strcmp(k, ky)) {
+                for (int i = 0; i < nf; i++)
+                    if (!strcmp(f, fname[i])) { drop = 1; break; }
+            }
+            if (!drop) fputs(ln, out);
         }
         fclose(in);
     }
-    fprintf(out, "%s %s %s %s\n", drv, tgt, ky, fld);
+    for (int i = 0; i < nf; i++)
+        fprintf(out, "%s %s %s %s\n", drv, tgt, ky, ftok[i]);
     fclose(out);
     if (rename(tmp, path) != 0) {
         unlink(tmp);
@@ -220,43 +262,28 @@ void mvx_listcred(mvx_ctx *ctx, mv_value *dst) {
     size_t len = 0, cap = 0;
     FILE *fp = fopen(path, "r");
     if (fp) {
-        char ln[1152];
+        char ln[2048];
         while (fgets(ln, sizeof ln, fp)) {
-            const char *p = ln;
-            while (*p == ' ' || *p == '\t') p++;
-            if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0')
+            char d[64], t[512], k[256], f[64];
+            const char *val;
+            size_t vlen;
+            if (!parse_entry(ln, d, sizeof d, t, sizeof t, k, sizeof k, f,
+                             sizeof f, &val, &vlen))
                 continue;
-            /* mask each field value: keep "name=", replace the rest. */
-            char masked[1152];
-            size_t m = 0;
-            char tok[512];
-            const char *q = p;
-            int col = 0;
-            while (next_tok(&q, tok, sizeof tok)) {
-                const char *eq = (col >= 3) ? strchr(tok, '=') : NULL;
-                if (col) masked[m++] = ' ';
-                if (eq) {
-                    size_t kn = (size_t)(eq - tok) + 1;   /* incl '=' */
-                    memcpy(masked + m, tok, kn);
-                    m += kn;
-                    memcpy(masked + m, "****", 4);
-                    m += 4;
-                } else {
-                    size_t tn = strlen(tok);
-                    memcpy(masked + m, tok, tn);
-                    m += tn;
-                }
-                col++;
-            }
-            if (len + m + 1 > cap) {
+            char line[2048];
+            int m = snprintf(line, sizeof line, "%s %s %s %s=****", d, t, k,
+                             f);
+            if (m < 0) continue;
+            size_t ll = (size_t)m;
+            if (len + ll + 1 > cap) {
                 cap = cap ? cap * 2 : 256;
-                while (cap < len + m + 1) cap *= 2;
+                while (cap < len + ll + 1) cap *= 2;
                 buf = realloc(buf, cap);
                 if (!buf) mvx_fatal("out of memory in LISTCRED");
             }
             if (len) buf[len++] = AM;
-            memcpy(buf + len, masked, m);
-            len += m;
+            memcpy(buf + len, line, ll);
+            len += ll;
         }
         fclose(fp);
     }
