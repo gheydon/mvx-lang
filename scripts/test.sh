@@ -244,6 +244,10 @@ check tcl-assoc "$(printf '%s\n' \
   'LIST ORDERS CUSTOMER PRODUCT QTY PRICE' \
   'SORT ORDERS CUSTOMER PRODUCT QTY PRICE' | tclrun)"
 
+# SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
+# attrs become parent columns; the ORDERITEMS association a child table.
+check tcl-map "$(printf 'MAP ORDERS DATA\n' | tclrun)"
+
 # account credential store (.mvx-private): set/list with values masked,
 # and upsert replacing an existing entry in place
 check tcl-cred "$(printf '%s\n' \

@@ -96,6 +96,38 @@ Conversions and formats apply per value. Two *different* associations of
 unequal length in one listing currently share a single explosion height
 (the tallest column) rather than each exploding independently.
 
+### Relational mapping (`MAP`)
+
+Because the dictionary already knows which attributes are single-valued
+and which belong to an association, it doubles as a **relational schema**.
+`MAP file` prints the schema that follows: single-valued attributes are
+parent-table columns, each association is a child table keyed `(id, seq)`,
+and the column type comes from the conversion (`MD…`→`NUMERIC`, `D…`→
+`DATE`, `MT…`→`TIME`, else `TEXT`).
+
+```
+> MAP ORDERS
+CREATE TABLE ORDERS (
+    id TEXT PRIMARY KEY
+  , CUSTOMER TEXT
+);
+
+CREATE TABLE ORDERS_ORDERITEMS (
+    id TEXT
+  , seq INT
+  , PRICE NUMERIC
+  , PRODUCT TEXT
+  , QTY TEXT
+  , PRIMARY KEY (id, seq)
+);
+```
+
+`MAP file DATA` also previews the projected rows (the record decomposed
+into its parent row and child rows). This is the design/preview stage of
+the SQL-mapping work
+([#18](https://github.com/mvx-lang/mvx/issues/18)); later phases maintain
+these tables live against a SQL backend (`mirror` / `native` modes).
+
 ## Record locks
 
 `READU` locks a record until `WRITE`, `DELETE`, or `RELEASE`
