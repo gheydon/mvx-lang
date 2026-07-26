@@ -893,6 +893,47 @@ static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk,
     return cur;
 }
 
+/* Server-side COUNT: count(*) with no filter, or filtered by a mapped column
+   or the raw blob attribute — one row back instead of a stream of ids. */
+static int64_t pg_count_where(mvx_file *fh, const char *col, int64_t attr,
+                              const char *op, const char *val, int64_t vlen) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char sql[900];
+    const char *pv[1] = {val};
+    int pl[1] = {(int)vlen}, pf[1] = {0};
+    int nparam = 0;
+    if (!op || !op[0]) {
+        snprintf(sql, sizeof sql, "SELECT count(*) FROM %s", qt);
+    } else {
+        const char *sqlop;
+        if (op[0] == '=' && !op[1]) sqlop = "=";
+        else if (op[0] == '#' && !op[1]) sqlop = col ? "IS DISTINCT FROM" : "<>";
+        else return -1;
+        char expr[400];
+        if (col && col[0]) {
+            char *qc = PQescapeIdentifier(f->conn, col, strlen(col));
+            snprintf(expr, sizeof expr, "%s", qc ? qc : "\"\"");
+            if (qc) PQfreemem(qc);
+        } else {
+            char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+            snprintf(expr, sizeof expr, "%s.mvx_attr(rec,%lld)",
+                     qs ? qs : "\"\"", (long long)attr);
+            if (qs) PQfreemem(qs);
+        }
+        snprintf(sql, sizeof sql, "SELECT count(*) FROM %s WHERE %s %s $1",
+                 qt, expr, sqlop);
+        nparam = 1;
+    }
+    PGresult *r = PQexecParams(f->conn, sql, nparam, NULL, pv, pl, pf, 0);
+    int64_t n = -1;
+    if (r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1)
+        n = strtoll(PQgetvalue(r, 0, 0), NULL, 10);
+    if (r) PQclear(r);
+    return n;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -911,6 +952,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_where,                      /* WITH push-down on a column */
     pg_select_attr,                       /* WITH push-down on the blob */
     pg_select_join,                       /* co-located TRANS() JOIN */
+    pg_count_where,                       /* server-side COUNT */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

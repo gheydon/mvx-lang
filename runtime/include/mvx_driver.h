@@ -187,6 +187,14 @@ typedef struct mvx_driver {
                                const char *src_keycol, mvx_file *tgt,
                                int64_t tgt_attr, const char *tgt_col,
                                const char *op, const char *val, int64_t vlen);
+    /* Optional server-side COUNT (may be NULL): the number of matching
+       records, computed in the backend so a filtered count returns one row
+       instead of a stream of ids.  `op` NULL/"" counts all; otherwise it is
+       "=" or "#" against a mapped identity column `col` (when set) or the raw
+       record attribute `attr` (blob).  Returns the count, or -1 when it
+       cannot push down (the caller counts by scanning). */
+    int64_t (*count_where)(mvx_file *f, const char *col, int64_t attr,
+                           const char *op, const char *val, int64_t vlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

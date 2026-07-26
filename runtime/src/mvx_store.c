@@ -1844,6 +1844,41 @@ int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* Count records in the backend: with no item, count(*); with a pushable
+   filter (=/# on a mapped identity column or the raw record attribute), a
+   filtered count.  Returns the count, or -1 when it cannot push down so the
+   verb counts by scanning. */
+int64_t mvx_querycount(mvx_ctx *ctx, const mv_value *fvar,
+                       const mv_value *item, const mv_value *op,
+                       const mv_value *value, const mv_value *attr) {
+    mvx_file *f = file_of(fvar, "QUERYCOUNT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->count_where) return -1;
+    open_file *o = find_open(state(ctx), f);
+
+    char ib[40];
+    const char *ip;
+    int64_t il = mv_val_chars(item, ib, sizeof ib, &ip);
+    if (il == 0)                          /* no WITH: count every record */
+        return b->driver->count_where(f, NULL, 0, "", NULL, 0);
+
+    char ob[8];
+    const char *opp;
+    int64_t ol = mv_val_chars(op, ob, sizeof ob, &opp);
+    if (!(ol == 1 && (opp[0] == '=' || opp[0] == '#'))) return -1;
+    char vb[40];
+    const char *vp;
+    int64_t vl = mv_val_chars(value, vb, sizeof vb, &vp);
+    if (vl == 0) return -1;
+
+    int64_t attrno = mv_get_int(attr);
+    char opz[2] = {opp[0], '\0'};
+    const char *col = o ? map_identity_col(o, attrno) : NULL;
+    if (col) return b->driver->count_where(f, col, 0, opz, vp, vl);
+    if (attrno < 1) return -1;            /* @ID / I-type: no blob count */
+    return b->driver->count_where(f, NULL, attrno, opz, vp, vl);
+}
+
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {
     store_state *st = state(ctx);
     if (!fvar) {                        /* bare RELEASE: drop everything */

@@ -277,6 +277,30 @@ check tcl-trans "$( \
     'LIST TORD CUSTOMER CITY CSTATE BY @ID' \
     'LIST TORD CUSTOMER CITY WITH CSTATE = "VIC"' | tclrun)"
 
+# COUNT with WITH (#45): on a local file the backend has no count push-down,
+# so COUNT falls back to forming a filtered list and counting it. Also plain
+# COUNT of every record.
+cnseed="$TESTROOT/cnseed.b"
+cat > "$cnseed" <<'EOF'
+X = CREATEFILE("CNT")
+OPEN "CNT" TO F ELSE STOP
+WRITE "Widget":@AM:"NSW" ON F, "C1"
+WRITE "Gadget":@AM:"VIC" ON F, "C2"
+WRITE "Bolt":@AM:"NSW" ON F, "C3"
+WRITE "Nut":@AM:"NSW" ON F, "C4"
+OPEN "DICT", "CNT" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+PRINT "cnt-seeded"
+EOF
+"$MVX" "$cnseed" -o "$TESTROOT/cnseedbin" 2>/dev/null
+check tcl-count "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/cnseedbin"); \
+  printf '%s\n' \
+    'COUNT CNT' \
+    'COUNT CNT WITH STATE = "NSW"' \
+    'COUNT CNT WITH STATE = "VIC"' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.
@@ -860,6 +884,30 @@ JDEOF
     "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Melbourne" BY @ID' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'CREATE-MAP CUSJ NAME CITY' >/dev/null 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Sydney" BY @ID' 2>&1)"
+
+  # COUNT push-down (#45): count(*) server-side, filtered by a mapped column
+  # or the raw blob attribute — one number back, no id stream. ORDJ has
+  # CUSTID (attr1) and PRODUCT; CUSJ.CITY is mapped after the join test.
+  printf 'CNP @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE CNP' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE CNP USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/pgcnt.b" <<'CNEOF'
+OPEN "CNP" TO F ELSE STOP
+WRITE "Widget":@AM:"NSW" ON F, "C1"
+WRITE "Gadget":@AM:"VIC" ON F, "C2"
+WRITE "Bolt":@AM:"NSW" ON F, "C3"
+WRITE "Nut":@AM:"NSW" ON F, "C4"
+OPEN "DICT", "CNP" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+CNEOF
+  "$MVX" "$TESTROOT/pgcnt.b" -o "$TESTROOT/pgcntbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgcntbin")
+  "$TCL" -a "$PGACCT" -c 'CREATE-MAP CNP NAME STATE' >/dev/null 2>&1
+  check tcl-pgcount "$( \
+    "$TCL" -a "$PGACCT" -c 'COUNT CNP' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'COUNT CNP WITH STATE = "NSW"' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'COUNT CNP WITH NAME = "Bolt"' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.

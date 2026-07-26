@@ -33,7 +33,7 @@ standard verbs.
 | `DELETE-FILE name` | delete a file |
 | `CLEAR-FILE name` | delete every record |
 | `LISTF` | the account's files |
-| `COUNT {DICT} file` | record count (uses an active select list) |
+| `COUNT {DICT} file {WITH item op value}` | record count; pushes `count(*)` (optionally filtered) into a SQL backend, or uses an active select list |
 | `LIST {DICT} file {items} {WITH item op value} {BY item}` | query |
 | `SORT {DICT} file {items} {WITH item op value} {BY item}` | like `LIST`, but sorted by id (or the `BY` key) |
 | `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |
