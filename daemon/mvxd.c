@@ -70,6 +70,14 @@ typedef struct lockent {
 
 static lockent *g_locks;
 
+/* Set by SIGTERM/SIGINT so the poll loop breaks and the cached environments
+   are closed on the way out.  Without a clean close LMDB never releases each
+   namespace's lock — on macOS that lock is a named POSIX semaphore, so a
+   daemon killed mid-serve leaks one per open namespace, and a restart storm
+   eventually exhausts the system limit (mirrors the runtime driver fix). */
+static volatile sig_atomic_t g_stop;
+static void on_stop(int sig) { (void)sig; g_stop = 1; }
+
 /* ------------------------------------------------------------ plumbing */
 
 static void set_nonblock(int fd) {
@@ -761,6 +769,8 @@ int main(int argc, char **argv) {
     }
 
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGTERM, on_stop);           /* clean shutdown: close envs on the way out */
+    signal(SIGINT, on_stop);
 
     /* Environments open lazily, one per namespace, under the data dir. */
     g_datadir = datadir;
@@ -803,6 +813,7 @@ int main(int argc, char **argv) {
     fds[0].events = POLLIN;
 
     for (;;) {
+        if (g_stop) break;              /* SIGTERM/SIGINT: shut down cleanly */
         /* A connection asks for POLLOUT only while it still has reply bytes to
            flush; otherwise it just watches for more request data. */
         for (int i = 1; i < nfds; i++)
@@ -810,7 +821,7 @@ int main(int argc, char **argv) {
                 (short)(POLLIN | (cs[i].wpos < cs[i].wlen ? POLLOUT : 0));
 
         if (poll(fds, (nfds_t)nfds, -1) < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR) { if (g_stop) break; continue; }
             break;
         }
 
@@ -878,5 +889,10 @@ int main(int argc, char **argv) {
             }
         }
     }
+
+    /* Close every cached environment so LMDB releases (and, on macOS,
+       sem_unlinks) each namespace's lock instead of leaking it. */
+    for (int i = 0; i < MAX_NS; i++)
+        if (g_ns[i].env) { mdb_env_close(g_ns[i].env); g_ns[i].env = NULL; }
     return 0;
 }
