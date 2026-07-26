@@ -1,0 +1,45 @@
+/**
+ * @file MOUSE-DEMO
+ * Click or drag on the screen and it paints markers where the pointer
+ * goes, coloured by button; the status line echoes the coordinates.
+ * Press q (or ESC) to quit.  Demonstrates the terminal mouse support
+ * (#57): @(-9)/@(-10) toggle reporting, KEYIN() yields "MOUSE", MOUSE()
+ * carries col/row/button/event (event DOWN / UP / DRAG).
+ */
+W = SYSTEM(2)
+H = SYSTEM(3)
+CRT @(-5):          ;* alternate screen, cleared
+CRT @(-7):          ;* hide the cursor
+CRT @(-9):          ;* mouse reporting on
+CRT @(2, 0):COLOR("BRIGHT WHITE"):"MVX mouse demo":COLOR("OFF"):
+CRT @(2, 1):"Click or drag to draw (left/middle/right).  Press q to quit.":
+LOOP
+   K = KEYIN()
+UNTIL K = "q" OR K = "Q" OR K = "ESC" DO
+   IF K = "MOUSE" THEN
+      M = MOUSE()
+      C = M<1,1>
+      R = M<1,2>
+      B = M<1,3>
+      E = M<1,4>
+      IF (E = "DOWN" OR E = "DRAG") AND R > 3 AND R <= H THEN
+         BEGIN CASE
+         CASE B = "LEFT"
+            CL = COLOR("BRIGHT GREEN")
+         CASE B = "RIGHT"
+            CL = COLOR("BRIGHT RED")
+         CASE B = "MIDDLE"
+            CL = COLOR("BRIGHT YELLOW")
+         CASE 1
+            CL = COLOR("BRIGHT CYAN")
+         END CASE
+         CRT @(C - 1, R - 1):CL:"O":COLOR("OFF"):
+      END
+      CRT @(2, H - 1):@(-4):"last: ":C:",":R:"  ":B:"  ":E:
+   END
+REPEAT
+CRT @(-10):         ;* mouse reporting off
+CRT @(-8):          ;* show the cursor
+CRT @(-6):          ;* leave the alternate screen
+PRINT "thanks for clicking"
+END

@@ -3,7 +3,6 @@ build/
 *.dSYM/
 .DS_Store
 CLAUDE.md
-demo/
 packages/*/CATALOG/
 packages/*/LIB/
 packages/*/bin/

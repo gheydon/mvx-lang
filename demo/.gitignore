@@ -1,0 +1,10 @@
+# The live hash-file store and compiled artifacts are rebuilt from the
+# tracked directory form (mvx-git runs mvx-convert-acct on checkout;
+# programs recompile with BASIC + CATALOG), so they are not versioned.
+mvxdata.lmdb
+BP.O/
+BP.O.DICT/
+CATALOG/
+
+# Account-local package links hold absolute host paths — not portable.
+PACKAGES
