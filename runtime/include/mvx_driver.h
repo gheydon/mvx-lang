@@ -195,6 +195,14 @@ typedef struct mvx_driver {
        cannot push down (the caller counts by scanning). */
     int64_t (*count_where)(mvx_file *f, const char *col, int64_t attr,
                            const char *op, const char *val, int64_t vlen);
+    /* Optional server-side SUM (may be NULL): the total of numeric column
+       `sumcol`, written to `out` as text.  `fop` NULL/"" totals the whole
+       file, else "="/"#" filters on a mapped identity column `fcol` (when
+       set) or the raw record attribute `fattr`.  Returns 1 if pushed, 0 if
+       not (the caller sums by scanning). */
+    int (*sum_where)(mvx_file *f, const char *sumcol, const char *fcol,
+                     int64_t fattr, const char *fop, const char *fval,
+                     int64_t fvlen, char *out, size_t cap);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

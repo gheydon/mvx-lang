@@ -1009,6 +1009,14 @@ private:
                    {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
                     evalPtr(*e.args[2]), evalPtr(*e.args[3])});
             return; }
+        if (f == "QUERYSUM") { need(6);
+            callRt("mvx_querysum", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_,
+                    ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    evalPtr(*e.args[2]), evalPtr(*e.args[3]),
+                    evalPtr(*e.args[4]), evalPtr(*e.args[5])});
+            return; }
         if (f == "@") {
             if (e.args.size() != 1 && e.args.size() != 2)
                 err(e.line, "@() takes 1 or 2 arguments");

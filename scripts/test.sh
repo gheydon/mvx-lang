@@ -301,6 +301,27 @@ check tcl-count "$( \
     'COUNT CNT WITH STATE = "NSW"' \
     'COUNT CNT WITH STATE = "VIC"' | tclrun)"
 
+# SUM (#46): total a numeric field. On a local file it scans, OCONV's the
+# field, and adds; PRICE is MD2 so 999 totals as 9.99. Also a filtered sum.
+smseed="$TESTROOT/smseed.b"
+cat > "$smseed" <<'EOF'
+X = CREATEFILE("SMF")
+OPEN "SMF" TO F ELSE STOP
+WRITE "NSW":@AM:"999" ON F, "O1"
+WRITE "VIC":@AM:"450" ON F, "O2"
+WRITE "NSW":@AM:"1200" ON F, "O3"
+OPEN "DICT", "SMF" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+PRINT "sm-seeded"
+EOF
+"$MVX" "$smseed" -o "$TESTROOT/smseedbin" 2>/dev/null
+check tcl-sum "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/smseedbin"); \
+  printf '%s\n' \
+    'SUM SMF PRICE' \
+    'SUM SMF PRICE WITH STATE = "NSW"' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.
@@ -908,6 +929,27 @@ CNEOF
     "$TCL" -a "$PGACCT" -c 'COUNT CNP' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'COUNT CNP WITH STATE = "NSW"' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'COUNT CNP WITH NAME = "Bolt"' 2>&1)"
+
+  # SUM push-down (#46): PRICE is mapped NUMERIC, so SUM totals sum("PRICE")
+  # server-side (the column holds the MD2 display value).
+  printf 'SMP @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE SMP' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE SMP USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/pgsum.b" <<'SMEOF'
+OPEN "SMP" TO F ELSE STOP
+WRITE "NSW":@AM:"999" ON F, "O1"
+WRITE "VIC":@AM:"450" ON F, "O2"
+WRITE "NSW":@AM:"1200" ON F, "O3"
+OPEN "DICT", "SMP" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+SMEOF
+  "$MVX" "$TESTROOT/pgsum.b" -o "$TESTROOT/pgsumbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgsumbin")
+  "$TCL" -a "$PGACCT" -c 'CREATE-MAP SMP STATE PRICE' >/dev/null 2>&1
+  check tcl-pgsum "$( \
+    "$TCL" -a "$PGACCT" -c 'SUM SMP PRICE' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SUM SMP PRICE WITH STATE = "NSW"' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.

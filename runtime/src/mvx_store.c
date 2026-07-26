@@ -1879,6 +1879,67 @@ int64_t mvx_querycount(mvx_ctx *ctx, const mv_value *fvar,
     return b->driver->count_where(f, NULL, attrno, opz, vp, vl);
 }
 
+/* Sum a numeric field in the backend: `sumfield` must be mapped to a NUMERIC
+   column (its display value is what a report totals), optionally filtered by
+   the same push-down as COUNT.  Writes the total to dst as text, or "" when
+   it cannot push down so the verb sums by scanning. */
+void mvx_querysum(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
+                  const mv_value *sumfield, const mv_value *item,
+                  const mv_value *op, const mv_value *value,
+                  const mv_value *attr) {
+    mv_set_str(dst, "", 0);
+    mvx_file *f = file_of(fvar, "QUERYSUM");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->sum_where) return;
+    open_file *o = find_open(state(ctx), f);
+    if (!o) return;
+    map_load(o);
+
+    char sb[64];
+    const char *sp;
+    int64_t sl = mv_val_chars(sumfield, sb, sizeof sb, &sp);
+    if (sl <= 0 || sl >= 64) return;
+    char sname[64];
+    memcpy(sname, sp, (size_t)sl);
+    sname[sl] = '\0';
+    const char *sumcol = NULL;
+    for (int i = 0; i < o->map.nf; i++)
+        if (o->map.assocs[i][0] == '\0' &&
+            strcmp(o->map.types[i], "NUMERIC") == 0 &&
+            strcmp(o->map.names[i], sname) == 0) {
+            sumcol = o->map.names[i];
+            break;
+        }
+    if (!sumcol) return;                  /* not a numeric column: scan */
+
+    const char *fcol = NULL, *fop = "", *fval = NULL;
+    int64_t fattr = 0, fvl = 0;
+    char opz[2] = {0, 0}, vb[40], ib[40];
+    const char *ip, *vp;
+    int64_t il = mv_val_chars(item, ib, sizeof ib, &ip);
+    if (il > 0) {
+        char ob[8];
+        const char *opp;
+        int64_t ol = mv_val_chars(op, ob, sizeof ob, &opp);
+        if (!(ol == 1 && (opp[0] == '=' || opp[0] == '#'))) return;
+        fvl = mv_val_chars(value, vb, sizeof vb, &vp);
+        if (fvl == 0) return;
+        opz[0] = opp[0];
+        fop = opz;
+        fval = vp;
+        int64_t attrno = mv_get_int(attr);
+        fcol = map_identity_col(o, attrno);
+        if (!fcol) {
+            if (attrno < 1) return;
+            fattr = attrno;
+        }
+    }
+    char out[64];
+    if (b->driver->sum_where(f, sumcol, fcol, fattr, fop, fval, fvl, out,
+                             sizeof out))
+        mv_set_str(dst, out, (int64_t)strlen(out));
+}
+
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {
     store_state *st = state(ctx);
     if (!fvar) {                        /* bare RELEASE: drop everything */

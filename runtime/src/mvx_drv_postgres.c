@@ -934,6 +934,53 @@ static int64_t pg_count_where(mvx_file *fh, const char *col, int64_t attr,
     return n;
 }
 
+/* Server-side SUM of a numeric column, optionally filtered — one value back.
+   The mapped NUMERIC column holds the display value, so this is the total a
+   report would show. */
+static int pg_sum_where(mvx_file *fh, const char *sumcol, const char *fcol,
+                        int64_t fattr, const char *fop, const char *fval,
+                        int64_t fvlen, char *out, size_t cap) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qsum = PQescapeIdentifier(f->conn, sumcol, strlen(sumcol));
+    char sql[1000];
+    size_t p = (size_t)snprintf(sql, sizeof sql,
+                                "SELECT COALESCE(sum(%s),0)::text FROM %s",
+                                qsum ? qsum : "\"\"", qt);
+    if (qsum) PQfreemem(qsum);
+    const char *pv[1] = {fval};
+    int pl[1] = {(int)fvlen}, pf[1] = {0};
+    int nparam = 0;
+    if (fop && fop[0]) {
+        const char *sqlop;
+        if (fop[0] == '=' && !fop[1]) sqlop = "=";
+        else if (fop[0] == '#' && !fop[1]) sqlop = fcol ? "IS DISTINCT FROM" : "<>";
+        else return 0;
+        char expr[400];
+        if (fcol && fcol[0]) {
+            char *qc = PQescapeIdentifier(f->conn, fcol, strlen(fcol));
+            snprintf(expr, sizeof expr, "%s", qc ? qc : "\"\"");
+            if (qc) PQfreemem(qc);
+        } else {
+            char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+            snprintf(expr, sizeof expr, "%s.mvx_attr(rec,%lld)",
+                     qs ? qs : "\"\"", (long long)fattr);
+            if (qs) PQfreemem(qs);
+        }
+        snprintf(sql + p, sizeof sql - p, " WHERE %s %s $1", expr, sqlop);
+        nparam = 1;
+    }
+    PGresult *r = PQexecParams(f->conn, sql, nparam, NULL, pv, pl, pf, 0);
+    int ok = 0;
+    if (r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1) {
+        snprintf(out, cap, "%s", PQgetvalue(r, 0, 0));
+        ok = 1;
+    }
+    if (r) PQclear(r);
+    return ok;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -953,6 +1000,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_attr,                       /* WITH push-down on the blob */
     pg_select_join,                       /* co-located TRANS() JOIN */
     pg_count_where,                       /* server-side COUNT */
+    pg_sum_where,                         /* server-side SUM */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

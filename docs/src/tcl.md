@@ -34,6 +34,7 @@ standard verbs.
 | `CLEAR-FILE name` | delete every record |
 | `LISTF` | the account's files |
 | `COUNT {DICT} file {WITH item op value}` | record count; pushes `count(*)` (optionally filtered) into a SQL backend, or uses an active select list |
+| `SUM {DICT} file field {WITH item op value}` | total a numeric field; pushes `sum(col)` into a SQL backend when the field is a mapped `NUMERIC` column, else scans and OCONVs |
 | `LIST {DICT} file {items} {WITH item op value} {BY item}` | query |
 | `SORT {DICT} file {items} {WITH item op value} {BY item}` | like `LIST`, but sorted by id (or the `BY` key) |
 | `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |

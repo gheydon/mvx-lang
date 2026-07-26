@@ -250,6 +250,11 @@ int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,
 int64_t mvx_querycount(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *item, const mv_value *op,
                        const mv_value *value, const mv_value *attr);
+/* Server-side SUM of a numeric column into dst; "" when it cannot push. */
+void    mvx_querysum(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
+                     const mv_value *sumfield, const mv_value *item,
+                     const mv_value *op, const mv_value *value,
+                     const mv_value *attr);
 /* Build a file's relational mapping (see MAP / #18): -2 unsupported,
    -1 fail, else the projected record count. */
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
