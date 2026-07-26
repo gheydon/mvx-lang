@@ -229,6 +229,26 @@ static int infra(const char *n) {
 static int is_master(const char *n) {
     return !strcmp(n, "VOC") || !strcmp(n, "MD");
 }
+
+/* Make the directory an account: write the .mvx descriptor if it has none, so
+ * is_account() holds for the rest of the rebuild.  Called right before the
+ * master dictionary is created (VOC/MD leads the migration order).  BUILD
+ * writes it too, as a fallback, and skips it when one is already present. */
+static void ensure_account(const char *acct) {
+    char p[4096];
+    snprintf(p, sizeof p, "%s/.mvx", acct);
+    struct stat sb;
+    if (stat(p, &sb) == 0) return;              /* already an account */
+    char cwd[4096];
+    const char *base = acct;
+    if (!strcmp(acct, ".") && getcwd(cwd, sizeof cwd)) base = cwd;
+    const char *slash = strrchr(base, '/');
+    if (slash && slash[1]) base = slash + 1;
+    FILE *f = fopen(p, "w");
+    if (!f) return;
+    fprintf(f, "# MVX account descriptor\nname = %s\nversion = 1\n", base);
+    fclose(f);
+}
 static int ends_dict(const char *n, size_t len) {
     return len > 5 && memcmp(n + len - 5, ".DICT", 5) == 0;
 }
@@ -274,6 +294,10 @@ int mvx_acct_import(mvx_ctx *ctx) {
             }
             front++;
         }
+
+    /* Establish the account before rebuilding the master dictionary, so the
+     * directory reads as an account for the files created after it. */
+    ensure_account(acct);
 
     int nmig = 0;
     for (size_t i = 0; i < nn; i++) {
