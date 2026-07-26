@@ -52,6 +52,7 @@ WI = ""
 WOP = ""
 WV = ""
 BYI = ""
+LIMIT = ""
 I = TBASE
 LOOP
 WHILE I <= NT DO
@@ -64,6 +65,9 @@ WHILE I <= NT DO
       I = I + 3
    CASE T = "BY"
       BYI = FIELD(S, " ", I + 1)
+      I = I + 1
+   CASE T = "FIRST" OR T = "SAMPLE"
+      LIMIT = FIELD(S, " ", I + 1)
       I = I + 1
    CASE 1
       COLS<-1> = T
@@ -209,17 +213,36 @@ END
 
 * ---- scan, filter, order -----------------------------------------------
 * use the active select list when one exists, classic style
+LN = 0
+IF LIMIT # "" THEN
+   IF NUM(LIMIT) THEN LN = LIMIT
+END
+PUSHED = 0
 IF SYSTEM(11) = 0 THEN
-   IXUSED = 0
-   IF WI # "" AND WOP = "=" THEN
-      IF WANO # "" AND WANO # 0 AND WANO # -1 THEN
-         IXUSED = INDEXSELECT(F, WI, WV)
+   * BY (+ WITH) + FIRST -> push ORDER BY / LIMIT when the order field is a
+   * mapped column whose type matches the sort order; the list comes back
+   * already sorted and limited, so skip the client sort and filter.
+   IF BYI # "" AND BANO # "" AND BANO # 0 AND BANO # -1 THEN
+      BNUM = 0
+      IF BORD = "AR" THEN BNUM = 1
+      PUSHED = ORDERSELECT(F, WI, WOP, WV, WANO, BANO, BNUM, LN)
+      IF PUSHED THEN
+         WI = ""
+         BYI = ""
       END
    END
-   IF IXUSED THEN
-      WI = ""
-   END ELSE
-      SELECT F
+   IF PUSHED = 0 THEN
+      IXUSED = 0
+      IF WI # "" AND WOP = "=" THEN
+         IF WANO # "" AND WANO # 0 AND WANO # -1 THEN
+            IXUSED = INDEXSELECT(F, WI, WV)
+         END
+      END
+      IF IXUSED THEN
+         WI = ""
+      END ELSE
+         SELECT F
+      END
    END
 END
 IDS = ""
@@ -291,6 +314,8 @@ FOR C = 1 TO CN
 NEXT C
 PRINT HDR
 N = DCOUNT(IDS, @AM)
+* FIRST n: the push-down already limited; a client sort caps here
+IF LN > 0 AND N > LN THEN N = LN
 FOR K = 1 TO N
    ID = IDS<K>
    READ R FROM F, ID ELSE R = ""

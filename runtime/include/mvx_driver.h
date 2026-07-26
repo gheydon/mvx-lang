@@ -203,6 +203,15 @@ typedef struct mvx_driver {
     int (*sum_where)(mvx_file *f, const char *sumcol, const char *fcol,
                      int64_t fattr, const char *fop, const char *fval,
                      int64_t fvlen, char *out, size_t cap);
+    /* Optional ORDER BY / LIMIT push-down (may be NULL): ids ordered by
+       mapped column `ocol` (text ordered COLLATE "C" to match MV's byte sort
+       when `otext`, else natural order), limited to `limit` rows (0 = all),
+       optionally filtered like the other push-downs.  So a "top-N by field"
+       fetches N ids server-side.  NULL result = cannot push (caller sorts). */
+    mvx_cursor *(*select_order)(mvx_file *f, const char *fcol, int64_t fattr,
+                                const char *fop, const char *fval,
+                                int64_t fvlen, const char *ocol, int otext,
+                                int64_t limit);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

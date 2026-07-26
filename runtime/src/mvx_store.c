@@ -1772,6 +1772,27 @@ static const char *map_identity_col(open_file *o, int64_t attr) {
     return NULL;
 }
 
+/* The mapped column to ORDER BY for attribute `attr`, when its type matches
+   the sort order (`ordnum`: numeric/date/time for a right-justified BY, or
+   identity text for a left-justified BY — so the SQL order equals MV's), or
+   NULL.  *otext is set when the column needs COLLATE "C" (byte order). */
+static const char *map_order_col(open_file *o, int64_t attr, int ordnum,
+                                 int *otext) {
+    if (!o) return NULL;
+    map_load(o);
+    for (int i = 0; i < o->map.nf; i++)
+        if (o->map.anos[i] == attr && o->map.assocs[i][0] == '\0') {
+            const char *t = o->map.types[i];
+            int isnum = strcmp(t, "NUMERIC") == 0 || strcmp(t, "DATE") == 0 ||
+                        strcmp(t, "TIME") == 0;
+            int istext = strcmp(t, "TEXT") == 0 && o->map.convs[i][0] == '\0';
+            if (ordnum && isnum) { *otext = 0; return o->map.names[i]; }
+            if (!ordnum && istext) { *otext = 1; return o->map.names[i]; }
+            return NULL;
+        }
+    return NULL;
+}
+
 /* Push a WITH filter on a TRANS() I-type down to a co-located JOIN: parse the
    TRANS(file,keyattr,attr,control) descriptor, and if the target file is on
    the same backend as the source, form the select list from the joined ids
@@ -1938,6 +1959,70 @@ void mvx_querysum(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
     if (b->driver->sum_where(f, sumcol, fcol, fattr, fop, fval, fvl, out,
                              sizeof out))
         mv_set_str(dst, out, (int64_t)strlen(out));
+}
+
+/* Push BY (+ optional WITH) + FIRST n into the backend as ORDER BY / LIMIT:
+   form the ordered, limited (and filtered) select list server-side when the
+   order field is a mapped column of a matching type.  Returns 1 if pushed, 0
+   to sort in the verb. */
+int64_t mvx_orderselect(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *fitem, const mv_value *fop_v,
+                        const mv_value *fval_v, const mv_value *fattr_v,
+                        const mv_value *oattr_v, const mv_value *onum_v,
+                        const mv_value *limit_v) {
+    mvx_file *f = file_of(fvar, "ORDERSELECT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->select_order) return 0;
+    open_file *o = find_open(state(ctx), f);
+    if (!o) return 0;
+
+    int otext = 0;
+    const char *ocol = map_order_col(o, mv_get_int(oattr_v),
+                                     (int)mv_get_int(onum_v), &otext);
+    if (!ocol) return 0;                  /* order field not a matching column */
+
+    /* optional filter, pushable like the others */
+    const char *fcol = NULL, *fop = "", *fval = NULL;
+    int64_t fattr = 0, fvl = 0;
+    char opz[2] = {0, 0}, vb[40], ib[40];
+    const char *ip, *vp;
+    int64_t il = mv_val_chars(fitem, ib, sizeof ib, &ip);
+    if (il > 0) {
+        char ob[8];
+        const char *opp;
+        int64_t ol = mv_val_chars(fop_v, ob, sizeof ob, &opp);
+        if (!(ol == 1 && (opp[0] == '=' || opp[0] == '#'))) return 0;
+        fvl = mv_val_chars(fval_v, vb, sizeof vb, &vp);
+        if (fvl == 0) return 0;
+        opz[0] = opp[0];
+        fop = opz;
+        fval = vp;
+        int64_t attrno = mv_get_int(fattr_v);
+        fcol = map_identity_col(o, attrno);
+        if (!fcol) {
+            if (attrno < 1) return 0;
+            fattr = attrno;
+        }
+    }
+
+    mvx_cursor *c = b->driver->select_order(f, fcol, fattr, fop, fval, fvl,
+                                            ocol, otext, mv_get_int(limit_v));
+    if (!c) return 0;
+    store_state *st = state(ctx);
+    clear_select(st);
+    st->sel_active = 1;
+    int64_t cap = 0;
+    mv_value rid;
+    mv_init(&rid);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        sel_push(st, &cap, rp, rl);
+    }
+    mv_clear(&rid);
+    b->driver->select_end(c);
+    return 1;
 }
 
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {

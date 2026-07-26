@@ -322,6 +322,29 @@ check tcl-sum "$( \
     'SUM SMF PRICE' \
     'SUM SMF PRICE WITH STATE = "NSW"' | tclrun)"
 
+# BY + FIRST n (#47): top-N by a field. On a local file the verb sorts and
+# caps at n. Distinct keys (so the LIMIT boundary is unambiguous): PRICE is
+# right-justified (numeric order), STATE left (byte order).
+ftseed="$TESTROOT/ftseed.b"
+cat > "$ftseed" <<'EOF'
+X = CREATEFILE("FST")
+OPEN "FST" TO F ELSE STOP
+WRITE "NSW":@AM:"999" ON F, "P1"
+WRITE "VIC":@AM:"450" ON F, "P2"
+WRITE "QLD":@AM:"1200" ON F, "P3"
+WRITE "ACT":@AM:"300" ON F, "P4"
+OPEN "DICT", "FST" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+PRINT "ft-seeded"
+EOF
+"$MVX" "$ftseed" -o "$TESTROOT/ftseedbin" 2>/dev/null
+check tcl-first "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/ftseedbin"); \
+  printf '%s\n' \
+    'SORT FST STATE PRICE BY PRICE FIRST 2' \
+    'SORT FST STATE BY STATE FIRST 2' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.
@@ -950,6 +973,29 @@ SMEOF
   check tcl-pgsum "$( \
     "$TCL" -a "$PGACCT" -c 'SUM SMP PRICE' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'SUM SMP PRICE WITH STATE = "NSW"' 2>&1)"
+
+  # BY + FIRST push-down (#47): top-N pushes ORDER BY / LIMIT. Distinct keys,
+  # mapped STATE (text -> COLLATE "C") and PRICE (NUMERIC); result must equal
+  # the local sort (tcl-first).
+  printf 'FSTP @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE FSTP' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE FSTP USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/pgft.b" <<'FTEOF'
+OPEN "FSTP" TO F ELSE STOP
+WRITE "NSW":@AM:"999" ON F, "P1"
+WRITE "VIC":@AM:"450" ON F, "P2"
+WRITE "QLD":@AM:"1200" ON F, "P3"
+WRITE "ACT":@AM:"300" ON F, "P4"
+OPEN "DICT", "FSTP" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+FTEOF
+  "$MVX" "$TESTROOT/pgft.b" -o "$TESTROOT/pgftbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgftbin")
+  "$TCL" -a "$PGACCT" -c 'CREATE-MAP FSTP STATE PRICE' >/dev/null 2>&1
+  check tcl-pgfirst "$( \
+    "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE PRICE BY PRICE FIRST 2' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE BY STATE FIRST 2' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.

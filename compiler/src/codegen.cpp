@@ -77,7 +77,7 @@ const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND", "MAPBUILD", "MAPDROP",
-    "MAPCHECK", "QUERYSELECT", "TRANSSELECT", "QUERYCOUNT",
+    "MAPCHECK", "QUERYSELECT", "TRANSSELECT", "QUERYCOUNT", "ORDERSELECT",
     "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED", "SETCONN",
 };
 
@@ -711,6 +711,14 @@ private:
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2]),
                                evalPtr(*e.args[3]), evalPtr(*e.args[4])});
+            if (f == "ORDERSELECT" && e.args.size() == 8)
+                return callRt("mvx_orderselect", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_,
+                               ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                               evalPtr(*e.args[2]), evalPtr(*e.args[3]),
+                               evalPtr(*e.args[4]), evalPtr(*e.args[5]),
+                               evalPtr(*e.args[6]), evalPtr(*e.args[7])});
             if (f == "MAPBUILD" && e.args.size() == 2)
                 return callRt("mvx_mapbuild", i64Ty_,
                               {ptrTy_, ptrTy_, ptrTy_},

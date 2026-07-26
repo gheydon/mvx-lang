@@ -255,6 +255,12 @@ void    mvx_querysum(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
                      const mv_value *sumfield, const mv_value *item,
                      const mv_value *op, const mv_value *value,
                      const mv_value *attr);
+/* Push BY (+ WITH) + FIRST n as ORDER BY/LIMIT; 1 if the list was formed. */
+int64_t mvx_orderselect(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *fitem, const mv_value *fop,
+                        const mv_value *fval, const mv_value *fattr,
+                        const mv_value *oattr, const mv_value *onum,
+                        const mv_value *limit);
 /* Build a file's relational mapping (see MAP / #18): -2 unsupported,
    -1 fail, else the projected record count. */
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,

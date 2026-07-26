@@ -981,6 +981,68 @@ static int pg_sum_where(mvx_file *fh, const char *sumcol, const char *fcol,
     return ok;
 }
 
+/* ORDER BY / LIMIT push-down (optionally filtered): the ids ordered by a
+   mapped column — COLLATE "C" for text to match MV's byte sort — and limited
+   server-side, so a top-N fetches N ids instead of the whole file. */
+static mvx_cursor *pg_select_order(mvx_file *fh, const char *fcol,
+                                   int64_t fattr, const char *fop,
+                                   const char *fval, int64_t fvlen,
+                                   const char *ocol, int otext,
+                                   int64_t limit) {
+    pg_file *f = (pg_file *)fh;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qo = PQescapeIdentifier(f->conn, ocol, strlen(ocol));
+    char sql[1200];
+    size_t p = (size_t)snprintf(sql, sizeof sql, "SELECT id FROM %s", qt);
+    const char *pv[1] = {fval};
+    int pl[1] = {(int)fvlen}, pf[1] = {0};
+    int nparam = 0;
+    if (fop && fop[0]) {
+        const char *sqlop;
+        if (fop[0] == '=' && !fop[1]) sqlop = "=";
+        else if (fop[0] == '#' && !fop[1]) sqlop = fcol ? "IS DISTINCT FROM" : "<>";
+        else { if (qo) PQfreemem(qo); return NULL; }
+        char expr[400];
+        if (fcol && fcol[0]) {
+            char *qc = PQescapeIdentifier(f->conn, fcol, strlen(fcol));
+            snprintf(expr, sizeof expr, "%s", qc ? qc : "\"\"");
+            if (qc) PQfreemem(qc);
+        } else {
+            char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+            snprintf(expr, sizeof expr, "%s.mvx_attr(rec,%lld)",
+                     qs ? qs : "\"\"", (long long)fattr);
+            if (qs) PQfreemem(qs);
+        }
+        p += (size_t)snprintf(sql + p, sizeof sql - p, " WHERE %s %s $1",
+                              expr, sqlop);
+        nparam = 1;
+    }
+    p += (size_t)snprintf(sql + p, sizeof sql - p, " ORDER BY %s%s",
+                          qo ? qo : "\"\"", otext ? " COLLATE \"C\"" : "");
+    if (limit > 0)
+        snprintf(sql + p, sizeof sql - p, " LIMIT %lld", (long long)limit);
+    if (qo) PQfreemem(qo);
+    PGresult *r = PQexecParams(f->conn, sql, nparam, NULL, pv, pl, pf, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres select_order");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres select_order");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -1001,6 +1063,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_join,                       /* co-located TRANS() JOIN */
     pg_count_where,                       /* server-side COUNT */
     pg_sum_where,                         /* server-side SUM */
+    pg_select_order,                      /* ORDER BY / LIMIT push-down */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {
