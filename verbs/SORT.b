@@ -53,6 +53,7 @@ WOP = ""
 WV = ""
 BYI = ""
 LIMIT = ""
+DESC = 0
 NW = 0
 WIS = ""
 WOPS = ""
@@ -68,6 +69,8 @@ WHILE I <= NT DO
       WOPS<NW> = FIELD(S, " ", I + 2)
       WVS<NW> = FIELD(S, " ", I + 3)
       I = I + 3
+   CASE T = "DESCRIBE" OR T = "EXPLAIN"
+      DESC = 1
    CASE T = "BY"
       BYI = FIELD(S, " ", I + 1)
       I = I + 1
@@ -228,6 +231,23 @@ LN = 0
 IF LIMIT # "" THEN
    IF NUM(LIMIT) THEN LN = LIMIT
 END
+
+* ---- DESCRIBE: show the query plan, don't run it -----------------------
+IF DESC THEN
+   PSPEC = ""
+   FOR K = 1 TO NW
+      PSPEC<K> = WANOS<K>:@VM:WOPS<K>:@VM:WVS<K>
+   NEXT K
+   BB = 0
+   IF BYI # "" AND BANO > 0 THEN BB = BANO
+   BNUM = 0
+   IF BORD = "AR" THEN BNUM = 1
+   OSPEC = BB:@VM:BNUM:@VM:LN
+   PLAN = DESCRIBE(F, PSPEC, OSPEC)
+   PRINT PLAN
+   STOP
+END
+
 PUSHED = 0
 IF SYSTEM(11) = 0 THEN
    * BY (+ one WITH) + FIRST -> push ORDER BY / LIMIT when the order field is a

@@ -35,10 +35,10 @@ standard verbs.
 | `LISTF` | the account's files |
 | `COUNT {DICT} file {WITH item op value}` | record count; pushes `count(*)` (optionally filtered) into a SQL backend, or uses an active select list |
 | `SUM {DICT} file field {WITH item op value}` | total a numeric field; pushes `sum(col)` into a SQL backend when the field is a mapped `NUMERIC` column, else scans and OCONVs |
-| `LIST {DICT} file {items} {WITH item op value {AND …}} {BY item}` | query; multiple `WITH`/`AND` conditions are ANDed (pushed to one SQL `WHERE`) |
-| `SORT {DICT} file {items} {WITH item op value} {BY item} {FIRST n}` | like `LIST`, but sorted by id (or the `BY` key); `FIRST n` keeps the top _n_, pushed to `ORDER BY … LIMIT` on a SQL backend when the `BY` field is a mapped column |
-| `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |
-| `SSELECT {DICT} file {WITH item op value} {BY item}` | like `SELECT`, but the list is sorted |
+| `LIST {DICT} file {items} {WITH item op value {AND …}} {BY item} {DESCRIBE}` | query; multiple `WITH`/`AND` conditions are ANDed (pushed to one SQL `WHERE`); `DESCRIBE` prints the plan instead of running it |
+| `SORT {DICT} file {items} {WITH item op value} {BY item} {FIRST n} {DESCRIBE}` | like `LIST`, but sorted by id (or the `BY` key); `FIRST n` keeps the top _n_, pushed to `ORDER BY … LIMIT` on a SQL backend when the `BY` field is a mapped column |
+| `SELECT {DICT} file {WITH item op value} {DESCRIBE}` | form a select list for the next command |
+| `SSELECT {DICT} file {WITH item op value} {BY item} {DESCRIBE}` | like `SELECT`, but the list is sorted |
 | `MAP file {items...\|ALL} {DATA}` | the relational schema the named items imply (SQL mapping preview) |
 | `CREATE-MAP file field…` | declare the mapping (`%MAP%`) + build it; writes are then mirrored live |
 | `BUILD-MAP file field…` | materialise the mapping in the backend and backfill (SQL columns) |
@@ -77,6 +77,40 @@ standard verbs.
 
 The list is consumed exactly once. Inside a program, `EXECUTE "SELECT
 ..."` followed by `READNEXT` uses the same mechanism.
+
+## DESCRIBE — how a query would run
+
+Add `DESCRIBE` (or `EXPLAIN`) to `LIST`, `SORT`, `SELECT`, or `SSELECT`
+and the verb prints the plan the backend would use **without running the
+query**. On a SQL backend that is the SQL text the push-down would issue,
+so you can see exactly what work moves server-side:
+
+```
+> LIST CUST STATE WITH STATE = "VIC" AND PRICE > "500" DESCRIBE
+postgres: SELECT id FROM "acct"."CUST" WHERE "STATE" = 'VIC'
+  AND NULLIF("acct".mvx_attr(rec,3),'')::numeric > '500'::numeric
+
+> SORT ORDERS BY TOTAL FIRST 10 DESCRIBE
+postgres: SELECT id FROM "acct"."ORDERS" ORDER BY "TOTAL" LIMIT 10
+```
+
+The plan follows the same push-down rules the query itself would: a
+mapped identity column is compared as a column, an unmapped or converted
+field through the record blob (`mvx_attr`), and a numeric range as a
+`numeric` comparison. When a condition can't be pushed (an `@ID` filter,
+a `TRANS()` join to another backend, a text range) the plan says so and
+notes that the verb applies it while scanning:
+
+```
+> LIST CUST WITH @ID = "C1000" DESCRIBE
+postgres: SELECT id FROM "acct"."CUST"; 1 condition(s) applied in the verb
+```
+
+The description is backend-specific: a store with no server-side query
+planner (the local LMDB and directory backends) reports that the driver
+returns the id list — an index lookup when one exists, otherwise a
+sequential scan — and the verb applies the conditions and ordering. A
+future document backend would render its own native query the same way.
 
 ## ED
 

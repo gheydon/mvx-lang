@@ -52,6 +52,7 @@ WIS = ""
 WOPS = ""
 WVS = ""
 BYI = ""
+DESC = 0
 I = TBASE
 LOOP
 WHILE I <= NT DO
@@ -63,6 +64,8 @@ WHILE I <= NT DO
       WOPS<NW> = FIELD(S, " ", I + 2)
       WVS<NW> = FIELD(S, " ", I + 3)
       I = I + 3
+   CASE T = "DESCRIBE" OR T = "EXPLAIN"
+      DESC = 1
    CASE T = "BY"
       BYI = FIELD(S, " ", I + 1)
       I = I + 1
@@ -207,6 +210,24 @@ IF BYI # "" THEN
          STOP
       END
    END
+END
+
+* ---- DESCRIBE: show the query plan, don't run it -----------------------
+* Render how the backend would run this WITH/BY query and stop; the plan
+* mirrors the push-down the verb would choose.
+IF DESC THEN
+   PSPEC = ""
+   FOR K = 1 TO NW
+      PSPEC<K> = WANOS<K>:@VM:WOPS<K>:@VM:WVS<K>
+   NEXT K
+   BB = 0
+   IF BYI # "" AND BANO > 0 THEN BB = BANO
+   BNUM = 0
+   IF BORD = "AR" THEN BNUM = 1
+   OSPEC = BB:@VM:BNUM:@VM:0
+   PLAN = DESCRIBE(F, PSPEC, OSPEC)
+   PRINT PLAN
+   STOP
 END
 
 * ---- scan, filter, order -----------------------------------------------

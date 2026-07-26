@@ -227,6 +227,18 @@ typedef struct mvx_driver {
        the raw record attribute `attr`, an op ("=","#",">","<",">=","<="), and
        whether to compare numerically.  NULL result = cannot push. */
     mvx_cursor *(*select_multi)(mvx_file *f, const mvx_pred *preds, int npred);
+    /* Optional query-plan description (may be NULL): render — WITHOUT executing
+       anything — how this backend would run a filtered/ordered id query.  For
+       an SQL backend that is the SQL text; a document store would render its
+       native query.  Inputs match select_multi (the AND'd predicates) plus an
+       optional ORDER BY column (`otext` -> byte-order collation to match MV's
+       sort) and LIMIT (0 = none).  Writes a NUL-terminated plan into `out`
+       (truncated to `cap`); returns 1 if it rendered a server-side plan, 0 if
+       it cannot (the caller then words the client-side fallback itself).  This
+       is what backs the verbs' DESCRIBE modifier. */
+    int (*explain)(mvx_file *f, const mvx_pred *preds, int npred,
+                   const char *ocol, int otext, int64_t limit,
+                   char *out, size_t cap);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
@@ -247,7 +259,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 4
+#define MVX_DRIVER_ABI 5
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

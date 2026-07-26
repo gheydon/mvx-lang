@@ -2127,6 +2127,152 @@ int64_t mvx_orderselect(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* DESCRIBE: render how the backend would run the WITH / BY / FIRST query the
+   verb parsed — without executing anything — so the user sees the plan (the SQL
+   for an SQL backend, a note for a backend with no server-side query planner).
+   `pspec` is the MULTISELECT condition list (attr<VM>op<VM>value, @AM-separated;
+   empty for none); `ospec` is "battr<VM>bnum<VM>limit" (battr 0 = no pushable
+   BY, bnum 1 = right-justified/numeric sort, limit 0 = no FIRST).  The push-down
+   priority mirrors the verbs so the description matches what would actually run:
+   ORDER+LIMIT first (SORT ... BY ... FIRST), else a multi-condition WHERE, else
+   a plain scan with the conditions applied in the verb. */
+void mvx_describe(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
+                  const mv_value *pspec, const mv_value *ospec) {
+    mvx_file *f = file_of(fvar, "DESCRIBE");
+    mvx_file_base *b = (mvx_file_base *)f;
+    open_file *o = find_open(state(ctx), f);
+    if (o) map_load(o);
+    const char *drv = b->driver->name;
+
+    /* --- parse the WITH conditions into predicates (as mvx_multiselect) --- */
+    mvx_pred preds[32];
+    char ops[32][4];
+    int np = 0, allpush = 1;
+    char sb[64];
+    const char *sp;
+    int64_t sl = mv_val_chars(pspec, sb, sizeof sb, &sp);
+    char buf[2048];
+    if (sl > 0 && sl < (int64_t)sizeof buf) {
+        memcpy(buf, sp, (size_t)sl);
+        buf[sl] = '\0';
+        char *p = buf;
+        while (p && *p && np < 32) {
+            char *amend = p;
+            while (*amend && *amend != (char)0xFE) amend++;
+            char amsave = *amend;
+            *amend = '\0';
+            char *parts[3] = {p, NULL, NULL};
+            int nv = 0;
+            for (char *q = p; *q; q++)
+                if (*q == (char)0xFD) { *q = '\0'; if (++nv < 3) parts[nv] = q + 1; }
+            if (parts[1] && parts[2] && parts[2][0]) {
+                int64_t attrno = strtoll(parts[0], NULL, 10);
+                const char *op = parts[1], *val = parts[2];
+                int range = (op[0] == '>' || op[0] == '<') &&
+                            (op[1] == '\0' || (op[1] == '=' && op[2] == '\0'));
+                int iseq = (op[0] == '=' || op[0] == '#') && op[1] == '\0';
+                int numeric = 0, identity = 0;
+                const char *col = NULL;
+                if (o)
+                    for (int i = 0; i < o->map.nf; i++)
+                        if (o->map.anos[i] == attrno && o->map.assocs[i][0] == '\0') {
+                            identity = strcmp(o->map.types[i], "TEXT") == 0 &&
+                                       o->map.convs[i][0] == '\0';
+                            numeric = strcmp(o->map.types[i], "NUMERIC") == 0 ||
+                                      strcmp(o->map.types[i], "DATE") == 0 ||
+                                      strcmp(o->map.types[i], "TIME") == 0;
+                            if (identity) col = o->map.names[i];
+                            break;
+                        }
+                int pushable = attrno >= 1 && (iseq || (range && numeric));
+                if (!pushable) allpush = 0;
+                strncpy(ops[np], op, 3);
+                ops[np][3] = '\0';
+                preds[np].col = range ? NULL : col;
+                preds[np].attr = attrno;
+                preds[np].op = ops[np];
+                preds[np].numeric = range ? 1 : 0;
+                preds[np].val = val;
+                preds[np].vlen = (int64_t)strlen(val);
+                np++;
+            } else {
+                allpush = 0;
+            }
+            if (amsave == 0) break;
+            p = amend + 1;
+        }
+    }
+
+    /* --- parse the BY / FIRST spec --- */
+    int64_t battr = 0, bnum = 0, limit = 0;
+    char ob[64];
+    const char *op2;
+    int64_t ol = mv_val_chars(ospec, ob, sizeof ob, &op2);
+    if (ol > 0 && ol < (int64_t)sizeof ob) {
+        char obuf[64];
+        memcpy(obuf, op2, (size_t)ol);
+        obuf[ol] = '\0';
+        char *parts[3] = {obuf, NULL, NULL};
+        int nv = 0;
+        for (char *q = obuf; *q; q++)
+            if (*q == (char)0xFD) { *q = '\0'; if (++nv < 3) parts[nv] = q + 1; }
+        battr = strtoll(parts[0], NULL, 10);
+        if (parts[1]) bnum = strtoll(parts[1], NULL, 10);
+        if (parts[2]) limit = strtoll(parts[2], NULL, 10);
+    }
+
+    char plan[4096], sql[4000];
+    int done = 0;
+
+    /* Priority 1: BY + FIRST with at most one filter -> ORDER BY / LIMIT push. */
+    if (!done && b->driver->explain && limit > 0 && np <= 1 && battr > 0) {
+        int otext = 0;
+        const char *ocol = o ? map_order_col(o, battr, (int)bnum, &otext) : NULL;
+        int filterok = np == 0 ||
+                       (ops[0][1] == '\0' && (ops[0][0] == '=' || ops[0][0] == '#'));
+        if (ocol && filterok) {
+            mvx_pred fp;
+            if (np == 1) { fp = preds[0]; fp.numeric = 0; }
+            if (b->driver->explain(f, np == 1 ? &fp : NULL, np, ocol, otext,
+                                   limit, sql, sizeof sql)) {
+                snprintf(plan, sizeof plan, "%s: %s", drv, sql);
+                done = 1;
+            }
+        }
+    }
+
+    /* Priority 2: every condition pushes -> one server-side WHERE (no order). */
+    if (!done && b->driver->explain && np >= 1 && allpush) {
+        if (b->driver->explain(f, preds, np, NULL, 0, 0, sql, sizeof sql)) {
+            size_t pp = (size_t)snprintf(plan, sizeof plan, "%s: %s", drv, sql);
+            if (battr > 0 || limit > 0)
+                snprintf(plan + pp, sizeof plan - pp, "; then %s in the verb",
+                         limit > 0 ? "sorted and limited" : "sorted");
+            done = 1;
+        }
+    }
+
+    /* Priority 3: no server-side query for this shape. */
+    if (!done) {
+        if (b->driver->explain &&
+            b->driver->explain(f, NULL, 0, NULL, 0, 0, sql, sizeof sql)) {
+            size_t pp = (size_t)snprintf(plan, sizeof plan, "%s: %s", drv, sql);
+            if (np > 0)
+                pp += (size_t)snprintf(plan + pp, sizeof plan - pp,
+                                       "; %d condition(s) applied in the verb", np);
+            if (battr > 0 || limit > 0)
+                snprintf(plan + pp, sizeof plan - pp, "; sorted in the verb");
+        } else {
+            snprintf(plan, sizeof plan,
+                     "%s: no server-side query planner; the driver returns the "
+                     "id list (index lookup when available, else a sequential "
+                     "scan) and the verb applies any conditions and ordering",
+                     drv);
+        }
+    }
+    mv_set_str(dst, plan, (int64_t)strlen(plan));
+}
+
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {
     store_state *st = state(ctx);
     if (!fvar) {                        /* bare RELEASE: drop everything */

@@ -45,6 +45,7 @@ NW = 0
 WIS = ""
 WOPS = ""
 WVS = ""
+DESC = 0
 NT = DCOUNT(S, " ")
 I = TBASE
 LOOP
@@ -57,6 +58,7 @@ WHILE I <= NT DO
       WVS<NW> = FIELD(S, " ", I + 3)
       I = I + 3
    END
+   IF T = "DESCRIBE" OR T = "EXPLAIN" THEN DESC = 1
    I = I + 1
 REPEAT
 FOR K = 1 TO NW
@@ -97,6 +99,17 @@ FOR K = 1 TO NW
    WANOS<K> = WANO
    WSPECS<K> = WSPEC
 NEXT K
+
+* ---- DESCRIBE: show the query plan, don't run it -----------------------
+IF DESC THEN
+   PSPEC = ""
+   FOR K = 1 TO NW
+      PSPEC<K> = WANOS<K>:@VM:WOPS<K>:@VM:WVS<K>
+   NEXT K
+   PLAN = DESCRIBE(F, PSPEC, "0":@VM:"0":@VM:"0")
+   PRINT PLAN
+   STOP
+END
 
 IF SYSTEM(11) = 0 THEN
    IXUSED = 0

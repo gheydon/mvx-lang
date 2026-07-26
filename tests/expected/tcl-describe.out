@@ -1,0 +1,2 @@
+lmdb: no server-side query planner; the driver returns the id list (index lookup when available, else a sequential scan) and the verb applies any conditions and ordering
+lmdb: no server-side query planner; the driver returns the id list (index lookup when available, else a sequential scan) and the verb applies any conditions and ordering

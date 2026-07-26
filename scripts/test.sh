@@ -379,6 +379,14 @@ check tcl-multiwith "$( \
     'SELECT MWF WITH STATE = "NSW" AND PRICE < "500"' \
     'LIST MWF STATE PRICE' | tclrun)"
 
+# DESCRIBE (#51) on a local (LMDB) file: no SQL backend, so the plan states the
+# selection resolves in the driver and the verb applies the conditions. An SQL
+# backend renders the actual query instead (tcl-pgdescribe). MWF reused.
+check tcl-describe "$( \
+  printf '%s\n' \
+    'LIST MWF STATE WITH STATE = "NSW" DESCRIBE' \
+    'SELECT MWF WITH PRICE > "500" DESCRIBE' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.
@@ -1059,6 +1067,16 @@ MWEOF
   check tcl-pgmultiwith "$( \
     "$TCL" -a "$PGACCT" -c 'LIST MWP STATE PRICE WITH STATE = "NSW" AND PRICE > "500" BY @ID' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST MWP STATE PRICE WITH STATE = "NSW" WITH PRICE < "500" BY @ID' 2>&1)"
+
+  # DESCRIBE (#51): the verb renders the backend query it would run instead of
+  # running it — an identity-column equality, a numeric range on the blob, an
+  # ORDER BY / LIMIT push, and a non-pushable @ID condition that scans and
+  # filters in the verb.  Reuses MWP (mapped STATE, PRICE above).
+  check tcl-pgdescribe "$( \
+    "$TCL" -a "$PGACCT" -c 'LIST MWP STATE WITH STATE = "NSW" DESCRIBE' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'LIST MWP WITH STATE = "NSW" AND PRICE > "500" DESCRIBE' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT MWP BY PRICE FIRST 3 DESCRIBE' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'LIST MWP WITH @ID = "O1" DESCRIBE' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.

@@ -1118,6 +1118,62 @@ static mvx_cursor *pg_select_multi(mvx_file *fh, const mvx_pred *preds,
     return cur;
 }
 
+/* DESCRIBE support: render the SQL that select_multi / select_order would run,
+   without executing it, for the verbs' DESCRIBE modifier.  Literals are inlined
+   (escaped) rather than shown as $N placeholders so the plan reads as runnable
+   SQL.  Same predicate shapes as pg_select_multi plus the ORDER BY / LIMIT tail
+   from pg_select_order. */
+static int pg_explain(mvx_file *fh, const mvx_pred *preds, int npred,
+                      const char *ocol, int otext, int64_t limit,
+                      char *out, size_t cap) {
+    pg_file *f = (pg_file *)fh;
+    if (npred < 0 || npred > 32) return 0;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char sql[4000];
+    size_t p = (size_t)snprintf(sql, sizeof sql, "SELECT id FROM %s", qt);
+    for (int i = 0; i < npred; i++) {
+        const mvx_pred *q = &preds[i];
+        const char *sqlop;
+        if (strcmp(q->op, "=") == 0) sqlop = "=";
+        else if (strcmp(q->op, "#") == 0) sqlop = q->col ? "IS DISTINCT FROM" : "<>";
+        else if (strcmp(q->op, ">") == 0 || strcmp(q->op, "<") == 0 ||
+                 strcmp(q->op, ">=") == 0 || strcmp(q->op, "<=") == 0)
+            sqlop = q->op;
+        else return 0;
+        char expr[400];
+        if (q->col && q->col[0]) {
+            char *qc = PQescapeIdentifier(f->conn, q->col, strlen(q->col));
+            snprintf(expr, sizeof expr, "%s", qc ? qc : "\"\"");
+            if (qc) PQfreemem(qc);
+        } else {
+            char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+            if (q->numeric)
+                snprintf(expr, sizeof expr, "NULLIF(%s.mvx_attr(rec,%lld),'')::numeric",
+                         qs ? qs : "\"\"", (long long)q->attr);
+            else
+                snprintf(expr, sizeof expr, "%s.mvx_attr(rec,%lld)",
+                         qs ? qs : "\"\"", (long long)q->attr);
+            if (qs) PQfreemem(qs);
+        }
+        char *lit = PQescapeLiteral(f->conn, q->val, (size_t)q->vlen);
+        p += (size_t)snprintf(sql + p, sizeof sql - p, "%s%s %s %s%s",
+                              i ? " AND " : " WHERE ", expr, sqlop,
+                              lit ? lit : "''", q->numeric ? "::numeric" : "");
+        if (lit) PQfreemem(lit);
+    }
+    if (ocol && ocol[0]) {
+        char *qo = PQescapeIdentifier(f->conn, ocol, strlen(ocol));
+        p += (size_t)snprintf(sql + p, sizeof sql - p, " ORDER BY %s%s",
+                              qo ? qo : "\"\"", otext ? " COLLATE \"C\"" : "");
+        if (qo) PQfreemem(qo);
+    }
+    if (limit > 0)
+        snprintf(sql + p, sizeof sql - p, " LIMIT %lld", (long long)limit);
+    snprintf(out, cap, "%s", sql);
+    return 1;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -1140,6 +1196,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_sum_where,                         /* server-side SUM */
     pg_select_order,                      /* ORDER BY / LIMIT push-down */
     pg_select_multi,                      /* multi-condition WITH (AND) */
+    pg_explain,                           /* DESCRIBE: render SQL, don't run */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {
