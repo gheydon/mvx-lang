@@ -170,6 +170,15 @@ typedef struct mvx_driver {
        op is "=" or "#".  NULL result = cannot push down (caller scans). */
     mvx_cursor *(*select_attr)(mvx_file *f, int64_t attr, const char *op,
                                const char *val, int64_t vlen);
+    /* Optional co-located TRANS() JOIN push-down (may be NULL): the source
+       ids whose foreign key (source attribute `src_keyattr`) points at a
+       target record whose attribute `tgt_attr` satisfies `op` `val`.  `tgt`
+       is the opened target file; the driver runs the join only when it lives
+       on the same backend/database as `src` (else NULL -> per-record TRANS).
+       op is "=".  Turns an N+1 per-record lookup into one JOIN. */
+    mvx_cursor *(*select_join)(mvx_file *src, int64_t src_keyattr,
+                               mvx_file *tgt, int64_t tgt_attr,
+                               const char *op, const char *val, int64_t vlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

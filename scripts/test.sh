@@ -820,6 +820,36 @@ if [ -n "${MVX_PG:-}" ]; then
     printf 'COUNT ORDERS\nSELECT ORDERS\nLIST ORDERS\n' | \
       "$TCL" -a "$PGACCT" 2>&1)"
 
+  # TRANS() JOIN push-down (#40 phase 2): a WITH filter on a TRANS I-type,
+  # with source and target co-located on the same Postgres, compiles to one
+  # JOIN — the filter runs server-side, only matching ids return. Result must
+  # equal the per-record reference (verified by the same query on both).
+  printf 'ORDJ @pgtest\nCUSJ @pgtest\n' >> "$PGACCT/BINDINGS"
+  for jf in ORDJ CUSJ; do
+    "$TCL" -a "$PGACCT" -c "DELETE-FILE $jf" >/dev/null 2>&1
+    "$TCL" -a "$PGACCT" -c "CREATE-FILE $jf USING @pgtest" >/dev/null 2>&1
+  done
+  cat > "$TESTROOT/pgjn.b" <<'JEOF'
+OPEN "CUSJ" TO C ELSE STOP
+WRITE "AcmeCorp":@AM:"Sydney" ON C, "C1"
+WRITE "BetaLtd":@AM:"Melbourne" ON C, "C2"
+WRITE "Gamma":@AM:"Sydney" ON C, "C3"
+OPEN "ORDJ" TO O ELSE STOP
+WRITE "C1":@AM:"Widget" ON O, "O1"
+WRITE "C2":@AM:"Gadget" ON O, "O2"
+WRITE "C3":@AM:"Bolt" ON O, "O3"
+WRITE "C9":@AM:"Nut" ON O, "O4"
+OPEN "DICT", "ORDJ" TO D ELSE STOP
+WRITE "D":@AM:"2":@AM:"":@AM:"Product":@AM:"10L" ON D, "PRODUCT"
+WRITE "I":@AM:"TRANS(CUSJ,1,2,X)":@AM:"":@AM:"City":@AM:"10L" ON D, "CITY"
+JEOF
+  "$MVX" "$TESTROOT/pgjn.b" -o "$TESTROOT/pgjnbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgjnbin")
+  # Sydney -> O1,O3 (C1,C3); Melbourne -> O2; orphan C9 (O4) matches neither
+  check tcl-transjoin "$( \
+    "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Sydney" BY @ID' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Melbourne" BY @ID' 2>&1)"
+
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.
   printf 'MORD @pgtest\n' >> "$PGACCT/BINDINGS"

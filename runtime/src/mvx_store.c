@@ -1754,6 +1754,73 @@ int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* Push a WITH filter on a TRANS() I-type down to a co-located JOIN: parse the
+   TRANS(file,keyattr,attr,control) descriptor, and if the target file is on
+   the same backend as the source, form the select list from the joined ids
+   server-side (only "=", non-empty value, control X — the INNER JOIN case
+   that exactly matches the per-record reference).  Returns 1 if pushed, else
+   0 so the verb evaluates TRANS per record. */
+int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *spec, const mv_value *op,
+                        const mv_value *value) {
+    mvx_file *f = file_of(fvar, "TRANSSELECT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->select_join) return 0;
+
+    char ob[8];
+    const char *opp;
+    int64_t ol = mv_val_chars(op, ob, sizeof ob, &opp);
+    if (!(ol == 1 && opp[0] == '=')) return 0;
+    char vb[40];
+    const char *vp;
+    int64_t vl = mv_val_chars(value, vb, sizeof vb, &vp);
+    if (vl == 0) return 0;
+
+    char sb[256];
+    const char *sp;
+    int64_t sl = mv_val_chars(spec, sb, sizeof sb, &sp);
+    if (sl < 8 || strncmp(sp, "TRANS(", 6) != 0 || sp[sl - 1] != ')') return 0;
+    char inner[256];
+    int64_t ilen = sl - 7;              /* between "TRANS(" and ")" */
+    if (ilen <= 0 || ilen >= (int64_t)sizeof inner) return 0;
+    memcpy(inner, sp + 6, (size_t)ilen);
+    inner[ilen] = '\0';
+    char *parts[4] = {inner, NULL, NULL, NULL};
+    int np = 0;
+    for (char *q = inner; *q; q++)
+        if (*q == ',') { *q = '\0'; if (++np < 4) parts[np] = q + 1; }
+    if (np < 2) return 0;
+    int64_t keyattr = parts[1] ? strtoll(parts[1], NULL, 10) : 0;
+    int64_t tattr = parts[2] ? strtoll(parts[2], NULL, 10) : 0;
+    char ctl = (parts[3] && parts[3][0]) ? parts[3][0] : 'X';
+    if (ctl != 'X' || keyattr < 1 || tattr < 1) return 0;
+
+    trans_ent *t = trans_file(ctx, parts[0], (int64_t)strlen(parts[0]));
+    if (!t->ok || t->fvar.tag != MV_FILE) return 0;
+    mvx_file *tf = (mvx_file *)(intptr_t)t->fvar.i;
+    if (((mvx_file_base *)tf)->driver != b->driver) return 0;  /* same driver */
+
+    char opz[2] = {'=', '\0'};
+    mvx_cursor *c = b->driver->select_join(f, keyattr, tf, tattr, opz, vp, vl);
+    if (!c) return 0;
+
+    store_state *st = state(ctx);
+    clear_select(st);
+    st->sel_active = 1;
+    int64_t cap = 0;
+    mv_value rid;
+    mv_init(&rid);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        sel_push(st, &cap, rp, rl);
+    }
+    mv_clear(&rid);
+    b->driver->select_end(c);
+    return 1;
+}
+
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {
     store_state *st = state(ctx);
     if (!fvar) {                        /* bare RELEASE: drop everything */

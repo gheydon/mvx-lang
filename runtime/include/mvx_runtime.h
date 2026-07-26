@@ -241,6 +241,11 @@ int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
 int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
                          const mv_value *item, const mv_value *op,
                          const mv_value *value, const mv_value *attr);
+/* Push a WITH filter on a TRANS() I-type down to a co-located JOIN: 1 if the
+   select list was formed server-side, 0 to evaluate TRANS per record. */
+int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *spec, const mv_value *op,
+                        const mv_value *value);
 /* Build a file's relational mapping (see MAP / #18): -2 unsupported,
    -1 fail, else the projected record count. */
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,

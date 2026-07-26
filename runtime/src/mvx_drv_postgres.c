@@ -787,6 +787,58 @@ static mvx_cursor *pg_select_attr(mvx_file *fh, int64_t attr, const char *op,
     return cur;
 }
 
+/* Same Postgres database? (host+port+dbname) — a JOIN can only span tables
+   reachable from one connection. */
+static int pg_same_db(PGconn *a, PGconn *b) {
+    const char *ha = PQhost(a), *hb = PQhost(b);
+    const char *pa = PQport(a), *pb = PQport(b);
+    const char *da = PQdb(a), *db = PQdb(b);
+    return ha && hb && strcmp(ha, hb) == 0 &&
+           pa && pb && strcmp(pa, pb) == 0 &&
+           da && db && strcmp(da, db) == 0;
+}
+
+/* Co-located TRANS() JOIN: source ids whose foreign key (src attribute
+   `sk`) points at a target row whose attribute `ta` equals val.  The whole
+   filter runs in one JOIN on the source connection (the target table is in
+   the same database), so only matching ids come back. */
+static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk, mvx_file *tgth,
+                                  int64_t ta, const char *op, const char *val,
+                                  int64_t vlen) {
+    if (strcmp(op, "=") != 0) return NULL;   /* only equality for now */
+    pg_file *s = (pg_file *)srch, *t = (pg_file *)tgth;
+    if (!pg_same_db(s->conn, t->conn)) return NULL;   /* not joinable */
+    char sqt[512], tqt[512];
+    qualify(s->conn, s->schema, s->table, sqt, sizeof sqt);
+    qualify(s->conn, t->schema, t->table, tqt, sizeof tqt);
+    char sql[1400];
+    snprintf(sql, sizeof sql,
+             "SELECT s.id FROM %s s JOIN %s t ON convert_from(t.id,'LATIN1') "
+             "= split_part(convert_from(s.rec,'LATIN1'),chr(254),%lld) "
+             "WHERE split_part(convert_from(t.rec,'LATIN1'),chr(254),%lld) = $1",
+             sqt, tqt, (long long)sk, (long long)ta);
+    const char *pv[1] = {val};
+    int pl[1] = {(int)vlen}, pf[1] = {0};
+    PGresult *r = PQexecParams(s->conn, sql, 1, NULL, pv, pl, pf, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres select_join");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres select_join");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -804,6 +856,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_index_create,                      /* CREATE INDEX on a mapped column */
     pg_select_where,                      /* WITH push-down on a column */
     pg_select_attr,                       /* WITH push-down on the blob */
+    pg_select_join,                       /* co-located TRANS() JOIN */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

@@ -210,6 +210,10 @@ IF SYSTEM(11) = 0 THEN
          IXUSED = INDEXSELECT(F, WI, WV)
       END
    END
+   * a WITH on a TRANS() I-type -> co-located JOIN when possible
+   IF WI # "" AND WANO = -1 AND WSPEC[1, 6] = "TRANS(" THEN
+      IXUSED = TRANSSELECT(F, WSPEC, WOP, WV)
+   END
    IF IXUSED THEN
       WI = ""
    END ELSE
