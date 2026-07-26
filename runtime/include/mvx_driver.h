@@ -247,6 +247,14 @@ typedef struct mvx_driver {
        long backfill can show a percentage.  select_begin captures the id list
        up front, so this is known at no extra cost.  NULL = total unknown. */
     int64_t (*select_count)(mvx_cursor *c);
+    /* Optional bulk-write bracketing (may be NULL): begin/commit a transaction
+       around a large sequence of writes on the file's connection, so a backfill
+       pays one commit per batch instead of one per record.  The runtime calls
+       bulk_begin, streams writes, and bulk_commit periodically and at the end
+       (a commit on an already-failed transaction simply rolls it back).  NULL =
+       the backend has no transactional batching (writes autocommit). */
+    int (*bulk_begin)(mvx_file *f);
+    int (*bulk_commit)(mvx_file *f);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
@@ -267,7 +275,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 7
+#define MVX_DRIVER_ABI 8
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

@@ -1485,6 +1485,10 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
                         ? b->driver->select_count(c) : -1;
     struct timespec t0;
     if (progress) clock_gettime(CLOCK_MONOTONIC, &t0);
+    /* Batch the per-record writes in one transaction, committing every 10k rows,
+       so a large backfill pays a handful of commits instead of one per record. */
+    int bulk = b->driver->bulk_begin && b->driver->bulk_commit;
+    if (bulk) b->driver->bulk_begin(f);
     int64_t count = 0, rc = 0;
     mv_value rid, rec;
     mv_init(&rid); mv_init(&rec);
@@ -1495,8 +1499,13 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
         if (!b->driver->read(f, rp, rl, &rec)) continue;
         if (!map_project_one(ctx, f, &m, rp, rl, &rec)) { rc = -1; break; }
         count++;
+        if (bulk && count % 10000 == 0) {
+            b->driver->bulk_commit(f);
+            b->driver->bulk_begin(f);
+        }
         if (progress && count % 1000 == 0) mapbuild_progress(count, total, &t0);
     }
+    if (bulk) b->driver->bulk_commit(f);   /* commits, or rolls back a failed txn */
     b->driver->select_end(c);
     if (progress) { mapbuild_progress(count, total, &t0); fputc('\n', stderr); }
     mv_clear(&rid); mv_clear(&rec);

@@ -297,6 +297,25 @@ static void pg_select_end(mvx_cursor *c) {
 
 static int64_t pg_select_count(mvx_cursor *c) { return c ? c->n : 0; }
 
+/* Bulk backfill batching (#55): bracket the per-record UPDATE/DELETE/INSERT
+   stream in one transaction on the file's connection, so a million-row backfill
+   pays a handful of commits, not a million.  A COMMIT of a transaction that has
+   already errored performs a ROLLBACK, so the failure path is safe. */
+static int pg_bulk_begin(mvx_file *fh) {
+    pg_file *f = (pg_file *)fh;
+    PGresult *r = PQexec(f->conn, "BEGIN");
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    return ok;
+}
+static int pg_bulk_commit(mvx_file *fh) {
+    pg_file *f = (pg_file *)fh;
+    PGresult *r = PQexec(f->conn, "COMMIT");
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    if (r) PQclear(r);
+    return ok;
+}
+
 static int pg_create(const char *spec, char *err, size_t errlen) {
     char loc[1024];
     const char *rspec = split_spec(spec, loc, sizeof loc);
@@ -1294,6 +1313,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_multi,                      /* multi-condition WITH (AND) */
     pg_explain,                           /* DESCRIBE: render SQL, don't run */
     pg_select_count,                      /* backfill progress total */
+    pg_bulk_begin, pg_bulk_commit,        /* transactional backfill batching */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {
