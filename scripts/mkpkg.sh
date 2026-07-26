@@ -22,8 +22,8 @@ PKG="${1:?usage: mkpkg.sh <package-directory>}"
 mkdir -p "$PKG/VOC"
 
 case "$(uname)" in
-  Darwin) EXT=dylib ;;
-  *)      EXT=so ;;
+  Darwin) EXT=dylib ; UNDEF="-undefined dynamic_lookup" ;;
+  *)      EXT=so ; UNDEF="" ;;
 esac
 
 PKGNAME="$(head -1 "$PKG/PKG" 2>/dev/null)"
@@ -39,6 +39,37 @@ rm -rf "$PKG/LIB"
 # with build-native.sh builds them into LIB/ before the BASIC subs.
 if [ -x "$PKG/build-native.sh" ]; then
   "$PKG/build-native.sh"
+fi
+
+# native extension library (#54): a package with a NATIVE manifest (source
+# files, plus optional "pkgconfig: <libs>" lines) builds one shared library
+# LIB/libmvxext_<name> exposing mvx_ext functions.  Runtime symbols (mv_*,
+# mvx_*, the core mapper) resolve from the host at load, exactly like drivers.
+# A prebuilt LIB/libmvxext_<name> shipped without a NATIVE manifest is
+# binary-only (mkpkg leaves it alone).
+if [ -f "$PKG/NATIVE" ]; then
+  NSRCS=""; NPKGCONF=""
+  while IFS= read -r nline || [ -n "$nline" ]; do
+    case "$nline" in
+      pkgconfig:*) NPKGCONF="$NPKGCONF ${nline#pkgconfig:}" ;;
+      ""|\#*) ;;
+      *) NSRCS="$NSRCS $PKG/$nline" ;;
+    esac
+  done < "$PKG/NATIVE"
+  if [ -n "$NSRCS" ]; then
+    NCFLAGS=""; NLDFLAGS=""
+    if [ -n "$NPKGCONF" ]; then
+      # shellcheck disable=SC2086
+      NCFLAGS="$(pkg-config --cflags $NPKGCONF 2>/dev/null || true)"
+      # shellcheck disable=SC2086
+      NLDFLAGS="$(pkg-config --libs $NPKGCONF 2>/dev/null || true)"
+    fi
+    mkdir -p "$PKG/LIB"
+    # shellcheck disable=SC2086
+    cc -O2 -fPIC -shared $UNDEF -I"$ROOT/runtime/include" $NCFLAGS $NSRCS $NLDFLAGS \
+       -o "$PKG/LIB/libmvxext_$PKGNAME.$EXT"
+    echo "  built LIB/libmvxext_$PKGNAME.$EXT (native extension)"
+  fi
 fi
 SUBS=""
 for src in "$PKG"/BP/*; do
@@ -60,14 +91,16 @@ for src in "$PKG"/BP/*; do
     SUBS="$SUBS $src"
     echo "  bundling $name"
   else
-    "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
+    # MVXSYSTEM=$PKG so the compiler sees this package's own EXPORTS — a verb
+    # may call the package's extension functions as expressions.
+    MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
     echo "  cataloged $name"
   fi
 done
 if [ -n "$SUBS" ]; then
   mkdir -p "$PKG/LIB"
   # shellcheck disable=SC2086
-  "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
+  MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
   echo "  built LIB/lib$PKGNAME.$EXT"
 fi
 

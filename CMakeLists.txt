@@ -38,11 +38,12 @@ set(MVX_WITH_POSTGRES "${_mvx_pg_default}" CACHE STRING
 set_property(CACHE MVX_WITH_POSTGRES PROPERTY STRINGS AUTO ON OFF)
 option(MVX_WITH_DAEMON "Build the mvx-lmdbd daemon and admin tool"
   ${_mvx_daemon_default})
-# JSON encode/decode (#24): built into the runtime by default; -DMVX_JSON=OFF
-# excludes it (the JSONENCODE/JSONDECODE intrinsics then have no symbol to link).
-# The single mapper (mvx_map) stays regardless — MAPSPEC/MAPFIELD and the SQL
-# mapping do not depend on JSON.
-option(MVX_JSON "Build JSON encode/decode support into the runtime" ON)
+# Packages built into the system account at build time (#54): always available
+# to every compile and process (their EXPORTS + verbs + extension libraries),
+# with no LINK-PKG.  Defaults to `json` (the JSON codec is now a package —
+# JSONENCODE/JSONDECODE come from packages/json).  Set to "" to exclude it, or
+# add more (semicolon-separated) to bundle them into a distribution.
+set(MVX_PACKAGES "json" CACHE STRING "Packages built into the system account")
 
 # --- runtime -----------------------------------------------------------
 # A SHARED library so its code is mapped once and shared across every mvx
@@ -80,13 +81,6 @@ target_compile_definitions(mvxrt PRIVATE
   MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
 set_target_properties(mvxrt PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-if(MVX_JSON)
-  target_sources(mvxrt PRIVATE runtime/src/mvx_json.c)
-  target_compile_definitions(mvxrt PRIVATE MVX_HAVE_JSON)
-  message(STATUS "  JSON encode/decode : ON")
-else()
-  message(STATUS "  JSON encode/decode : OFF")
-endif()
 
 # --- storage drivers: dlopen'd shared libraries ------------------------
 # Each driver links its own backend dependency; compiled programs link
@@ -186,13 +180,23 @@ foreach(vsrc ${MVX_VERB_SOURCES})
     COMMENT "Cataloging ${vname}")
   list(APPEND MVX_SYS_VERBS ${MVX_SYS_DIR}/CATALOG/${vname})
 endforeach()
+# Configured packages (MVX_PACKAGES): build each and install into the system
+# account (its verbs, extension libs, aggregated EXPORTS), always available.
+set(MVX_PKG_INSTALL "")
+if(MVX_PACKAGES)
+  set(MVX_PKG_INSTALL
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/install-pkgs.sh
+            ${MVX_SYS_DIR} ${CMAKE_SOURCE_DIR} ${MVX_PACKAGES})
+  message(STATUS "  system packages    : ${MVX_PACKAGES}")
+endif()
 add_custom_target(system-account ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory ${MVX_SYS_DIR}/VOC
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_SOURCE_DIR}/system/VOC ${MVX_SYS_DIR}/VOC
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_SOURCE_DIR}/system/VOC.DICT ${MVX_SYS_DIR}/VOC.DICT
-  DEPENDS ${MVX_SYS_VERBS})
+  ${MVX_PKG_INSTALL}
+  DEPENDS ${MVX_SYS_VERBS} mvx-basic mvxrt mvx_crt mvxdrv_dir mvxdrv_lmdb)
 
 # --- tests -------------------------------------------------------------
 add_custom_target(check

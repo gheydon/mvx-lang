@@ -19,3 +19,5 @@ tt/
 # descriptor left by running mvx here (real accounts still track
 # their own .mvx).
 /.mvx
+packages/json/CATALOG/
+packages/json/LIB/

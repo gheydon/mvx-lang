@@ -1053,11 +1053,6 @@ private:
                    {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]), opt(2),
                     opt(3), opt(4)});
             return; }
-        if (f == "JSONENCODE" || f == "JSONDECODE") { need(2);
-            callRt(f == "JSONENCODE" ? "mvx_jsonencode" : "mvx_jsondecode",
-                   voidTy_, {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
-                   {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1])});
-            return; }
         if (f == "@") {
             if (e.args.size() != 1 && e.args.size() != 2)
                 err(e.line, "@() takes 1 or 2 arguments");

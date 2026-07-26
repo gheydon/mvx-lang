@@ -19,6 +19,7 @@
  * map_cell (out) / map_uncell (in); only mapped attributes round-trip. */
 
 #include "mvx_map.h"
+#include "mvx_ext.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -263,7 +264,7 @@ static const char *lower_key(const char *s, size_t n, char *buf, size_t cap) {
 
 /* ------------------------------------------------------------------ public */
 
-void mvx_jsonencode(mvx_ctx *ctx, mv_value *dst, const mv_value *rec,
+static void mvx_jsonencode(mvx_ctx *ctx, mv_value *dst, const mv_value *rec,
                     const mv_value *spec) {
     char sb[64];
     const char *sp;
@@ -328,7 +329,7 @@ void mvx_jsonencode(mvx_ctx *ctx, mv_value *dst, const mv_value *rec,
     mv_clear(&av); mv_clear(&ov); mv_clear(&code);
 }
 
-void mvx_jsondecode(mvx_ctx *ctx, mv_value *dst, const mv_value *json,
+static void mvx_jsondecode(mvx_ctx *ctx, mv_value *dst, const mv_value *json,
                     const mv_value *spec) {
     char sb[64];
     const char *sp;
@@ -387,4 +388,31 @@ void mvx_jsondecode(mvx_ctx *ctx, mv_value *dst, const mv_value *json,
     jfree(root);
     free(m.buf);
     mv_clear(&val); mv_clear(&tmp); mv_clear(&code);
+}
+
+/* -------------------------------------------------------- extension table */
+/* The package's BASIC-callable surface (#54): JSONENCODE / JSONDECODE become
+   expression functions dispatched through the runtime extension registry.  The
+   result slot is `ret`; the record/json and the mapping are argv[0]/argv[1]. */
+
+static void ext_jsonencode(mvx_ctx *ctx, mv_value *ret, int32_t argc,
+                           mv_value **argv) {
+    (void)argc;
+    mvx_jsonencode(ctx, ret, argv[0], argv[1]);
+}
+
+static void ext_jsondecode(mvx_ctx *ctx, mv_value *ret, int32_t argc,
+                           mv_value **argv) {
+    (void)argc;
+    mvx_jsondecode(ctx, ret, argv[0], argv[1]);
+}
+
+static const mvx_extfn json_fns[] = {
+    {"JSONENCODE", 2, 2, ext_jsonencode},
+    {"JSONDECODE", 2, 2, ext_jsondecode},
+};
+static const mvx_ext json_ext = {"json", 2, json_fns};
+
+const mvx_ext *mvx_ext_entry(int abi) {
+    return abi == MVX_EXT_ABI ? &json_ext : NULL;
 }
