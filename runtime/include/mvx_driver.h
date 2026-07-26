@@ -155,6 +155,13 @@ typedef struct mvx_driver {
        index_select/index_drop but leaves write_ix/del_ix NULL.  Returns the
        indexed row count, or -1 on error (e.g. the column is not mapped). */
     int (*index_create)(mvx_file *f, const char *item);
+    /* Optional server-side WITH push-down (may be NULL): the ids whose
+       mapped column `col` satisfies `op` `val`, filtered in the backend so a
+       query need not stream every record to the verb.  `op` is "=" or "#"
+       (not-equal).  Uses the column's index if one exists, else a
+       backend-side scan.  NULL result = cannot push down (caller scans). */
+    mvx_cursor *(*select_where)(mvx_file *f, const char *col, const char *op,
+                                const char *val, int64_t vlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

@@ -131,8 +131,9 @@ END
 
 IF SYSTEM(11) = 0 THEN
    IXUSED = 0
-   IF WI # "" AND WOP = "=" THEN
-      IF WANO # "" AND WANO # 0 AND WANO # -1 THEN
+   IF WI # "" AND WANO # "" AND WANO # 0 AND WANO # -1 THEN
+      IXUSED = QUERYSELECT(F, WI, WOP, WV)
+      IF IXUSED = 0 AND WOP = "=" THEN
          IXUSED = INDEXSELECT(F, WI, WV)
       END
    END

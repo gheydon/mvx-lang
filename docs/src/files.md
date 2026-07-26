@@ -352,14 +352,23 @@ Metadata lives in the dictionary record `%INDEXES%`; manage with
 `CREATE-INDEX`, `DELETE-INDEX`, `LIST-INDEXES`, or the
 `INDEXBUILD`/`INDEXDROP`/`INDEXSELECT` intrinsics.
 
-**On a mapped SQL backend the index is native.** When the file has a
-relational mapping (above), `CREATE-INDEX` on a mapped column emits a real
-`CREATE INDEX` on that column and `WITH` equality pushes down to an indexed
-`SELECT` — the backend already stores and maintains the column, so there is
-no per-record backfill and Postgres maintains the index itself. Because the
-`WITH` filter compares the *raw* attribute while a column holds its
-*projected* value, MVX uses the SQL index only where the projection is the
-identity — a `TEXT` column with no conversion (names, codes, states) — and
-otherwise falls back to the record scan, so the result is never wrong.
-Editing the tables directly still keeps the index correct, since it belongs
-to the database.
+**On a mapped SQL backend the filter runs server-side.** When the file has a
+relational mapping (above), an equality/not-equal `WITH` filter on a mapped
+column is pushed into the backend: instead of streaming every record to the
+verb and filtering in BASIC, the query runs `SELECT id ... WHERE col = $1`
+and only the matching ids come back. On a large table that is the difference
+between reading one row and reading a million.
+
+`CREATE-INDEX` on a mapped column then makes that `WHERE` an indexed lookup
+(a real `CREATE INDEX` on the column) rather than a backend-side scan — the
+backend already stores and maintains the column, so there is no per-record
+backfill and Postgres maintains the index itself.
+
+Both rest on the same correctness rule: the `WITH` filter compares the *raw*
+attribute while a column holds its *projected* value, so the push-down is
+used only where the projection is the identity — a `TEXT` column with no
+conversion (names, codes, states) — for `=` and `#` with a non-empty value.
+Range operators, converted columns, and un-mapped fields fall back to the
+record scan, so the result is never wrong; they just aren't accelerated
+(yet). Editing the tables directly still keeps everything correct, since the
+columns and their indexes belong to the database.

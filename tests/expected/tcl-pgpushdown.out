@@ -1,0 +1,13 @@
+-- WITH STATE = ZZZ (unindexed push-down; C2 diverted in SQL) --
+@ID          Name         State 
+C2           Gadget       VIC   
+1 record(s) listed
+-- WITH STATE # NSW (not-equal push-down) --
+@ID          Name         State 
+C2           Gadget       VIC   
+1 record(s) listed
+-- WITH TIER = gold (unmapped field -> scan) --
+@ID          Name         Tier    
+C3           Bolt         gold    
+C1           Widget       gold    
+2 record(s) listed

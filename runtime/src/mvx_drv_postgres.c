@@ -705,6 +705,46 @@ static int pg_index_drop(mvx_file *fh, const char *item) {
     return ok;
 }
 
+/* Server-side WITH push-down: ids whose column satisfies op/val, filtered in
+   the backend.  "=" -> equality; "#" -> IS DISTINCT FROM (so NULL/empty rows
+   count as not-equal, matching MV).  Snapshots ids into a cursor. */
+static mvx_cursor *pg_select_where(mvx_file *fh, const char *col,
+                                   const char *op, const char *val,
+                                   int64_t vlen) {
+    pg_file *f = (pg_file *)fh;
+    const char *sqlop;
+    if (strcmp(op, "=") == 0) sqlop = "=";
+    else if (strcmp(op, "#") == 0) sqlop = "IS DISTINCT FROM";
+    else return NULL;                     /* op not pushable -> caller scans */
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qc = PQescapeIdentifier(f->conn, col, strlen(col));
+    char sql[760];
+    snprintf(sql, sizeof sql, "SELECT id FROM %s WHERE %s %s $1", qt,
+             qc ? qc : "\"\"", sqlop);
+    if (qc) PQfreemem(qc);
+    const char *pv[1] = {val};
+    int pl[1] = {(int)vlen}, pf[1] = {0};   /* text param -> column type */
+    PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, pl, pf, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres select_where");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres select_where");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -720,6 +760,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_map_drop,                          /* tear down a mapping */
     pg_map_read, pg_map_child_read,       /* native read-back */
     pg_index_create,                      /* CREATE INDEX on a mapped column */
+    pg_select_where,                      /* server-side WITH push-down */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

@@ -77,7 +77,7 @@ const std::set<std::string> kIntIntrinsics = {
     "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND", "MAPBUILD", "MAPDROP",
-    "MAPCHECK",
+    "MAPCHECK", "QUERYSELECT",
     "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED", "SETCONN",
 };
 
@@ -693,6 +693,12 @@ private:
                               {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2])});
+            if (f == "QUERYSELECT" && e.args.size() == 4)
+                return callRt("mvx_query_select", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1]), evalPtr(*e.args[2]),
+                               evalPtr(*e.args[3])});
             if (f == "MAPBUILD" && e.args.size() == 2)
                 return callRt("mvx_mapbuild", i64Ty_,
                               {ptrTy_, ptrTy_, ptrTy_},

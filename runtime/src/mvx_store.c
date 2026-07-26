@@ -1613,6 +1613,72 @@ int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* Push a WITH filter into the backend: if `item` is a mapped identity column
+   (its column value equals the raw attribute, so the pushed-down result
+   equals the scan result) and `op`/`value` are pushable, form the select
+   list from the backend-filtered ids and return 1.  Otherwise 0 — the verb
+   scans as before.  This keeps a large SQL-backed query from streaming every
+   record to the verb just to discard most of them. */
+int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
+                         const mv_value *item, const mv_value *op,
+                         const mv_value *value) {
+    mvx_file *f = file_of(fvar, "QUERYSELECT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->select_where) return 0;
+    open_file *o = find_open(state(ctx), f);
+    if (!o) return 0;
+
+    char ob[8];
+    const char *opp;
+    int64_t ol = mv_val_chars(op, ob, sizeof ob, &opp);
+    if (!(ol == 1 && (opp[0] == '=' || opp[0] == '#'))) return 0;
+    char vb[40];
+    const char *vp;
+    int64_t vl = mv_val_chars(value, vb, sizeof vb, &vp);
+    if (vl == 0) return 0;              /* empty value: NULL semantics differ */
+
+    char nbuf[40];
+    const char *ip;
+    int64_t il = mv_val_chars(item, nbuf, sizeof nbuf, &ip);
+    if (il <= 0 || il >= 127) return 0;
+    char iname[128];
+    memcpy(iname, ip, (size_t)il);
+    iname[il] = '\0';
+
+    /* Only an identity-projected column (TEXT, no conversion) is safe: any
+       converted column holds a value that differs from the raw attribute the
+       WITH compares. */
+    map_load(o);
+    int ok = 0;
+    for (int i = 0; i < o->map.nf; i++)
+        if (strcmp(o->map.names[i], iname) == 0) {
+            ok = strcmp(o->map.types[i], "TEXT") == 0 &&
+                 o->map.convs[i][0] == '\0';
+            break;
+        }
+    if (!ok) return 0;
+
+    char opz[2] = {opp[0], '\0'};
+    mvx_cursor *c = b->driver->select_where(f, iname, opz, vp, vl);
+    if (!c) return 0;
+
+    store_state *st = state(ctx);
+    clear_select(st);
+    st->sel_active = 1;
+    int64_t cap = 0;
+    mv_value rid;
+    mv_init(&rid);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        sel_push(st, &cap, rp, rl);
+    }
+    mv_clear(&rid);
+    b->driver->select_end(c);
+    return 1;
+}
+
 void mvx_release(mvx_ctx *ctx, const mv_value *fvar, const mv_value *id) {
     store_state *st = state(ctx);
     if (!fvar) {                        /* bare RELEASE: drop everything */
