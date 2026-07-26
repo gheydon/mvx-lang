@@ -374,7 +374,10 @@ check tcl-multiwith "$( \
   (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/mwseedbin"); \
   printf '%s\n' \
     'LIST MWF STATE PRICE WITH STATE = "NSW" AND PRICE > "500" BY @ID' \
-    'LIST MWF STATE PRICE WITH STATE = "NSW" WITH PRICE < "500" BY @ID' | tclrun)"
+    'LIST MWF STATE PRICE WITH STATE = "NSW" WITH PRICE < "500" BY @ID' \
+    'SORT MWF STATE PRICE WITH STATE = "NSW" AND PRICE > "500"' \
+    'SELECT MWF WITH STATE = "NSW" AND PRICE < "500"' \
+    'LIST MWF STATE PRICE' | tclrun)"
 
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.

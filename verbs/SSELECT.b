@@ -40,9 +40,10 @@ IF DICTF = 0 THEN
    OPEN "DICT", FN TO DC ELSE DOPEN = 0
 END
 
-WI = ""
-WOP = ""
-WV = ""
+NW = 0
+WIS = ""
+WOPS = ""
+WVS = ""
 BYI = ""
 NT = DCOUNT(S, " ")
 I = TBASE
@@ -50,10 +51,11 @@ LOOP
 WHILE I <= NT DO
    T = FIELD(S, " ", I)
    BEGIN CASE
-   CASE T = "WITH"
-      WI = FIELD(S, " ", I + 1)
-      WOP = FIELD(S, " ", I + 2)
-      WV = FIELD(S, " ", I + 3)
+   CASE T = "WITH" OR T = "AND"
+      NW = NW + 1
+      WIS<NW> = FIELD(S, " ", I + 1)
+      WOPS<NW> = FIELD(S, " ", I + 2)
+      WVS<NW> = FIELD(S, " ", I + 3)
       I = I + 3
    CASE T = "BY"
       BYI = FIELD(S, " ", I + 1)
@@ -61,20 +63,24 @@ WHILE I <= NT DO
    END CASE
    I = I + 1
 REPEAT
-IF LEN(WV) >= 2 THEN
-   Q = WV[1, 1]
-   IF Q = "'" OR Q = '"' THEN
-      WV = WV[2, LEN(WV) - 2]
+FOR K = 1 TO NW
+   V = WVS<K>
+   IF LEN(V) >= 2 THEN
+      Q = V[1, 1]
+      IF Q = "'" OR Q = '"' THEN WVS<K> = V[2, LEN(V) - 2]
    END
-END
+NEXT K
 * the SSELECT default: order by item-id unless a BY key was named
 IF BYI = "" THEN
    BYI = "@ID"
 END
 
-WANO = ""
-WSPEC = ""
-IF WI # "" THEN
+WANOS = ""
+WSPECS = ""
+FOR K = 1 TO NW
+   WI = WIS<K>
+   WANO = ""
+   WSPEC = ""
    IF WI = "@ID" THEN
       WANO = 0
    END ELSE
@@ -95,7 +101,9 @@ IF WI # "" THEN
          STOP
       END
    END
-END
+   WANOS<K> = WANO
+   WSPECS<K> = WSPEC
+NEXT K
 
 * BY item resolution; an R-formatted dict item sorts right-justified
 * (numeric), everything else left-justified — as in LIST/SORT.
@@ -131,14 +139,23 @@ END
 
 IF SYSTEM(11) = 0 THEN
    IXUSED = 0
-   IF WI # "" AND WANO # "" AND WANO # 0 AND WANO # -1 THEN
-      IXUSED = QUERYSELECT(F, WI, WOP, WV, WANO)
-      IF IXUSED = 0 AND WOP = "=" THEN
-         IXUSED = INDEXSELECT(F, WI, WV)
+   IF NW >= 1 THEN
+      PSPEC = ""
+      FOR K = 1 TO NW
+         PSPEC<K> = WANOS<K>:@VM:WOPS<K>:@VM:WVS<K>
+      NEXT K
+      IXUSED = MULTISELECT(F, PSPEC)
+   END
+   IF IXUSED = 0 AND NW = 1 THEN
+      IF WANOS<1> = -1 AND WSPECS<1>[1, 6] = "TRANS(" THEN
+         IXUSED = TRANSSELECT(F, WSPECS<1>, WOPS<1>, WVS<1>)
+      END
+      IF IXUSED = 0 AND WOPS<1> = "=" AND WANOS<1> > 0 THEN
+         IXUSED = INDEXSELECT(F, WIS<1>, WVS<1>)
       END
    END
    IF IXUSED THEN
-      WI = ""
+      NW = 0
    END ELSE
       SELECT F
    END
@@ -152,38 +169,43 @@ UNTIL DONE DO
    * a WITH filter, the BY key, or an I-descriptor all need the record
    R = ""
    RREAD = 0
-   IF WI # "" OR BANO = -1 THEN
+   IF NW >= 1 OR BANO = -1 THEN
       READ R FROM F, ID ELSE R = ""
       RREAD = 1
    END
    OK = 1
-   IF WI # "" THEN
-      BEGIN CASE
-      CASE WANO = 0
-         RV = ID
-      CASE WANO = -1
-         ISPEC = WSPEC
-         GOSUB 9000
-         RV = IV
-      CASE 1
-         RV = R<WANO>
-      END CASE
-      OK = 0
-      BEGIN CASE
-      CASE WOP = "="
-         IF RV = WV THEN OK = 1
-      CASE WOP = "#"
-         IF RV # WV THEN OK = 1
-      CASE WOP = ">"
-         IF RV > WV THEN OK = 1
-      CASE WOP = "<"
-         IF RV < WV THEN OK = 1
-      CASE WOP = ">="
-         IF RV >= WV THEN OK = 1
-      CASE WOP = "<="
-         IF RV <= WV THEN OK = 1
-      END CASE
-   END
+   FOR K = 1 TO NW
+      IF OK THEN
+         BEGIN CASE
+         CASE WANOS<K> = 0
+            RV = ID
+         CASE WANOS<K> = -1
+            ISPEC = WSPECS<K>
+            GOSUB 9000
+            RV = IV
+         CASE 1
+            RV = R<WANOS<K>>
+         END CASE
+         WOP = WOPS<K>
+         WV = WVS<K>
+         CK = 0
+         BEGIN CASE
+         CASE WOP = "="
+            IF RV = WV THEN CK = 1
+         CASE WOP = "#"
+            IF RV # WV THEN CK = 1
+         CASE WOP = ">"
+            IF RV > WV THEN CK = 1
+         CASE WOP = "<"
+            IF RV < WV THEN CK = 1
+         CASE WOP = ">="
+            IF RV >= WV THEN CK = 1
+         CASE WOP = "<="
+            IF RV <= WV THEN CK = 1
+         END CASE
+         IF CK = 0 THEN OK = 0
+      END
+   NEXT K
    IF OK THEN
       BEGIN CASE
       CASE BANO = 0
