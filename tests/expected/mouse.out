@@ -2,5 +2,6 @@ toggles: 16 16
 mouse: 10,5 LEFT DOWN
 mouse: 3,7 RIGHT UP
 mouse: 1,1 WHEELUP DOWN
+mouse: 15,9 LEFT DRAG
 key: x
 bye

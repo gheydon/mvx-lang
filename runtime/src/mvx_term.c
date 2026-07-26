@@ -214,7 +214,8 @@ void mv_keyin(mvx_ctx *ctx, mv_value *dst, int64_t timeout_ms) {
 
 /* MOUSE() -> the last click reported through KEYIN, as col : @VM : row : @VM :
    button : @VM : event (button LEFT/MIDDLE/RIGHT/WHEELUP/WHEELDOWN, event
-   DOWN/UP).  Empty string when no mouse event has arrived yet. */
+   DOWN / UP / DRAG — DRAG is motion with a button held).  Empty string when no
+   mouse event has arrived yet. */
 void mv_mouse(mvx_ctx *ctx, mv_value *dst) {
     (void)ctx;
     if (g_mouse_btn < 0) { mv_set_str(dst, "", 0); return; }
@@ -228,10 +229,13 @@ void mv_mouse(mvx_ctx *ctx, mv_value *dst) {
         case 2:  btn = "RIGHT"; break;
         default: btn = "NONE"; break;
         }
+    const char *evt = !g_mouse_press     ? "UP"
+                      : (g_mouse_btn & 32) ? "DRAG"      /* motion, button held */
+                                          : "DOWN";
     char vm = (char)0xFD;
     char buf[64];
     int n = snprintf(buf, sizeof buf, "%d%c%d%c%s%c%s", g_mouse_col, vm,
-                     g_mouse_row, vm, btn, vm, g_mouse_press ? "DOWN" : "UP");
+                     g_mouse_row, vm, btn, vm, evt);
     mv_set_str(dst, buf, n);
 }
 
@@ -259,10 +263,11 @@ void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b) {
         case -6: n = snprintf(buf, sizeof buf, "\033[?1049l"); break;
         case -7: n = snprintf(buf, sizeof buf, "\033[?25l"); break;
         case -8: n = snprintf(buf, sizeof buf, "\033[?25h"); break;
-        /* mouse click reporting (#57): button events with SGR extended
+        /* mouse reporting (#57): button-event tracking (?1002 reports presses,
+           releases, and motion while a button is held → DRAG) with SGR extended
            coordinates, so KEYIN returns "MOUSE" and MOUSE() carries col/row. */
-        case -9:  n = snprintf(buf, sizeof buf, "\033[?1000h\033[?1006h"); break;
-        case -10: n = snprintf(buf, sizeof buf, "\033[?1006l\033[?1000l"); break;
+        case -9:  n = snprintf(buf, sizeof buf, "\033[?1002h\033[?1006h"); break;
+        case -10: n = snprintf(buf, sizeof buf, "\033[?1006l\033[?1002l"); break;
         /* video attributes, UniVerse-flavoured numbering */
         case -11: n = snprintf(buf, sizeof buf, "\033[5m"); break;
         case -12: n = snprintf(buf, sizeof buf, "\033[25m"); break;
