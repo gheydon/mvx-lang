@@ -245,20 +245,26 @@ check tcl-assoc "$(printf '%s\n' \
   'SORT ORDERS CUSTOMER PRODUCT QTY PRICE' | tclrun)"
 
 # TRANS() foreign-key lookup (#41): a CUSTMASTER file keyed by customer name,
-# and a TRANS I-type on ORDERS that reads the city from it per record. Tests
-# the TRANS()/XLATE() intrinsic, a TRANS I-type column, WITH on it, and the
-# missing-record control codes.
+# and a dedicated TORD orders file with a TRANS I-type that reads the city
+# per record. Tests the TRANS()/XLATE() intrinsic, a TRANS I-type column,
+# WITH on it, and the missing-record control codes. Own files — nothing
+# shared is mutated.
 tseed="$TESTROOT/tseed.b"
 cat > "$tseed" <<'EOF'
 X = CREATEFILE("CUSTMASTER")
+Y = CREATEFILE("TORD")
 OPEN "CUSTMASTER" TO C ELSE STOP
 WRITE "Sydney":@AM:"NSW" ON C, "Acme Corp"
 WRITE "Melbourne":@AM:"VIC" ON C, "Beta Ltd"
-OPEN "DICT", "ORDERS" TO D ELSE STOP
+OPEN "TORD" TO F ELSE STOP
+WRITE "Acme Corp":@AM:"Widget" ON F, "O1"
+WRITE "Beta Ltd":@AM:"Gadget" ON F, "O2"
+WRITE "Nobody Inc":@AM:"Orphan" ON F, "O9"
+OPEN "DICT", "TORD" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"12L" ON D, "CUSTOMER"
+WRITE "D":@AM:"2":@AM:"":@AM:"Product":@AM:"10L" ON D, "PRODUCT"
 WRITE "I":@AM:"TRANS(CUSTMASTER,1,1,X)":@AM:"":@AM:"City":@AM:"12L" ON D, "CITY"
 WRITE "I":@AM:"TRANS(CUSTMASTER,1,2,X)":@AM:"":@AM:"State":@AM:"6L" ON D, "CSTATE"
-OPEN "ORDERS" TO F ELSE STOP
-WRITE "Nobody Inc":@AM:"Orphan" ON F, "O9"
 PRINT "trans-seeded"
 PRINT "intrinsic: ":TRANS("CUSTMASTER", "Beta Ltd", 1, "X")
 PRINT "orphan X: '":TRANS("CUSTMASTER", "Ghost", 1, "X"):"'"
@@ -268,8 +274,8 @@ EOF
 check tcl-trans "$( \
   (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/tseedbin"); \
   printf '%s\n' \
-    'LIST ORDERS CUSTOMER CITY CSTATE BY @ID' \
-    'LIST ORDERS CUSTOMER CITY WITH CSTATE = "VIC"' | tclrun)"
+    'LIST TORD CUSTOMER CITY CSTATE BY @ID' \
+    'LIST TORD CUSTOMER CITY WITH CSTATE = "VIC"' | tclrun)"
 
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
