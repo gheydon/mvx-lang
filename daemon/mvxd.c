@@ -31,6 +31,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <lmdb.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -71,25 +72,59 @@ static lockent *g_locks;
 
 /* ------------------------------------------------------------ plumbing */
 
-static int recv_all(int fd, void *buf, size_t n) {
-    char *p = buf;
-    while (n > 0) {
-        ssize_t r = recv(fd, p, n, 0);
-        if (r <= 0) return 0;
-        p += r;
-        n -= (size_t)r;
-    }
-    return 1;
+static void set_nonblock(int fd) {
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 }
 
-static int send_all(int fd, const void *buf, size_t n) {
-    const char *p = buf;
-    while (n > 0) {
-        ssize_t r = send(fd, p, n, 0);
-        if (r <= 0) return 0;
-        p += r;
-        n -= (size_t)r;
+/* Per-connection buffered, non-blocking framed I/O (#10).  The daemon is a
+   single poll loop, so a blocking read or write on one client stalls every
+   other client (head-of-line blocking).  Each connection instead keeps a read
+   buffer that accumulates bytes until a whole length-prefixed frame is present
+   and a write buffer drained as the socket accepts data, so a peer that dribbles
+   a request or reads its reply slowly never blocks the loop. */
+typedef struct {
+    int    fd;
+    char  *rbuf;                 /* received bytes not yet framed */
+    size_t rlen, rcap;
+    char  *wbuf;                 /* queued reply bytes, wpos..wlen still pending */
+    size_t wpos, wlen, wcap;
+} conn;
+
+static void conn_free(conn *c) {
+    free(c->rbuf);
+    free(c->wbuf);
+    c->rbuf = c->wbuf = NULL;
+    c->rlen = c->rcap = c->wpos = c->wlen = c->wcap = 0;
+}
+
+/* Append reply bytes to the connection's write buffer. */
+static void wqueue(conn *c, const void *p, size_t n) {
+    if (c->wlen + n > c->wcap) {
+        size_t cap = c->wcap ? c->wcap : 256;
+        while (cap < c->wlen + n) cap *= 2;
+        c->wbuf = realloc(c->wbuf, cap);
+        if (!c->wbuf) exit(70);
+        c->wcap = cap;
     }
+    memcpy(c->wbuf + c->wlen, p, n);
+    c->wlen += n;
+}
+
+/* Push as much of the pending reply as the socket takes without blocking.
+   Returns 0 if the peer is gone. */
+static int conn_flush(conn *c) {
+    while (c->wpos < c->wlen) {
+        ssize_t r = send(c->fd, c->wbuf + c->wpos, c->wlen - c->wpos, 0);
+        if (r > 0) {
+            c->wpos += (size_t)r;
+            continue;
+        }
+        if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return 1;
+        if (r < 0 && errno == EINTR) continue;
+        return 0;                /* error or closed */
+    }
+    c->wpos = c->wlen = 0;       /* fully drained */
     return 1;
 }
 
@@ -674,6 +709,33 @@ static void handle(int fd, uint8_t op, inbuf *in, outbuf *out,
     }
 }
 
+/* Turn every whole frame buffered on the connection into a queued reply.  A
+   frame is a 4-byte little-endian length L (1..MAX_FRAME) followed by L bytes:
+   a 1-byte op and an (L-1)-byte payload.  Returns 0 on a protocol error, which
+   the caller treats as a reason to drop the connection. */
+static int conn_dispatch(conn *c) {
+    for (;;) {
+        if (c->rlen < 4) return 1;                      /* need length prefix */
+        uint32_t plen;
+        memcpy(&plen, c->rbuf, 4);
+        if (plen < 1 || plen > MAX_FRAME) return 0;
+        if (c->rlen < 4 + (size_t)plen) return 1;       /* frame incomplete */
+        uint8_t op = (uint8_t)c->rbuf[4];
+        inbuf in = {c->rbuf + 5, plen - 1, 0};
+        outbuf out = {0, 0, 0};
+        uint8_t status;
+        handle(c->fd, op, &in, &out, &status);
+        uint32_t rlen = (uint32_t)(1 + out.len);
+        wqueue(c, &rlen, 4);
+        wqueue(c, &status, 1);
+        if (out.len) wqueue(c, out.d, out.len);
+        free(out.d);
+        size_t used = 4 + (size_t)plen;
+        memmove(c->rbuf, c->rbuf + used, c->rlen - used);
+        c->rlen -= used;
+    }
+}
+
 /* ---------------------------------------------------------------- main */
 
 int main(int argc, char **argv) {
@@ -733,65 +795,87 @@ int main(int argc, char **argv) {
     fprintf(stderr, "mvx-lmdbd: serving %s on %s\n", datadir,
             sockpath ? sockpath : "tcp");
 
+    set_nonblock(lfd);
     struct pollfd fds[MAX_CONNS + 1];
+    conn cs[MAX_CONNS + 1] = {0};
     int nfds = 1;
     fds[0].fd = lfd;
     fds[0].events = POLLIN;
 
     for (;;) {
+        /* A connection asks for POLLOUT only while it still has reply bytes to
+           flush; otherwise it just watches for more request data. */
+        for (int i = 1; i < nfds; i++)
+            fds[i].events =
+                (short)(POLLIN | (cs[i].wpos < cs[i].wlen ? POLLOUT : 0));
+
         if (poll(fds, (nfds_t)nfds, -1) < 0) {
             if (errno == EINTR) continue;
             break;
         }
+
         if (fds[0].revents & POLLIN) {
             int c = accept(lfd, NULL, NULL);
             if (c >= 0) {
                 if (nfds <= MAX_CONNS) {
+                    set_nonblock(c);
                     fds[nfds].fd = c;
                     fds[nfds].events = POLLIN;
+                    fds[nfds].revents = 0;  /* not polled yet this pass */
+                    cs[nfds] = (conn){.fd = c};
                     nfds++;
                 } else {
                     close(c);
                 }
             }
         }
+
         for (int i = 1; i < nfds; i++) {
-            if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR)))
-                continue;
+            conn *cn = &cs[i];
             int fd = fds[i].fd;
-            uint32_t plen;
-            uint8_t op;
-            char *payload = NULL;
-            int ok = recv_all(fd, &plen, 4) && plen >= 1 &&
-                     plen <= MAX_FRAME && recv_all(fd, &op, 1);
-            if (ok && plen > 1) {
-                payload = malloc(plen - 1);
-                ok = payload && recv_all(fd, payload, plen - 1);
+            int dead = 0;
+
+            if (fds[i].revents & (POLLERR | POLLNVAL)) dead = 1;
+
+            /* Drain whatever is readable into the read buffer, then dispatch
+               any whole frames.  One recv per readable event bounds the buffer;
+               poll re-signals while data remains. */
+            if (!dead && (fds[i].revents & POLLIN)) {
+                if (cn->rcap - cn->rlen < 65536) {
+                    size_t cap = cn->rcap ? cn->rcap * 2 : 65536;
+                    while (cap - cn->rlen < 65536) cap *= 2;
+                    cn->rbuf = realloc(cn->rbuf, cap);
+                    if (!cn->rbuf) exit(70);
+                    cn->rcap = cap;
+                }
+                ssize_t r = recv(fd, cn->rbuf + cn->rlen, cn->rcap - cn->rlen, 0);
+                if (r > 0) {
+                    cn->rlen += (size_t)r;
+                    if (!conn_dispatch(cn)) dead = 1;
+                } else if (r == 0) {
+                    dead = 1;               /* peer closed */
+                } else if (errno != EAGAIN && errno != EWOULDBLOCK &&
+                           errno != EINTR) {
+                    dead = 1;
+                }
             }
-            if (!ok) {
+
+            /* Push queued replies out; a slow reader just leaves bytes pending
+               for a later POLLOUT instead of blocking the loop. */
+            if (!dead && !conn_flush(cn)) dead = 1;
+
+            /* Honour a hangup only once the reply is fully delivered. */
+            if ((fds[i].revents & POLLHUP) && cn->wpos >= cn->wlen) dead = 1;
+
+            if (dead) {
                 conn_reap(fd);
                 close(fd);
+                conn_free(cn);
                 fds[i] = fds[nfds - 1];
-                nfds--;
-                i--;
-                free(payload);
-                continue;
-            }
-            inbuf in = {payload, plen - 1, 0};
-            outbuf out = {0, 0, 0};
-            uint8_t status;
-            handle(fd, op, &in, &out, &status);
-            uint32_t rlen = (uint32_t)(1 + out.len);
-            if (!send_all(fd, &rlen, 4) || !send_all(fd, &status, 1) ||
-                (out.len && !send_all(fd, out.d, out.len))) {
-                conn_reap(fd);
-                close(fd);
-                fds[i] = fds[nfds - 1];
+                cs[i] = cs[nfds - 1];
                 nfds--;
                 i--;
             }
-            free(out.d);
-            free(payload);
         }
     }
     return 0;
