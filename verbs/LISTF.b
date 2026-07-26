@@ -24,6 +24,10 @@ FOR I = 1 TO N
       TYX = "directory"
    CASE TY = "L"
       TYX = "lmdb"
+   CASE TY = "P"
+      TYX = "postgres"
+   CASE TY = "N"
+      TYX = "lmdbnet"
    CASE 1
       TYX = TY
    END CASE

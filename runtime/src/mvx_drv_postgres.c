@@ -1226,13 +1226,55 @@ static int pg_unlock(mvx_file *fh, const char *id, int64_t idlen) {
     return pg_advisory(fh, id, idlen, "pg_advisory_unlock");
 }
 
+/* Enumerate the account's files (#17): every table in the schema with a `rec`
+   column is an MVX record table — the record files and their DICT.<file>
+   dictionaries.  Association child tables (<file>_<assoc>) have (id, seq, …) and
+   no `rec` column, so they are excluded here; the runtime drops the DICT.*
+   entries.  Backs LISTF for a whole-account Postgres binding. */
+static int pg_names(const char *loc, mv_value *out, char *err, size_t errlen) {
+    char schema[128];
+    PGconn *c = pg_connect(loc, schema, sizeof schema, err, errlen);
+    if (!c) return 0;
+    const char *pv[1] = {schema};
+    PGresult *r = PQexecParams(c,
+        "SELECT table_name FROM information_schema.columns "
+        "WHERE table_schema=$1 AND column_name='rec' ORDER BY table_name",
+        1, NULL, pv, NULL, NULL, 0);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) { snprintf(err, errlen, "postgres: %s", PQerrorMessage(c));
+                 PQclear(r); }
+        return 0;
+    }
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    int n = PQntuples(r);
+    for (int i = 0; i < n; i++) {
+        const char *nm = PQgetvalue(r, i, 0);
+        size_t nl = (size_t)PQgetlength(r, i, 0);
+        if (len + nl + 1 > cap) {
+            cap = cap ? cap * 2 : 256;
+            while (cap < len + nl + 1) cap *= 2;
+            char *nb = realloc(buf, cap);
+            if (!nb) mvx_fatal("out of memory in postgres names");
+            buf = nb;
+        }
+        if (len) buf[len++] = (char)0xFE;
+        memcpy(buf + len, nm, nl);
+        len += nl;
+    }
+    PQclear(r);
+    mv_set_str(out, buf ? buf : "", (int64_t)len);
+    free(buf);
+    return 1;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
     pg_read, pg_write, pg_del,
     pg_select_begin, pg_select_next, pg_select_end,
     pg_create, pg_remove,
-    NULL,                                 /* names: TODO */
+    pg_names,                             /* whole-account LISTF */
     NULL, NULL,                           /* no MVX-maintained index writes */
     pg_index_select, pg_index_drop,       /* native SQL indexes on columns */
     pg_lock, pg_unlock,                   /* cross-process advisory locks */

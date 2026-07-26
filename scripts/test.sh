@@ -1159,6 +1159,21 @@ EOF
   LKC="$(cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lktrybin" 2>&1)"
   check tcl-pglock "$(printf '%s\n%s\n%s\n' "$LKM" "$LKB" "$LKC")"
 
+  # whole-account LISTF on Postgres (#17): an account bound entirely to a PG
+  # connection (`* @conn`) enumerates the schema's record tables via the
+  # driver's names(); DICT.<file> and association child tables are excluded.
+  # A dedicated schema (lftest) keeps the listing deterministic.  Spaces are
+  # collapsed so the assertion is on the files/types, not column padding.
+  LFACCT="$TESTROOT/lfacct"; mkdir -p "$LFACCT"
+  printf 'SET-CONNECTION lfpg driver=postgres %s namespace=lftest\n' "$MVX_PG" \
+    | "$TCL" -a "$LFACCT" >/dev/null 2>&1
+  printf '* @lfpg\n' > "$LFACCT/BINDINGS"
+  "$TCL" -a "$LFACCT" -c 'DELETE-FILE FOO' >/dev/null 2>&1
+  "$TCL" -a "$LFACCT" -c 'DELETE-FILE BAR' >/dev/null 2>&1
+  "$TCL" -a "$LFACCT" -c 'CREATE-FILE FOO' >/dev/null 2>&1
+  "$TCL" -a "$LFACCT" -c 'CREATE-FILE BAR' >/dev/null 2>&1
+  check tcl-pglistf "$("$TCL" -a "$LFACCT" -c 'LISTF' 2>&1 | sed 's/  */ /g')"
+
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.
   printf 'MORD @pgtest\n' >> "$PGACCT/BINDINGS"

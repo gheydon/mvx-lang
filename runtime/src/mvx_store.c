@@ -2431,7 +2431,7 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
         mv_value names;
         mv_init(&names);
         char err[256] = "";
-        if (lmdb->names(&names, err, sizeof err) &&
+        if (lmdb->names(NULL, &names, err, sizeof err) &&
             names.tag == MV_STR && names.s->len > 0) {
             const char *p = names.s->data, *end = p + names.s->len;
             while (p < end) {
@@ -2498,6 +2498,34 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
             fclose(rf);
         }
     }
+    /* Whole-account Postgres binding (`* @conn` resolving to driver=postgres):
+       per-file BINDINGS lines list nothing here, so enumerate the schema's
+       record tables via the driver.  The empty spec matches only the `*`
+       policy (never an exact file), giving the star driver and its @conn. */
+    {
+        char bdrv[64] = "", bparm[512] = "";
+        if (binding_for("", bdrv, sizeof bdrv, bparm, sizeof bparm) &&
+            strcmp(bdrv, "postgres") == 0) {
+            const mvx_driver *pg = driver_load("postgres");
+            if (pg->names) {
+                mv_value names;
+                mv_init(&names);
+                char err[256] = "";
+                if (pg->names(bparm, &names, err, sizeof err) &&
+                    names.tag == MV_STR && names.s->len > 0) {
+                    const char *p = names.s->data, *end = p + names.s->len;
+                    while (p < end) {
+                        const char *am = memchr(p, '\xFE', (size_t)(end - p));
+                        size_t n = (am ? am : end) - p;
+                        int internal = n > 5 && memcmp(p, "DICT.", 5) == 0;
+                        if (n > 0 && !internal) FL_PUT(p, n, 'P');
+                        p = am ? am + 1 : end;
+                    }
+                }
+                mv_clear(&names);
+            }
+        }
+    }
     const char *dmn = getenv("MVXDAEMON");
     if (!listed_bound && dmn && dmn[0]) {
         const mvx_driver *net = driver_load("lmdbnet");
@@ -2505,7 +2533,7 @@ void mvx_filelist(mvx_ctx *ctx, mv_value *dst) {
             mv_value names;
             mv_init(&names);
             char err[256] = "";
-            if (net->names(&names, err, sizeof err) &&
+            if (net->names(NULL, &names, err, sizeof err) &&
                 names.tag == MV_STR && names.s->len > 0) {
                 const char *p = names.s->data;
                 const char *end = p + names.s->len;

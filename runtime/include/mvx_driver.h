@@ -93,8 +93,12 @@ typedef struct mvx_driver {
 
     /* Optional (may be NULL): enumerate the file specs this driver
        holds for the account, as an @AM-separated list.  Backing for
-       the LISTF verb. */
-    int (*names)(mv_value *out, char *err, size_t errlen);
+       the LISTF verb.  `loc` is the connection/location the runtime
+       resolved for the account (e.g. "@conn" or a conninfo) so a
+       backend that serves many locations knows which to list; a driver
+       with a single implicit store (embedded LMDB, the daemon) ignores
+       it.  DICT./index tables are included; the runtime filters them. */
+    int (*names)(const char *loc, mv_value *out, char *err, size_t errlen);
 
     /* Optional indexing capability (ARCHITECTURE.md 5) — all four may
        be NULL if the backend has no native secondary indexes.  The
@@ -259,7 +263,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 5
+#define MVX_DRIVER_ABI 6
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

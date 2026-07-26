@@ -203,7 +203,7 @@ static void lmdb_select_end(mvx_cursor *c) {
 
 static int lmdb_create(const char *spec, char *err, size_t errlen);
 static int lmdb_remove(const char *spec, char *err, size_t errlen);
-static int lmdb_names(mv_value *out, char *err, size_t errlen);
+static int lmdb_names(const char *loc, mv_value *out, char *err, size_t errlen);
 static int lmdb_write_ix(mvx_file *f, const char *id, int64_t idlen,
                          const mv_value *rec, const mvx_ixop *ops,
                          int nops);
@@ -240,7 +240,7 @@ static int lmdb_remove(const char *spec, char *err, size_t errlen) {
 }
 
 /* Named-DB names are the keys of the environment's unnamed main DB. */
-static int lmdb_names(mv_value *out, char *err, size_t errlen) {
+static int lmdb_names(const char *loc, mv_value *out, char *err, size_t errlen) {
     MDB_env *env = env_get(err, errlen);
     if (!env) return 0;
     MDB_txn *txn;

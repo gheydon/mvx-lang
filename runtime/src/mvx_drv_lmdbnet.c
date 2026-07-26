@@ -454,7 +454,7 @@ static int net_remove(const char *spec, char *err, size_t errlen) {
     return st == MVXD_ST_OK;
 }
 
-static int net_names(mv_value *out, char *err, size_t errlen) {
+static int net_names(const char *loc, mv_value *out, char *err, size_t errlen) {
     char addr[512], ns[128];
     split_addr("", addr, sizeof addr);  /* default daemon */
     mvx_account_namespace(ns, sizeof ns);
