@@ -36,7 +36,9 @@ FOR LI = 1 TO NP
          DEPTXT = DEPTXT:", ":PDEPS<DI>
       END
    NEXT DI
-   PRINT FMT(PNAME:"@":PVER, "L#14"):" ":FMT(STATE, "L#6"):" ":FMT(CUR, "L#46"):" ":DEPTXT
+   SYSTXT = ""
+   IF PSYS # "" THEN SYSTXT = " [":PSYS:"]"
+   PRINT FMT(PNAME:"@":PVER, "L#14"):" ":FMT(STATE, "L#6"):" ":FMT(CUR, "L#46"):" ":DEPTXT:SYSTXT
 NEXT LI
 PRINT NP:" package(s) linked"
 STOP
@@ -45,13 +47,15 @@ STOP
 9000
 PNAME = ""
 PVER = ""
+PSYS = ""
 PDEPS = ""
 OPEN CUR TO MPD THEN
    READ MF FROM MPD, "PKG" THEN
       PNAME = MF<1>
       PVER = MF<2>
+      PSYS = MF<4>
       MN = DCOUNT(MF, @AM)
-      FOR MI = 4 TO MN
+      FOR MI = 5 TO MN
          IF MF<MI> # "" THEN
             PDEPS<-1> = MF<MI>
          END

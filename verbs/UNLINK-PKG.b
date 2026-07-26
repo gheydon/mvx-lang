@@ -55,7 +55,7 @@ OPEN CUR TO MPD THEN
    READ MF FROM MPD, "PKG" THEN
       PNAME = MF<1>
       MN = DCOUNT(MF, @AM)
-      FOR MI = 4 TO MN
+      FOR MI = 5 TO MN
          IF MF<MI> # "" THEN
             PDEPS<-1> = MF<MI>
          END

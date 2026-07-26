@@ -59,6 +59,19 @@ UNTIL QUEUE = "" DO
          STOP
       END
       GOSUB 9000
+      * the manifest's systems field (attr 4) lists the MV platforms the
+      * package targets; refuse one that declares systems but not this one.
+      IF PSYS # "" THEN
+         OKSYS = 0
+         NSY = DCOUNT(PSYS, " ")
+         FOR SI = 1 TO NSY
+            IF FIELD(PSYS, " ", SI) = "mvx" THEN OKSYS = 1
+         NEXT SI
+         IF OKSYS = 0 THEN
+            PRINT CUR:" does not support mvx (systems: ":PSYS:")"
+            STOP
+         END
+      END
       LOCATE(PNAME, LNAMES; POS) THEN SKIP = 1
    END
    IF SKIP = 0 THEN
@@ -98,13 +111,15 @@ STOP
 9000
 PNAME = ""
 PVER = ""
+PSYS = ""
 PDEPS = ""
 OPEN CUR TO MPD THEN
    READ MF FROM MPD, "PKG" THEN
       PNAME = MF<1>
       PVER = MF<2>
+      PSYS = MF<4>
       MN = DCOUNT(MF, @AM)
-      FOR MI = 4 TO MN
+      FOR MI = 5 TO MN
          IF MF<MI> # "" THEN
             PDEPS<-1> = MF<MI>
          END
