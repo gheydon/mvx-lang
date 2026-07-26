@@ -1080,21 +1080,39 @@ MWEOF
     "$TCL" -a "$PGACCT" -c 'SORT EXPLAIN MWP BY PRICE FIRST 3' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST MWP WITH @ID = "O1" DESCRIBE' 2>&1)"
 
-  # cross-process record locks (#16): a READU on a PG-backed file takes a
-  # Postgres advisory lock, so a second *process* sees the record LOCKED.  A
-  # background holder grabs it and signals via an OS file; while it holds, a
-  # second process finds it locked; after the holder RELEASEs and exits, a
-  # third acquires it.  Deterministic — poll the held-flag before probing, and
-  # wait for the holder to exit (its RELEASE is synchronous) before re-probing.
+  # cross-process record locks (#16), including the mapped association subtables:
+  # a READU on a PG-backed file takes a Postgres advisory lock keyed by the
+  # record id, so it governs the parent columns AND the association child rows
+  # alike (they share the id) — a second *process* sees the whole record LOCKED.
+  # LK is mapped with a LINES association and switched to native mode, so the
+  # holder and probes read the child subtable back under the lock.  A background
+  # holder grabs K1 and signals via an OS file; while it holds, a second process
+  # finds it LOCKED; after the holder RELEASEs and exits, a third acquires it and
+  # reads its 2 association rows.  Deterministic — poll the held-flag before
+  # probing, and wait for the holder's (synchronous) RELEASE before re-probing.
   printf 'LK @pgtest\n' >> "$PGACCT/BINDINGS"
   "$TCL" -a "$PGACCT" -c 'DELETE-FILE LK' >/dev/null 2>&1
   "$TCL" -a "$PGACCT" -c 'CREATE-FILE LK USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/lkdict.b" <<'EOF'
+OPEN "DICT", "LK" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"10L" ON D, "NAME"
+WRITE "D":@AM:"5":@AM:"":@AM:"Item":@AM:"6L":@AM:"LINES" ON D, "ITEM"
+WRITE "D":@AM:"6":@AM:"":@AM:"Qty":@AM:"4R":@AM:"LINES" ON D, "QTY"
+EOF
+  "$MVX" "$TESTROOT/lkdict.b" -o "$TESTROOT/lkdictbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkdictbin") >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-MAP LK NAME ITEM QTY' >/dev/null 2>&1
   cat > "$TESTROOT/lkseed.b" <<'EOF'
 OPEN "LK" TO F ELSE STOP
-WRITE "widget" ON F, "K1"
+R = ""
+R<1> = "widget"
+R<5> = "a":@VM:"b"
+R<6> = "1":@VM:"2"
+WRITE R ON F, "K1"
 EOF
   "$MVX" "$TESTROOT/lkseed.b" -o "$TESTROOT/lkseedbin" 2>/dev/null
   (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkseedbin") >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'MAP-MODE LK native' >/dev/null 2>&1
   cat > "$TESTROOT/lkhold.b" <<'EOF'
 OPEN "LK" TO F ELSE STOP
 READU R FROM F, "K1" ELSE R = ""
@@ -1111,7 +1129,7 @@ OPEN "LK" TO F ELSE STOP
 READU R FROM F, "K1" LOCKED
    PRINT "locked by another session"
 END THEN
-   PRINT "acquired ":R<1>
+   PRINT "acquired ":R<1>:" lines=":DCOUNT(R<5>, @VM)
    RELEASE F, "K1"
 END ELSE
    PRINT "gone"
