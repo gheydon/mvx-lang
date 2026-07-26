@@ -127,6 +127,17 @@ else
   check keyin "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
 fi
 
+# mouse click reporting (#57): SGR mouse reports decode to KEYIN "MOUSE",
+# MOUSE() carries col/row/button/event; left-press, right-release, wheel-up,
+# then a plain key still reads.
+out="$TESTROOT/mouse"
+if "$MVX" "$ROOT/tests/mouse.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  actual="$(printf '\033[<0;10;5M\033[<2;3;7m\033[<64;1;1Mxq' | "$out" 2>&1)"
+  check mouse "$actual"
+else
+  check mouse "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # CALL across separately compiled sources
 out="$TESTROOT/callmain"
 "$MVX" "$ROOT/tests/callmain.b" "$ROOT/tests/adder.b" -o "$out" \

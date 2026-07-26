@@ -1085,6 +1085,10 @@ private:
                    {ctxArg_, dest, t});
             return;
         }
+        if (f == "MOUSE") { need(0);
+            callRt("mv_mouse", voidTy_, {ptrTy_, ptrTy_},
+                   {ctxArg_, dest});
+            return; }
         if (f == "SENTENCE") { need(0);
             callRt("mv_sentence", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});

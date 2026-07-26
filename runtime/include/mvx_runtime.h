@@ -155,6 +155,7 @@ void mv_input(mvx_ctx *ctx, mv_value *dst);         /* read line from stdin */
 void mv_keyin(mvx_ctx *ctx, mv_value *dst,
               int64_t timeout_ms);                  /* decoded keystroke */
 void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b);
+void mv_mouse(mvx_ctx *ctx, mv_value *dst);         /* last click from KEYIN */
 void mv_color_fn(mv_value *dst, const mv_value *fg, const mv_value *bg);
 void mv_echo(mvx_ctx *ctx, int64_t on);
 void mv_sentence(mvx_ctx *ctx, mv_value *dst);      /* invoking TCL sentence */

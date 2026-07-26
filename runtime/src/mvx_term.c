@@ -36,6 +36,12 @@
    not swallow that byte. */
 static int g_pushed = -1;
 
+/* Last mouse event decoded by KEYIN (#57), read back by MOUSE().  btn is the
+   raw SGR button code (-1 = none seen yet); col/row are 1-based cells; press is
+   1 for a button-down (M), 0 for a button-up (m). */
+static int g_mouse_btn = -1;
+static int g_mouse_col, g_mouse_row, g_mouse_press;
+
 static int read_byte(int64_t timeout_ms, unsigned char *c) {
     if (g_pushed >= 0) {
         *c = (unsigned char)g_pushed;
@@ -99,7 +105,7 @@ static void decode_escape(mv_value *dst) {
         g_pushed = c;
         return;
     }
-    char params[16];
+    char params[32];
     size_t np = 0;
     for (;;) {
         if (!read_byte(30, &c)) { set_name(dst, "ESC"); return; }
@@ -107,6 +113,20 @@ static void decode_escape(mv_value *dst) {
         if (np < sizeof params - 1) params[np++] = (char)c;
     }
     params[np] = '\0';
+    /* SGR mouse report: ESC [ < btn ; col ; row (M=press | m=release). */
+    if (params[0] == '<') {
+        int b, x, y;
+        if (sscanf(params + 1, "%d;%d;%d", &b, &x, &y) == 3) {
+            g_mouse_btn = b;
+            g_mouse_col = x;
+            g_mouse_row = y;
+            g_mouse_press = (c == 'M');
+            set_name(dst, "MOUSE");
+            return;
+        }
+        set_name(dst, "ESC");
+        return;
+    }
     switch (c) {
     case 'A': set_name(dst, "UP"); return;
     case 'B': set_name(dst, "DOWN"); return;
@@ -192,6 +212,29 @@ void mv_keyin(mvx_ctx *ctx, mv_value *dst, int64_t timeout_ms) {
     term_restore(raw, &saved);
 }
 
+/* MOUSE() -> the last click reported through KEYIN, as col : @VM : row : @VM :
+   button : @VM : event (button LEFT/MIDDLE/RIGHT/WHEELUP/WHEELDOWN, event
+   DOWN/UP).  Empty string when no mouse event has arrived yet. */
+void mv_mouse(mvx_ctx *ctx, mv_value *dst) {
+    (void)ctx;
+    if (g_mouse_btn < 0) { mv_set_str(dst, "", 0); return; }
+    const char *btn;
+    if (g_mouse_btn & 64)
+        btn = (g_mouse_btn & 1) ? "WHEELDOWN" : "WHEELUP";
+    else
+        switch (g_mouse_btn & 3) {
+        case 0:  btn = "LEFT"; break;
+        case 1:  btn = "MIDDLE"; break;
+        case 2:  btn = "RIGHT"; break;
+        default: btn = "NONE"; break;
+        }
+    char vm = (char)0xFD;
+    char buf[64];
+    int n = snprintf(buf, sizeof buf, "%d%c%d%c%s%c%s", g_mouse_col, vm,
+                     g_mouse_row, vm, btn, vm, g_mouse_press ? "DOWN" : "UP");
+    mv_set_str(dst, buf, n);
+}
+
 /* @(col,row) and the classic screen codes. */
 void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b) {
     char buf[40];
@@ -216,6 +259,10 @@ void mv_at_fn(mv_value *dst, int64_t a, int64_t b, int64_t has_b) {
         case -6: n = snprintf(buf, sizeof buf, "\033[?1049l"); break;
         case -7: n = snprintf(buf, sizeof buf, "\033[?25l"); break;
         case -8: n = snprintf(buf, sizeof buf, "\033[?25h"); break;
+        /* mouse click reporting (#57): button events with SGR extended
+           coordinates, so KEYIN returns "MOUSE" and MOUSE() carries col/row. */
+        case -9:  n = snprintf(buf, sizeof buf, "\033[?1000h\033[?1006h"); break;
+        case -10: n = snprintf(buf, sizeof buf, "\033[?1006l\033[?1000l"); break;
         /* video attributes, UniVerse-flavoured numbering */
         case -11: n = snprintf(buf, sizeof buf, "\033[5m"); break;
         case -12: n = snprintf(buf, sizeof buf, "\033[25m"); break;
