@@ -415,7 +415,10 @@ file. There are two push-down paths, in order of preference:
   `IMMUTABLE` helper the driver installs; the index and the query use the
   same function so the index applies.) The mapped-column rule still holds:
   when a field is mapped to an identity column, `CREATE-INDEX` indexes the
-  column and the query prefers it.
+  column and the query prefers it. If you index a field *before* mapping it
+  and later `CREATE-MAP` it, the mapping offers to rebuild that blob index on
+  the new column (answer `y`), so the index follows the field onto its
+  column.
 
 Push-down covers `=` and `#` (not-equal, which includes empty/absent
 attributes, matching MV) with a non-empty value; range operators and

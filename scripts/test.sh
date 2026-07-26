@@ -1193,6 +1193,31 @@ PDNEOF
       "TIER (unmapped) index kind: $IDXDEF" \
       "STATE (mapped) index kind: $STDEF" \
       "blob filter uses the expression index: $USES")"
+
+    # CREATE-MAP reindex prompt (#44): a field indexed while un-mapped has an
+    # expression index; mapping it offers to rebuild the index on the column.
+    printf 'RIX @vpg\n' >> "$VMACCT/BINDINGS"
+    "$TCL" -a "$VMACCT" -c 'DELETE-FILE RIX' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-FILE RIX USING @vpg' >/dev/null 2>&1
+    cat > "$TESTROOT/vmrix.b" <<'RIXEOF'
+OPEN "RIX" TO F ELSE STOP
+WRITE "Widget":@AM:"NSW" ON F, "C1"
+OPEN "DICT", "RIX" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+RIXEOF
+    "$MVX" "$TESTROOT/vmrix.b" -o "$TESTROOT/vmrixbin" 2>/dev/null
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmrixbin")
+    "$TCL" -a "$VMACCT" -c 'CREATE-INDEX RIX STATE' >/dev/null 2>&1
+    rixkind() { psql_ext "SELECT CASE WHEN indexdef LIKE '%mvx_attr%' THEN \
+      'expression' WHEN indexdef LIKE '%(\"STATE\")%' THEN 'column' ELSE '?' \
+      END FROM pg_indexes WHERE schemaname='vmtest' AND indexname='RIX_STATE_idx'"; }
+    RBEFORE=$(rixkind)
+    printf 'y\n' | "$TCL" -a "$VMACCT" -c 'CREATE-MAP RIX NAME STATE' >/dev/null 2>&1
+    RAFTER=$(rixkind)
+    check tcl-mapreindex "$(printf '%s\n' \
+      "STATE index before map: $RBEFORE" \
+      "STATE index after CREATE-MAP + y: $RAFTER")"
   else
     echo "  (postgres psql-dependent map/index tests skipped — psql not found)"
   fi

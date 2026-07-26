@@ -60,4 +60,29 @@ CASE RC < 0
    PRINT "map build failed"
 CASE 1
    PRINT "mapped ":RC:" record(s); writes are now mirrored"
+   * A field indexed while un-mapped got an expression index on the record
+   * blob.  Now that it is an identity column the query prefers the column,
+   * so offer to rebuild the index on it (numeric/date still query the raw
+   * blob, so only plain text columns benefit).
+   READ XL FROM DD, "%INDEXES%" ELSE XL = ""
+   IF XL # "" THEN
+      NM = DCOUNT(SPEC, @AM)
+      FOR J = 1 TO NM
+         MF = FIELD(SPEC<J>, @VM, 1)
+         MCONV = FIELD(SPEC<J>, @VM, 3)
+         MTYPE = FIELD(SPEC<J>, @VM, 4)
+         MASSOC = FIELD(SPEC<J>, @VM, 5)
+         IF MTYPE = "TEXT" AND MCONV = "" AND MASSOC = "" THEN
+            LOCATE(MF, XL; XP) THEN
+               PRINT MF:" is indexed on the record; rebuild it on the ":
+               PRINT "mapped column (y/n)? ":
+               INPUT ANS
+               IF ANS[1, 1] = "Y" OR ANS[1, 1] = "y" THEN
+                  EXECUTE "DELETE-INDEX ":FN:" ":MF
+                  EXECUTE "CREATE-INDEX ":FN:" ":MF
+               END
+            END
+         END
+      NEXT J
+   END
 END CASE
