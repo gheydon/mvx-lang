@@ -384,7 +384,7 @@ check tcl-multiwith "$( \
 # backend renders the actual query instead (tcl-pgdescribe). MWF reused.
 check tcl-describe "$( \
   printf '%s\n' \
-    'LIST MWF STATE WITH STATE = "NSW" DESCRIBE' \
+    'LIST DESCRIBE MWF STATE WITH STATE = "NSW"' \
     'SELECT MWF WITH PRICE > "500" DESCRIBE' | tclrun)"
 
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
@@ -1072,10 +1072,12 @@ MWEOF
   # running it — an identity-column equality, a numeric range on the blob, an
   # ORDER BY / LIMIT push, and a non-pushable @ID condition that scans and
   # filters in the verb.  Reuses MWP (mapped STATE, PRICE above).
+  # DESCRIBE / EXPLAIN work both right after the verb and trailing the
+  # sentence — same plan either way — so the cases mix the two positions.
   check tcl-pgdescribe "$( \
-    "$TCL" -a "$PGACCT" -c 'LIST MWP STATE WITH STATE = "NSW" DESCRIBE' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'LIST DESCRIBE MWP STATE WITH STATE = "NSW"' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST MWP WITH STATE = "NSW" AND PRICE > "500" DESCRIBE' 2>&1; \
-    "$TCL" -a "$PGACCT" -c 'SORT MWP BY PRICE FIRST 3 DESCRIBE' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT EXPLAIN MWP BY PRICE FIRST 3' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST MWP WITH @ID = "O1" DESCRIBE' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into

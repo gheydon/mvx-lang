@@ -14,6 +14,14 @@
 *   1 = D, 2 = attribute number, 3 = conversion (OCONV code),
 *   4 = column heading, 5 = format e.g. "12L" / "8R".
 S = TRIM(SENTENCE())
+* DESCRIBE / EXPLAIN may sit right after the verb (SORT DESCRIBE file …) or
+* trail the sentence; either way it prints the query plan instead of running.
+DESC = 0
+DW = FIELD(S, " ", 2)
+IF DW = "DESCRIBE" OR DW = "EXPLAIN" THEN
+   DESC = 1
+   S = FIELD(S, " ", 1):" ":FIELD(S, " ", 3, 9999)
+END
 DICTF = 0
 FN = FIELD(S, " ", 2)
 TBASE = 3
@@ -53,7 +61,6 @@ WOP = ""
 WV = ""
 BYI = ""
 LIMIT = ""
-DESC = 0
 NW = 0
 WIS = ""
 WOPS = ""

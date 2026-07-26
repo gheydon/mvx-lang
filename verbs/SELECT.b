@@ -11,6 +11,14 @@
 * for the next command (the session carries it across processes).  Multiple
 * WITH/AND conditions are ANDed and pushed to one SQL WHERE when possible.
 S = TRIM(SENTENCE())
+* DESCRIBE / EXPLAIN may sit right after the verb (SELECT DESCRIBE file …) or
+* trail the sentence; either way it prints the query plan instead of running.
+DESC = 0
+DW = FIELD(S, " ", 2)
+IF DW = "DESCRIBE" OR DW = "EXPLAIN" THEN
+   DESC = 1
+   S = FIELD(S, " ", 1):" ":FIELD(S, " ", 3, 9999)
+END
 DICTF = 0
 FN = FIELD(S, " ", 2)
 TBASE = 3
@@ -45,7 +53,6 @@ NW = 0
 WIS = ""
 WOPS = ""
 WVS = ""
-DESC = 0
 NT = DCOUNT(S, " ")
 I = TBASE
 LOOP

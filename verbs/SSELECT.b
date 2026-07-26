@@ -11,6 +11,14 @@
 * active select list is sorted: by item-id by default, or by the named
 * BY key.  The session carries the list to the next command.
 S = TRIM(SENTENCE())
+* DESCRIBE / EXPLAIN may sit right after the verb (SSELECT DESCRIBE file …) or
+* trail the sentence; either way it prints the query plan instead of running.
+DESC = 0
+DW = FIELD(S, " ", 2)
+IF DW = "DESCRIBE" OR DW = "EXPLAIN" THEN
+   DESC = 1
+   S = FIELD(S, " ", 1):" ":FIELD(S, " ", 3, 9999)
+END
 DICTF = 0
 FN = FIELD(S, " ", 2)
 TBASE = 3
@@ -45,7 +53,6 @@ WIS = ""
 WOPS = ""
 WVS = ""
 BYI = ""
-DESC = 0
 NT = DCOUNT(S, " ")
 I = TBASE
 LOOP
