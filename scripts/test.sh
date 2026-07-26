@@ -1331,6 +1331,16 @@ DTEOF
     'CREATE-MAP EVT NAME WHEN AT' \
     'SORT EVT BY NAME WHEN AT NAME' | "$TCL" -a "$VMACCT" 2>&1)"
 
+  # backfill push-down (#56): EVT's parent NAME(text)/WHEN(date)/AT(time)
+  # columns are all SQL-expressible, so CREATE-MAP's backfill runs as one
+  # server-side UPDATE over all rows (no records over the wire) instead of the
+  # per-record loop.  Switch EVT native so reads come from those columns, then
+  # the identical SORT must render byte-for-byte the same as the blob-based read
+  # above — proving the single-UPDATE date/time column values are correct.
+  "$TCL" -a "$VMACCT" -c 'MAP-MODE EVT native' >/dev/null 2>&1
+  check tcl-mapdtnative "$(printf 'SORT EVT BY NAME WHEN AT NAME\n' | \
+    "$TCL" -a "$VMACCT" 2>&1)"
+
   # native mode (#33): the typed columns are authoritative, so a WRITE whose
   # value does not fit its column is rejected (ON ERROR) and the record is
   # not written — versus mirror mode, which stores NULL and proceeds.

@@ -255,7 +255,23 @@ typedef struct mvx_driver {
        the backend has no transactional batching (writes autocommit). */
     int (*bulk_begin)(mvx_file *f);
     int (*bulk_commit)(mvx_file *f);
+    /* Optional whole-mapping backfill (may be NULL): materialise a mapping in
+       the backend in one statement (e.g. UPDATE base SET col = f(rec) over all
+       rows) instead of the runtime reading and projecting every record over the
+       wire.  cols (name+type), anos and convs describe each mapped field;
+       assocs[i] is the association the field belongs to ("" = a parent column).
+       Returns the number of records materialised, -1 on error (err filled), or
+       MVX_MAP_NOPUSH when the transformation cannot be expressed server-side —
+       the caller then falls back to per-record projection. */
+    int64_t (*map_backfill)(mvx_file *f, const mvx_mapfield *cols,
+                            const int64_t *anos, const char **convs,
+                            const char **assocs, int nf, char *err,
+                            size_t errlen);
 } mvx_driver;
+
+/* map_backfill sentinel: the transform is not expressible in this backend, so
+   the runtime should fall back to the per-record projection loop. */
+#define MVX_MAP_NOPUSH ((int64_t)(-0x7fffffffffffffffLL - 1))
 
 /* Common header every driver embeds first in its mvx_file. */
 typedef struct mvx_file_base {
@@ -275,7 +291,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 8
+#define MVX_DRIVER_ABI 9
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

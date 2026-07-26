@@ -1479,6 +1479,29 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
         return -1;
     }
 
+    /* Push the whole backfill into the backend when the transform is
+       expressible there (e.g. one UPDATE over all rows) — no records over the
+       wire.  MVX_MAP_NOPUSH means "not expressible", so fall through to the
+       per-record loop below. */
+    if (b->driver->map_backfill) {
+        mvx_mapfield cols[MAP_MAXF];
+        const char *convs[MAP_MAXF], *assocs[MAP_MAXF];
+        for (int i = 0; i < m.nf; i++) {
+            cols[i].name = m.names[i];
+            cols[i].type = m.types[i];
+            convs[i] = m.convs[i];
+            assocs[i] = m.assocs[i];
+        }
+        char berr[256] = "";
+        int64_t bn = b->driver->map_backfill(f, cols, m.anos, convs, assocs,
+                                             m.nf, berr, sizeof berr);
+        if (bn != MVX_MAP_NOPUSH) {
+            if (bn < 0 && berr[0]) fprintf(stderr, "MAPBUILD: %s\n", berr);
+            free(m.buf);
+            return bn;
+        }
+    }
+
     mvx_cursor *c = b->driver->select_begin(f);
     if (!c) { free(m.buf); return -1; }
     int64_t total = (progress && b->driver->select_count)

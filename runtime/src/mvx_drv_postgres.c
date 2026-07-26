@@ -316,6 +316,77 @@ static int pg_bulk_commit(mvx_file *fh) {
     return ok;
 }
 
+/* Whole-mapping backfill push-down (#56): the mapped parent columns live on the
+   base (id, rec) table, so materialising them is one UPDATE over all rows with a
+   per-column expression derived straight from the record blob — no records over
+   the wire.  Expressible only when every field is a parent column (no
+   association child tables here) whose transform is plain extraction or a simple
+   cast: TEXT/NUMERIC with no OCONV, or DATE/TIME (which map the stored internal
+   value, ignoring the display conversion, exactly as map_cell does).  Anything
+   needing a real OCONV, or any association, returns MVX_MAP_NOPUSH so the runtime
+   falls back to the per-record loop. */
+static int64_t pg_map_backfill(mvx_file *fh, const mvx_mapfield *cols,
+                               const int64_t *anos, const char **convs,
+                               const char **assocs, int nf, char *err,
+                               size_t errlen) {
+    pg_file *f = (pg_file *)fh;
+    if (nf <= 0) return 0;
+    for (int i = 0; i < nf; i++) {
+        if (assocs[i][0]) return MVX_MAP_NOPUSH;         /* association -> loop */
+        const char *t = cols[i].type;
+        int conv = convs[i][0] != '\0';
+        int ok = (!conv && (strcmp(t, "TEXT") == 0 ||
+                            strcmp(t, "NUMERIC") == 0)) ||
+                 strcmp(t, "DATE") == 0 || strcmp(t, "TIME") == 0;
+        if (!ok) return MVX_MAP_NOPUSH;                  /* OCONV -> loop */
+    }
+
+    pg_ensure_attr_fn(f->conn, f->schema);              /* mvx_attr(rec,n) */
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qsch = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+    if (!qsch) { snprintf(err, errlen, "postgres: out of memory"); return -1; }
+
+    size_t cap = 512 + (size_t)nf * 512;
+    char *sql = malloc(cap);
+    if (!sql) { PQfreemem(qsch); snprintf(err, errlen, "postgres: out of memory");
+                return -1; }
+    size_t p = (size_t)snprintf(sql, cap, "UPDATE %s SET ", qt);
+    for (int i = 0; i < nf; i++) {
+        char *qc = PQescapeIdentifier(f->conn, cols[i].name,
+                                      strlen(cols[i].name));
+        char a[160];                                     /* schema.mvx_attr(rec,n) */
+        snprintf(a, sizeof a, "%s.mvx_attr(rec,%lld)", qsch, (long long)anos[i]);
+        const char *t = cols[i].type;
+        char expr[512];
+        if (strcmp(t, "NUMERIC") == 0)
+            snprintf(expr, sizeof expr, "NULLIF(%s,'')::numeric", a);
+        else if (strcmp(t, "DATE") == 0)
+            snprintf(expr, sizeof expr,
+                     "CASE WHEN NULLIF(%s,'') IS NULL THEN NULL "
+                     "ELSE DATE '1967-12-31' + (%s)::int END", a, a);
+        else if (strcmp(t, "TIME") == 0)
+            snprintf(expr, sizeof expr,
+                     "CASE WHEN NULLIF(%s,'') IS NULL THEN NULL "
+                     "ELSE TIME '00:00:00' + (%s)::int * interval '1 second' END",
+                     a, a);
+        else                                             /* TEXT, no conv */
+            snprintf(expr, sizeof expr, "NULLIF(%s,'')", a);
+        p += (size_t)snprintf(sql + p, cap - p, "%s%s=%s", i ? ", " : "",
+                              qc ? qc : "\"\"", expr);
+        if (qc) PQfreemem(qc);
+    }
+    PQfreemem(qsch);
+
+    PGresult *r = PQexec(f->conn, sql);
+    free(sql);
+    int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
+    int64_t n = ok ? atoll(PQcmdTuples(r)) : -1;
+    if (!ok) snprintf(err, errlen, "postgres: %s", PQerrorMessage(f->conn));
+    if (r) PQclear(r);
+    return n;
+}
+
 static int pg_create(const char *spec, char *err, size_t errlen) {
     char loc[1024];
     const char *rspec = split_spec(spec, loc, sizeof loc);
@@ -1314,6 +1385,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_explain,                           /* DESCRIBE: render SQL, don't run */
     pg_select_count,                      /* backfill progress total */
     pg_bulk_begin, pg_bulk_commit,        /* transactional backfill batching */
+    pg_map_backfill,                      /* whole-mapping backfill push-down */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {
