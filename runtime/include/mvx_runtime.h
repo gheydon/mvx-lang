@@ -231,11 +231,12 @@ int64_t mvx_index_drop(mvx_ctx *ctx, const mv_value *fvar,
                        const mv_value *item);
 int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
                          const mv_value *item, const mv_value *key);
-/* Push a WITH filter into the backend (mapped identity column, =/#): 1 if
-   the select list was formed server-side, 0 to fall back to the scan. */
+/* Push a WITH filter into the backend (mapped identity column, or the raw
+   record attribute `attr`, for =/#): 1 if the select list was formed
+   server-side, 0 to fall back to the scan. */
 int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
                          const mv_value *item, const mv_value *op,
-                         const mv_value *value);
+                         const mv_value *value, const mv_value *attr);
 /* Build a file's relational mapping (see MAP / #18): -2 unsupported,
    -1 fail, else the projected record count. */
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,

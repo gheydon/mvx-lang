@@ -1060,41 +1060,45 @@ CIXEOF
       echo "STATE index exists: $IXEXISTS"; \
       echo "-- WITH STATE = NSW (index push-down, C2 diverted in SQL) --"; \
       "$TCL" -a "$VMACCT" -c 'LIST CIX NAME STATE WITH STATE = "NSW" BY NAME' 2>&1; \
-      echo "-- WITH CREDIT = 1500 (converted column -> scan fallback) --"; \
+      echo "-- WITH CREDIT = 1500 (converted column -> blob push-down) --"; \
       "$TCL" -a "$VMACCT" -c 'LIST CIX NAME CREDIT WITH CREDIT = "1500"' 2>&1; \
       "$TCL" -a "$VMACCT" -c 'DELETE-INDEX CIX STATE' 2>&1; \
       echo "STATE index after drop: $(psql_ext "SELECT count(*) FROM pg_indexes WHERE schemaname='vmtest' AND indexname='CIX_STATE_idx'")")"
 
-    # WITH push-down (#38): a filter on a mapped identity column runs in the
-    # backend even without an index.  Proven by diverting a row's column in
-    # SQL only (rec blob unchanged): if it appears, the WHERE ran server-side
-    # (reads the column), not a rec scan.  Unmapped fields still scan.
+    # WITH push-down (#38/#39): a filter on a mapped identity column runs in
+    # the backend even without an index (proven by diverting the column in SQL
+    # only — if C2 appears, the WHERE read the column, not the rec blob), and
+    # an un-mapped or converted field pushes down straight onto the record
+    # blob (split_part on rec), so it too filters server-side.
     printf 'PDN @vpg\n' >> "$VMACCT/BINDINGS"
     "$TCL" -a "$VMACCT" -c 'DELETE-FILE PDN' >/dev/null 2>&1
     "$TCL" -a "$VMACCT" -c 'CREATE-FILE PDN USING @vpg' >/dev/null 2>&1
     cat > "$TESTROOT/vmpdn.b" <<'PDNEOF'
 OPEN "PDN" TO F ELSE STOP
-WRITE "Widget":@AM:"NSW":@AM:"":@AM:"gold" ON F, "C1"
-WRITE "Gadget":@AM:"VIC":@AM:"":@AM:"silver" ON F, "C2"
-WRITE "Bolt":@AM:"NSW":@AM:"":@AM:"gold" ON F, "C3"
+WRITE "Widget":@AM:"NSW":@AM:"":@AM:"gold":@AM:"1500" ON F, "C1"
+WRITE "Gadget":@AM:"VIC":@AM:"":@AM:"silver":@AM:"900" ON F, "C2"
+WRITE "Bolt":@AM:"NSW":@AM:"":@AM:"gold":@AM:"250" ON F, "C3"
 OPEN "DICT", "PDN" TO D ELSE STOP
 WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
 WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
 WRITE "D":@AM:"4":@AM:"":@AM:"Tier":@AM:"8L" ON D, "TIER"
+WRITE "D":@AM:"5":@AM:"MD2":@AM:"Credit":@AM:"10R" ON D, "CREDIT"
 PDNEOF
     "$MVX" "$TESTROOT/vmpdn.b" -o "$TESTROOT/vmpdnbin" 2>/dev/null
     (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmpdnbin")
-    # STATE mapped (identity), TIER left unmapped; no index created
-    "$TCL" -a "$VMACCT" -c 'CREATE-MAP PDN NAME STATE' >/dev/null 2>&1
+    # STATE + CREDIT mapped; TIER left unmapped; no index created
+    "$TCL" -a "$VMACCT" -c 'CREATE-MAP PDN NAME STATE CREDIT' >/dev/null 2>&1
     # divert C2's STATE column to ZZZ in SQL only (rec blob still VIC)
     psql_ext "UPDATE vmtest.\"PDN\" SET \"STATE\"='ZZZ' WHERE id='\\x4332'" >/dev/null
     check tcl-pgpushdown "$( \
-      echo "-- WITH STATE = ZZZ (unindexed push-down; C2 diverted in SQL) --"; \
+      echo "-- WITH STATE = ZZZ (identity column; C2 diverted in SQL) --"; \
       "$TCL" -a "$VMACCT" -c 'LIST PDN NAME STATE WITH STATE = "ZZZ"' 2>&1; \
       echo "-- WITH STATE # NSW (not-equal push-down) --"; \
       "$TCL" -a "$VMACCT" -c 'LIST PDN NAME STATE WITH STATE # "NSW" BY NAME' 2>&1; \
-      echo "-- WITH TIER = gold (unmapped field -> scan) --"; \
-      "$TCL" -a "$VMACCT" -c 'LIST PDN NAME TIER WITH TIER = "gold" BY NAME' 2>&1)"
+      echo "-- WITH TIER = gold (unmapped field -> blob push-down) --"; \
+      "$TCL" -a "$VMACCT" -c 'LIST PDN NAME TIER WITH TIER = "gold" BY NAME' 2>&1; \
+      echo "-- WITH CREDIT = 1500 (converted field, raw -> blob push-down) --"; \
+      "$TCL" -a "$VMACCT" -c 'LIST PDN NAME CREDIT WITH CREDIT = "1500"' 2>&1)"
   else
     echo "  (postgres psql-dependent map/index tests skipped — psql not found)"
   fi

@@ -5,7 +5,7 @@ C2           Gadget       VIC
 C3           Sprocket     NSW   
 C1           Widget       NSW   
 3 record(s) listed
--- WITH CREDIT = 1500 (converted column -> scan fallback) --
+-- WITH CREDIT = 1500 (converted column -> blob push-down) --
 @ID          Name             Credit
 C1           Widget            15.00
 1 record(s) listed

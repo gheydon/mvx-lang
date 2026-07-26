@@ -693,12 +693,12 @@ private:
                               {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2])});
-            if (f == "QUERYSELECT" && e.args.size() == 4)
+            if (f == "QUERYSELECT" && e.args.size() == 5)
                 return callRt("mvx_query_select", i64Ty_,
-                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2]),
-                               evalPtr(*e.args[3])});
+                               evalPtr(*e.args[3]), evalPtr(*e.args[4])});
             if (f == "MAPBUILD" && e.args.size() == 2)
                 return callRt("mvx_mapbuild", i64Ty_,
                               {ptrTy_, ptrTy_, ptrTy_},

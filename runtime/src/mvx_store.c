@@ -1621,10 +1621,10 @@ int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
    record to the verb just to discard most of them. */
 int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
                          const mv_value *item, const mv_value *op,
-                         const mv_value *value) {
+                         const mv_value *value, const mv_value *attr) {
     mvx_file *f = file_of(fvar, "QUERYSELECT");
     mvx_file_base *b = (mvx_file_base *)f;
-    if (!b->driver->select_where) return 0;
+    if (!b->driver->select_where && !b->driver->select_attr) return 0;
     open_file *o = find_open(state(ctx), f);
     if (!o) return 0;
 
@@ -1636,30 +1636,33 @@ int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
     const char *vp;
     int64_t vl = mv_val_chars(value, vb, sizeof vb, &vp);
     if (vl == 0) return 0;              /* empty value: NULL semantics differ */
+    char opz[2] = {opp[0], '\0'};
 
     char nbuf[40];
     const char *ip;
     int64_t il = mv_val_chars(item, nbuf, sizeof nbuf, &ip);
-    if (il <= 0 || il >= 127) return 0;
     char iname[128];
-    memcpy(iname, ip, (size_t)il);
-    iname[il] = '\0';
+    if (il > 0 && il < 127) { memcpy(iname, ip, (size_t)il); iname[il] = '\0'; }
+    else iname[0] = '\0';
 
-    /* Only an identity-projected column (TEXT, no conversion) is safe: any
-       converted column holds a value that differs from the raw attribute the
-       WITH compares. */
+    /* Prefer the mapped column when it is an identity projection (TEXT, no
+       conversion) — the column equals the raw attribute the WITH compares,
+       and the backend can use its index.  Otherwise read the attribute
+       straight out of the record blob, which is exact for any field type
+       (raw attribute vs raw value) but cannot use an index. */
+    mvx_cursor *c = NULL;
     map_load(o);
-    int ok = 0;
-    for (int i = 0; i < o->map.nf; i++)
+    int identity = 0;
+    for (int i = 0; iname[0] && i < o->map.nf; i++)
         if (strcmp(o->map.names[i], iname) == 0) {
-            ok = strcmp(o->map.types[i], "TEXT") == 0 &&
-                 o->map.convs[i][0] == '\0';
+            identity = strcmp(o->map.types[i], "TEXT") == 0 &&
+                       o->map.convs[i][0] == '\0';
             break;
         }
-    if (!ok) return 0;
-
-    char opz[2] = {opp[0], '\0'};
-    mvx_cursor *c = b->driver->select_where(f, iname, opz, vp, vl);
+    if (identity && b->driver->select_where)
+        c = b->driver->select_where(f, iname, opz, vp, vl);
+    else if (b->driver->select_attr)
+        c = b->driver->select_attr(f, mv_get_int(attr), opz, vp, vl);
     if (!c) return 0;
 
     store_state *st = state(ctx);

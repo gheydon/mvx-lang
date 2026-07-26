@@ -352,23 +352,28 @@ Metadata lives in the dictionary record `%INDEXES%`; manage with
 `CREATE-INDEX`, `DELETE-INDEX`, `LIST-INDEXES`, or the
 `INDEXBUILD`/`INDEXDROP`/`INDEXSELECT` intrinsics.
 
-**On a mapped SQL backend the filter runs server-side.** When the file has a
-relational mapping (above), an equality/not-equal `WITH` filter on a mapped
-column is pushed into the backend: instead of streaming every record to the
-verb and filtering in BASIC, the query runs `SELECT id ... WHERE col = $1`
-and only the matching ids come back. On a large table that is the difference
-between reading one row and reading a million.
+**On a SQL backend the filter runs server-side.** An equality/not-equal
+`WITH` filter is pushed into the backend instead of streaming every record to
+the verb and filtering in BASIC — only the matching ids come back. On a large
+table that is the difference between reading the matches and reading the whole
+file. There are two push-down paths, in order of preference:
 
-`CREATE-INDEX` on a mapped column then makes that `WHERE` an indexed lookup
-(a real `CREATE INDEX` on the column) rather than a backend-side scan — the
-backend already stores and maintains the column, so there is no per-record
-backfill and Postgres maintains the index itself.
+- **Mapped identity column** — a `TEXT` column with no conversion (names,
+  codes, states) holds exactly the raw attribute, so the query runs
+  `SELECT id ... WHERE col = $1`, and `CREATE-INDEX` makes that an indexed
+  lookup (a real `CREATE INDEX` on the column; the backend maintains it, no
+  backfill).
+- **Any other field — straight off the record blob.** An un-mapped field, or
+  a converted one (numeric, date), is read out of the stored record with
+  `split_part(convert_from(rec,'LATIN1'), chr(254), N)` — attribute *N*
+  between the field marks. Comparing that raw attribute to the raw `WITH`
+  value is exact for every field type, and needs no column, though it cannot
+  use a column index. So even a filter on a field you never mapped filters in
+  Postgres rather than in the verb.
 
-Both rest on the same correctness rule: the `WITH` filter compares the *raw*
-attribute while a column holds its *projected* value, so the push-down is
-used only where the projection is the identity — a `TEXT` column with no
-conversion (names, codes, states) — for `=` and `#` with a non-empty value.
-Range operators, converted columns, and un-mapped fields fall back to the
-record scan, so the result is never wrong; they just aren't accelerated
-(yet). Editing the tables directly still keeps everything correct, since the
-columns and their indexes belong to the database.
+Push-down covers `=` and `#` (not-equal, which includes empty/absent
+attributes, matching MV) with a non-empty value; range operators and
+computed (`I`-type) items still fall back to the record scan, so the result
+is never wrong — they just aren't accelerated yet. Editing the tables
+directly keeps everything correct, since the columns and indexes belong to
+the database.

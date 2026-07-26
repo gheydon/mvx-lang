@@ -1,4 +1,4 @@
--- WITH STATE = ZZZ (unindexed push-down; C2 diverted in SQL) --
+-- WITH STATE = ZZZ (identity column; C2 diverted in SQL) --
 @ID          Name         State 
 C2           Gadget       VIC   
 1 record(s) listed
@@ -6,8 +6,12 @@ C2           Gadget       VIC
 @ID          Name         State 
 C2           Gadget       VIC   
 1 record(s) listed
--- WITH TIER = gold (unmapped field -> scan) --
+-- WITH TIER = gold (unmapped field -> blob push-down) --
 @ID          Name         Tier    
 C3           Bolt         gold    
 C1           Widget       gold    
 2 record(s) listed
+-- WITH CREDIT = 1500 (converted field, raw -> blob push-down) --
+@ID          Name             Credit
+C1           Widget            15.00
+1 record(s) listed

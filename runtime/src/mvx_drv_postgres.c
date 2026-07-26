@@ -745,6 +745,48 @@ static mvx_cursor *pg_select_where(mvx_file *fh, const char *col,
     return cur;
 }
 
+/* Server-side WITH push-down straight on the record blob: attribute `attr`
+   is split_part(convert_from(rec,'LATIN1'), chr(254), attr) — the raw field
+   between the (attr-1)th and attr'th field mark (byte 0xFE).  Comparing the
+   raw attribute to the raw value is exact for any field type and needs no
+   mapped column, but cannot use a column index. */
+static mvx_cursor *pg_select_attr(mvx_file *fh, int64_t attr, const char *op,
+                                  const char *val, int64_t vlen) {
+    pg_file *f = (pg_file *)fh;
+    const char *sqlop;
+    if (strcmp(op, "=") == 0) sqlop = "=";
+    else if (strcmp(op, "#") == 0) sqlop = "<>";   /* split_part never NULL */
+    else return NULL;
+    if (attr < 1) return NULL;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char sql[900];
+    snprintf(sql, sizeof sql,
+             "SELECT id FROM %s WHERE "
+             "split_part(convert_from(rec,'LATIN1'), chr(254), %lld) %s $1",
+             qt, (long long)attr, sqlop);
+    const char *pv[1] = {val};
+    int pl[1] = {(int)vlen}, pf[1] = {0};   /* text value */
+    PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, pl, pf, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres select_attr");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres select_attr");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -760,7 +802,8 @@ static const mvx_driver mvx_driver_postgres = {
     pg_map_drop,                          /* tear down a mapping */
     pg_map_read, pg_map_child_read,       /* native read-back */
     pg_index_create,                      /* CREATE INDEX on a mapped column */
-    pg_select_where,                      /* server-side WITH push-down */
+    pg_select_where,                      /* WITH push-down on a column */
+    pg_select_attr,                       /* WITH push-down on the blob */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

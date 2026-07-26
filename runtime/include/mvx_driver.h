@@ -162,6 +162,14 @@ typedef struct mvx_driver {
        backend-side scan.  NULL result = cannot push down (caller scans). */
     mvx_cursor *(*select_where)(mvx_file *f, const char *col, const char *op,
                                 const char *val, int64_t vlen);
+    /* Optional server-side WITH push-down on a raw record attribute (may be
+       NULL): the ids where attribute `attr` (1-based) of the stored record
+       satisfies `op` `val`.  Unlike select_where this reads the attribute
+       out of the record blob itself, so it needs no mapped column and is
+       exact for any field type — at the cost of not using a column index.
+       op is "=" or "#".  NULL result = cannot push down (caller scans). */
+    mvx_cursor *(*select_attr)(mvx_file *f, int64_t attr, const char *op,
+                               const char *val, int64_t vlen);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
