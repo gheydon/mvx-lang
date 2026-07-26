@@ -11,8 +11,8 @@ S300         Sprocket
 W100         Widget      
 2 record(s) listed
 File                     Type
-PARTS                    N
-VOC                      N
+PARTS                    lmdbnet
+VOC                      lmdbnet
 2 file(s)
 locked, exiting without RELEASE
 locked, exiting without RELEASE
