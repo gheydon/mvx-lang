@@ -695,7 +695,18 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
         store_state *st = state(ctx);
         char *key = lock_key(f, ip, idlen);
         lock_drop(st, key);             /* re-lock by same session is fine */
-        if (b->driver->lock) {
+        /* A mirror-mapped file's SQL columns and association child tables are
+           only a derived projection — the record blob stays authoritative — so
+           it uses the process-local lock table, not the backend lock.  Native-
+           mapped files (SQL is the source of truth) and unmapped files (the
+           blob is, in the backend) are backend-authoritative and take the
+           backend lock, so it arbitrates across processes (the advisory lock
+           for Postgres). */
+        open_file *lo = find_open(st, f);
+        if (lo) map_load(lo);
+        int mirror_mapped = lo && lo->map.nf > 0 && !lo->map.native;
+        int backend_lock = b->driver->lock && !mirror_mapped;
+        if (backend_lock) {
             if (lock == 2) {
                 /* READU ... LOCKED: try once; on contention report -1
                    without reading or taking the lock. */
@@ -712,7 +723,7 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
         lock_ent *l = malloc(sizeof(lock_ent));
         if (!l) mvx_fatal("out of memory in lock table");
         l->key = key;
-        l->f = b->driver->lock ? f : NULL;
+        l->f = backend_lock ? f : NULL;
         l->next = st->locks;
         st->locks = l;
     }

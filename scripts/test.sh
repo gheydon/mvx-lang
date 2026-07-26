@@ -1112,7 +1112,6 @@ WRITE R ON F, "K1"
 EOF
   "$MVX" "$TESTROOT/lkseed.b" -o "$TESTROOT/lkseedbin" 2>/dev/null
   (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkseedbin") >/dev/null 2>&1
-  "$TCL" -a "$PGACCT" -c 'MAP-MODE LK native' >/dev/null 2>&1
   cat > "$TESTROOT/lkhold.b" <<'EOF'
 OPEN "LK" TO F ELSE STOP
 READU R FROM F, "K1" ELSE R = ""
@@ -1136,15 +1135,29 @@ END ELSE
 END
 EOF
   "$MVX" "$TESTROOT/lktry.b" -o "$TESTROOT/lktrybin" 2>/dev/null
-  rm -f "$PGACCT/HELDFLAG" "$PGACCT/GOFLAG"
-  ( cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkholdbin" >/dev/null 2>&1 ) &
-  LKPID=$!
-  for i in $(seq 1 200); do [ -f "$PGACCT/HELDFLAG" ] && break; sleep 0.05; done
-  LKB="$(cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lktrybin" 2>&1)"
-  : > "$PGACCT/GOFLAG"
-  wait "$LKPID" 2>/dev/null
+  # a helper that runs the holder in the background, waits until it holds, runs
+  # the probe (its output is the result), then releases the holder and reaps it.
+  pglock_probe() {
+    rm -f "$PGACCT/HELDFLAG" "$PGACCT/GOFLAG"
+    ( cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkholdbin" >/dev/null 2>&1 ) &
+    _hp=$!
+    for _i in $(seq 1 200); do [ -f "$PGACCT/HELDFLAG" ] && break; sleep 0.05; done
+    (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lktrybin" 2>&1)
+    : > "$PGACCT/GOFLAG"
+    wait "$_hp" 2>/dev/null
+  }
+  # phase 1 — mirror mode: the SQL columns/child tables are only a derived
+  # projection, so READU uses the process-local table, NOT the backend lock;
+  # a second *process* is therefore NOT blocked.
+  LKM="$(pglock_probe)"
+  # phase 2 — native mode: the SQL (parent + association subtables) is the
+  # source of truth, so READU takes the cross-process advisory lock; the probe
+  # finds it LOCKED, then (after the holder RELEASEs) acquires it and reads the
+  # 2 association subtable rows back under the lock.
+  "$TCL" -a "$PGACCT" -c 'MAP-MODE LK native' >/dev/null 2>&1
+  LKB="$(pglock_probe)"
   LKC="$(cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lktrybin" 2>&1)"
-  check tcl-pglock "$(printf '%s\n%s\n' "$LKB" "$LKC")"
+  check tcl-pglock "$(printf '%s\n%s\n%s\n' "$LKM" "$LKB" "$LKC")"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.
