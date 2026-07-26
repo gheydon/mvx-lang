@@ -13,8 +13,9 @@ directories), a classic TCL shell, dictionaries and dictionary-driven
 first-class git version control of hash-file records.
 
 See `ARCHITECTURE.md` for the full design, `DECISIONS.md` for settled
-implementation decisions, and `docs/` for the book (`mdbook serve
-docs`).
+implementation decisions, and the [wiki](https://github.com/mvx-lang/mvx/wiki)
+for the documentation (checked out under `docs/` as a submodule — clone
+with `--recurse-submodules`, or run `git submodule update --init`).
 
 ## Try it
 
@@ -223,8 +224,8 @@ myaccount> OFF
 ```
 
 Requires LMDB (`brew install lmdb`) for storage and, for the git
-package, libgit2 (`brew install libgit2`). See `docs/` for the full
-book.
+package, libgit2 (`brew install libgit2`). See the
+[wiki](https://github.com/mvx-lang/mvx/wiki) for the full documentation.
 
 ## Layout
 
@@ -235,7 +236,7 @@ book.
 - `tcl/` — `mvx`, the classic shell
 - `verbs/` — the standard verb set (MVX BASIC)
 - `packages/` — shipped packages (`cmd`, `git`, `sample`)
-- `docs/` — the MVX book (mdBook)
+- `docs/` — the documentation, a submodule of the GitHub wiki
 - `examples/` — larger sample programs (full-screen demo, Snake)
 - `bench/sieve.b` — the prime-sieve benchmark
 - `tests/`, `scripts/test.sh` — the test harness

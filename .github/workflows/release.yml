@@ -64,6 +64,16 @@ jobs:
           echo "$out"
           test "$out" = "install-ok 4"
 
+      - name: Bundle the wiki docs
+        run: |
+          # Ship the current documentation (the GitHub wiki) inside the tarball
+          # so offline installs have the docs.  Cloned fresh at release time so
+          # it is always the latest wiki, independent of the docs/ submodule pin.
+          git clone --depth 1 https://github.com/mvx-lang/mvx.wiki.git wiki
+          rm -rf wiki/.git
+          install -d stage/mvx-lang/share/doc/mvx
+          cp -R wiki/. stage/mvx-lang/share/doc/mvx/
+
       - name: Package tarball
         id: pkg
         run: |
