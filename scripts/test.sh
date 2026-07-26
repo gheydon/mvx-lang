@@ -1417,6 +1417,24 @@ RIXEOF
     check tcl-mapreindex "$(printf '%s\n' \
       "STATE index before map: $RBEFORE" \
       "STATE index after CREATE-MAP + y: $RAFTER")"
+
+    # CREATE-MAP ALL (#50): mapping every field is opt-in and confirmed, since
+    # each WRITE then projects every column. 'n' cancels, 'y' proceeds.
+    printf 'MAF @vpg\n' >> "$VMACCT/BINDINGS"
+    "$TCL" -a "$VMACCT" -c 'DELETE-FILE MAF' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-FILE MAF USING @vpg' >/dev/null 2>&1
+    cat > "$TESTROOT/vmmaf.b" <<'MAFEOF'
+OPEN "MAF" TO F ELSE STOP
+WRITE "Widget":@AM:"NSW" ON F, "M1"
+OPEN "DICT", "MAF" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+MAFEOF
+    "$MVX" "$TESTROOT/vmmaf.b" -o "$TESTROOT/vmmafbin" 2>/dev/null
+    (cd "$VMACCT" && MVXACCOUNT=. "$TESTROOT/vmmafbin")
+    check tcl-mapall "$( \
+      printf 'n\n' | "$TCL" -a "$VMACCT" -c 'CREATE-MAP MAF ALL' 2>&1; \
+      printf 'y\n' | "$TCL" -a "$VMACCT" -c 'CREATE-MAP MAF ALL' 2>&1)"
   else
     echo "  (postgres psql-dependent map/index tests skipped — psql not found)"
   fi

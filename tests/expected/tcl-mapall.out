@@ -1,0 +1,4 @@
+map ALL 2 field(s) of MAF; every WRITE then projects all
+of them into SQL (mapping overhead).  Continue (y/n)? cancelled
+map ALL 2 field(s) of MAF; every WRITE then projects all
+of them into SQL (mapping overhead).  Continue (y/n)? mapped 1 record(s); writes are now mirrored

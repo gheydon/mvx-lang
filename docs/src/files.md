@@ -206,7 +206,10 @@ child tables, a non-SQL backend as it sees fit (or not at all).
 control record into the dictionary and builds it — after which the
 projection is **kept live**: every `WRITE` to the file mirrors the record
 into its columns and child rows automatically, no rebuild needed
-(`BUILD-MAP` is the on-demand backfill). The projection is a derived
+(`BUILD-MAP` is the on-demand backfill). You name the fields you want —
+mapping everything is deliberately not the default, because every `WRITE`
+then projects every column. `CREATE-MAP file ALL` maps them all, but only
+after a confirmation prompt. The projection is a derived
 view, so a write is never blocked by it; the `rec` blob stays the source
 of truth (`mirror` mode).
 

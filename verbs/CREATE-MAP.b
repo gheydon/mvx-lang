@@ -15,17 +15,52 @@ S = TRIM(SENTENCE())
 FN = FIELD(S, " ", 2)
 NT = DCOUNT(S, " ")
 IF FN = "" OR NT < 3 THEN
-   PRINT "usage: CREATE-MAP file field {field...}"
+   PRINT "usage: CREATE-MAP file field {field...} | ALL"
    STOP
 END
 OPEN "DICT", FN TO DD ELSE
    PRINT "cannot open DICT ":FN
    STOP
 END
+* Build the field list: the explicit names, or every mappable D-item for
+* ALL / *.  ALL is deliberately not the default — mapping every field makes
+* each WRITE project every column, so it must be asked for and confirmed.
+FLDS = ""
+A3 = FIELD(S, " ", 3)
+IF (A3 = "ALL" OR A3 = "*") AND NT = 3 THEN
+   SELECT DD
+   DONE = 0
+   LOOP
+      READNEXT ID ELSE DONE = 1
+   UNTIL DONE DO
+      IF ID[1, 1] # "%" THEN
+         READ DI FROM DD, ID THEN
+            IF DI<1>[1, 1] = "D" THEN FLDS<-1> = ID
+         END
+      END
+   REPEAT
+   NF = DCOUNT(FLDS, @AM)
+   IF NF = 0 THEN
+      PRINT "no mappable fields"
+      STOP
+   END
+   PRINT "map ALL ":NF:" field(s) of ":FN:"; every WRITE then projects all"
+   PRINT "of them into SQL (mapping overhead).  Continue (y/n)? ":
+   INPUT ANS
+   IF ANS[1, 1] # "Y" AND ANS[1, 1] # "y" THEN
+      PRINT "cancelled"
+      STOP
+   END
+END ELSE
+   FOR I = 3 TO NT
+      FLDS<-1> = FIELD(S, " ", I)
+   NEXT I
+END
 SPEC = ""
 NS = 0
-FOR I = 3 TO NT
-   FLD = FIELD(S, " ", I)
+NF = DCOUNT(FLDS, @AM)
+FOR I = 1 TO NF
+   FLD = FLDS<I>
    READ DI FROM DD, FLD THEN
       IF DI<1>[1, 1] = "D" THEN
          CONV = DI<3>
