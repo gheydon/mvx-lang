@@ -2,7 +2,7 @@ initialised empty git repository
 staged 2 record(s)
 [HASH] initial
 HASH initial
-record-git store present
-no legible .git
+account .git present
+plain-git tracked: CUST/C1 CUST/C2 
 Ada
 London

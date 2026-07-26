@@ -659,10 +659,11 @@ EOF
         || echo 'DIR account stayed legible'; }; \
     ( cd "$MGD" && git ls-files BP/HELLO ))"
 
-  # #58: in a record-git account (one with a .recgit) mvx-git drives the engine
-  # directly — init/add/commit/log/show read and write the live hash-file
-  # records straight to/from git objects, with no legible export and no real
-  # .git.  Same mechanism as the GIT verb (tcl-gitnative), via the executable.
+  # #58: inside an MVX account mvx-git drives the engine directly on the
+  # account's own .git — init/add/commit/log/show read and write the live
+  # hash-file records straight to/from git objects, no export copy.  The .git is
+  # an ordinary repository, so plain git reads the history (records tracked at
+  # <file>/<id>).  Same engine as the GIT verb (tcl-gitnative), via the binary.
   MGR="$TESTROOT/mgrecgit"
   "$ROOT/scripts/mkaccount.sh" "$MGR" >/dev/null
   cat > "$TESTROOT/mgrseed.b" <<'RGEOF'
@@ -678,10 +679,26 @@ RGEOF
       "$ROOT/build/bin/mvx-git" add CUST; \
       "$ROOT/build/bin/mvx-git" commit -m initial; \
       "$ROOT/build/bin/mvx-git" log ) 2>&1 | sed -E 's/[0-9a-f]{7,40}/HASH/g'; \
-    { [ -d "$MGR/.recgit" ] && echo 'record-git store present'; }; \
-    { [ -d "$MGR/.git" ] && echo 'a real .git appeared (WRONG)' \
-        || echo 'no legible .git'; }; \
+    { [ -d "$MGR/.git" ] && echo 'account .git present'; }; \
+    echo "plain-git tracked: $(cd "$MGR" && git ls-tree -r --name-only HEAD | tr '\n' ' ')"; \
     ( cd "$MGR"; "$ROOT/build/bin/mvx-git" show CUST C1 ))"
+
+  # #58: an account that is a subdirectory of a larger repo (it has a .mvx but
+  # no .git of its own) is tracked by that repo — mvx-git forwards to it and
+  # never creates a nested .git; the account is rebuilt with mvx-convert-acct
+  # (or an mvx-git clone) instead.
+  MGSUB="$TESTROOT/mgsub"
+  mkdir -p "$MGSUB/acct/BP"
+  printf '# MVX account descriptor\nname = acct\nversion = 1\n' > "$MGSUB/acct/.mvx"
+  printf 'PRINT "hi"\n' > "$MGSUB/acct/BP/HELLO"
+  ( cd "$MGSUB" && git init -q -b main && git add -A && \
+    git -c user.email=t@t -c user.name=t commit -qm main ) >/dev/null 2>&1
+  ( cd "$MGSUB/acct" && "$ROOT/build/bin/mvx-git" status >/dev/null 2>&1 )
+  check tcl-mvxgit-subdir "$( \
+    { [ -d "$MGSUB/acct/.git" ] && echo 'nested .git created (WRONG)' \
+        || echo 'no nested .git (forwarded to main repo)'; }; \
+    ( cd "$MGSUB/acct" && "$ROOT/build/bin/mvx-git" log --oneline 2>&1 \
+        | sed -E 's/[0-9a-f]{7,40}/HASH/g' ))"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
