@@ -15,7 +15,7 @@ S = TRIM(SENTENCE())
 FN = FIELD(S, " ", 2)
 NT = DCOUNT(S, " ")
 IF FN = "" OR NT < 3 THEN
-   PRINT "usage: BUILD-MAP file field {field...}"
+   PRINT "usage: BUILD-MAP file field {field...} {PROGRESS}"
    STOP
 END
 OPEN "DICT", FN TO DD ELSE
@@ -23,25 +23,31 @@ OPEN "DICT", FN TO DD ELSE
    STOP
 END
 * spec: one field per attribute, "name <VM> attr# <VM> conv <VM> type"
+* PROGRESS (anywhere in the field list) shows a live backfill indicator.
 SPEC = ""
 NS = 0
+PROG = 0
 FOR I = 3 TO NT
    FLD = FIELD(S, " ", I)
-   READ DI FROM DD, FLD THEN
-      IF DI<1>[1, 1] = "D" THEN
-         CONV = DI<3>
-         C2 = CONV[1, 2]
-         T = "TEXT"
-         IF C2 = "MD" OR C2 = "MR" OR C2 = "ML" THEN T = "NUMERIC"
-         IF C2 = "MT" THEN T = "TIME"
-         IF CONV[1, 1] = "D" THEN T = "DATE"
-         NS = NS + 1
-         SPEC<NS> = FLD:@VM:DI<2>:@VM:CONV:@VM:T:@VM:DI<6>
-      END ELSE
-         PRINT FLD:" is not a mappable dictionary item (skipped)"
-      END
+   IF FLD = "PROGRESS" THEN
+      PROG = 1
    END ELSE
-      PRINT FLD:" is not a dictionary item (skipped)"
+      READ DI FROM DD, FLD THEN
+         IF DI<1>[1, 1] = "D" THEN
+            CONV = DI<3>
+            C2 = CONV[1, 2]
+            T = "TEXT"
+            IF C2 = "MD" OR C2 = "MR" OR C2 = "ML" THEN T = "NUMERIC"
+            IF C2 = "MT" THEN T = "TIME"
+            IF CONV[1, 1] = "D" THEN T = "DATE"
+            NS = NS + 1
+            SPEC<NS> = FLD:@VM:DI<2>:@VM:CONV:@VM:T:@VM:DI<6>
+         END ELSE
+            PRINT FLD:" is not a mappable dictionary item (skipped)"
+         END
+      END ELSE
+         PRINT FLD:" is not a dictionary item (skipped)"
+      END
    END
 NEXT I
 IF NS = 0 THEN
@@ -52,7 +58,7 @@ OPEN FN TO F ELSE
    PRINT "cannot open ":FN
    STOP
 END
-RC = MAPBUILD(F, SPEC)
+RC = MAPBUILD(F, SPEC, PROG)
 BEGIN CASE
 CASE RC = -2
    PRINT "backend does not support mapping"

@@ -295,6 +295,8 @@ static void pg_select_end(mvx_cursor *c) {
     free(c);
 }
 
+static int64_t pg_select_count(mvx_cursor *c) { return c ? c->n : 0; }
+
 static int pg_create(const char *spec, char *err, size_t errlen) {
     char loc[1024];
     const char *rspec = split_spec(spec, loc, sizeof loc);
@@ -1291,6 +1293,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_order,                      /* ORDER BY / LIMIT push-down */
     pg_select_multi,                      /* multi-condition WITH (AND) */
     pg_explain,                           /* DESCRIBE: render SQL, don't run */
+    pg_select_count,                      /* backfill progress total */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

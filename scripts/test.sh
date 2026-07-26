@@ -1256,6 +1256,12 @@ MEOF
   check tcl-mapbuild "$(printf 'BUILD-MAP MORD CUSTOMER PRODUCT QTY PRICE\n' | \
     "$TCL" -a "$PGACCT" 2>&1)"
 
+  # BUILD-MAP PROGRESS (#28): opt-in live indicator (records/percent/rate) on
+  # stderr — suppressed here; the count summary still prints on stdout and the
+  # result is unchanged.  Quiet by default (tcl-mapbuild above has no PROGRESS).
+  check tcl-mapprogress "$(printf 'BUILD-MAP MORD CUSTOMER PRICE PROGRESS\n' | \
+    "$TCL" -a "$PGACCT" 2>/dev/null)"
+
   # mirror-on-write (#18): CREATE-MAP declares %MAP%; a later WRITE from a
   # program then auto-projects into the mapping (via the runtime hook).
   cat > "$TESTROOT/pgw3.b" <<'W3EOF'

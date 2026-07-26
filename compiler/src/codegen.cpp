@@ -725,11 +725,13 @@ private:
                                evalPtr(*e.args[2]), evalPtr(*e.args[3]),
                                evalPtr(*e.args[4]), evalPtr(*e.args[5]),
                                evalPtr(*e.args[6]), evalPtr(*e.args[7])});
-            if (f == "MAPBUILD" && e.args.size() == 2)
+            if (f == "MAPBUILD" &&
+                (e.args.size() == 2 || e.args.size() == 3))
                 return callRt("mvx_mapbuild", i64Ty_,
-                              {ptrTy_, ptrTy_, ptrTy_},
-                              {ctxArg_, evalPtr(*e.args[0]),
-                               evalPtr(*e.args[1])});
+                              {ptrTy_, ptrTy_, ptrTy_, i64Ty_},
+                              {ctxArg_, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                               e.args.size() == 3 ? numIndex(*e.args[2])
+                                   : ConstantInt::get(i64Ty_, 0)});
             if (f == "MAPDROP" && e.args.size() == 2)
                 return callRt("mvx_mapdrop", i64Ty_,
                               {ptrTy_, ptrTy_, ptrTy_},

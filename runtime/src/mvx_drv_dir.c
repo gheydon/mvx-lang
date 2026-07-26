@@ -197,6 +197,8 @@ static void dir_select_end(mvx_cursor *c) {
     free(c);
 }
 
+static int64_t dir_select_count(mvx_cursor *c) { return c ? c->n : 0; }
+
 static void spec_path(const char *spec, char *path, size_t cap) {
     const char *acct = getenv("MVXACCOUNT");
     if (!acct || !acct[0]) acct = ".";
@@ -249,6 +251,7 @@ static const mvx_driver mvx_driver_dir = {
     NULL,                               /* names: the store scans dirs */
     NULL, NULL, NULL, NULL,             /* no native index capability */
     NULL, NULL,                         /* locks: runtime local table */
+    .select_count = dir_select_count,
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

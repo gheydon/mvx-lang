@@ -420,6 +420,8 @@ static void net_select_end(mvx_cursor *c) {
     free(c);
 }
 
+static int64_t net_select_count(mvx_cursor *c) { return c ? c->n : 0; }
+
 static int net_create(const char *spec, char *err, size_t errlen) {
     char loc[512], addr[512], ns[128], conn[128];
     const char *rspec = split_addr(spec, loc, sizeof loc);
@@ -595,6 +597,7 @@ static const mvx_driver mvx_driver_lmdbnet = {
     net_names,
     net_write_ix, net_del_ix, net_index_select, net_index_drop,
     net_lock, net_unlock,
+    .select_count = net_select_count,
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

@@ -28,6 +28,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef __APPLE__
@@ -1437,8 +1438,28 @@ static void map_load(open_file *o) {
     b->driver->close(d);
 }
 
+/* Backfill progress line (#28): a carriage-return-updated stderr indicator —
+   records done, percent when the total is known, and the rate.  Throttled by the
+   caller (every N records + once at the end); silent unless PROGRESS is asked. */
+static void mapbuild_progress(int64_t count, int64_t total,
+                              const struct timespec *t0) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    double el = (double)(now.tv_sec - t0->tv_sec) +
+                (double)(now.tv_nsec - t0->tv_nsec) / 1e9;
+    long rate = el > 0.0 ? (long)((double)count / el) : 0;
+    if (total > 0)
+        fprintf(stderr, "\rBUILD-MAP: %lld/%lld (%d%%) %ld rec/s   ",
+                (long long)count, (long long)total,
+                (int)((count * 100) / total), rate);
+    else
+        fprintf(stderr, "\rBUILD-MAP: %lld records %ld rec/s   ",
+                (long long)count, rate);
+    fflush(stderr);
+}
+
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
-                     const mv_value *spec) {
+                     const mv_value *spec, int64_t progress) {
     mvx_file *f = file_of(fvar, "MAPBUILD");
     mvx_file_base *b = (mvx_file_base *)f;
     if (!b->driver->map_ensure || !b->driver->map_apply) return -2;
@@ -1460,6 +1481,10 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
 
     mvx_cursor *c = b->driver->select_begin(f);
     if (!c) { free(m.buf); return -1; }
+    int64_t total = (progress && b->driver->select_count)
+                        ? b->driver->select_count(c) : -1;
+    struct timespec t0;
+    if (progress) clock_gettime(CLOCK_MONOTONIC, &t0);
     int64_t count = 0, rc = 0;
     mv_value rid, rec;
     mv_init(&rid); mv_init(&rec);
@@ -1470,8 +1495,10 @@ int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
         if (!b->driver->read(f, rp, rl, &rec)) continue;
         if (!map_project_one(ctx, f, &m, rp, rl, &rec)) { rc = -1; break; }
         count++;
+        if (progress && count % 1000 == 0) mapbuild_progress(count, total, &t0);
     }
     b->driver->select_end(c);
+    if (progress) { mapbuild_progress(count, total, &t0); fputc('\n', stderr); }
     mv_clear(&rid); mv_clear(&rec);
     free(m.buf);
     return rc < 0 ? rc : count;

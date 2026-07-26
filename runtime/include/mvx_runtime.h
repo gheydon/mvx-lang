@@ -267,7 +267,7 @@ int64_t mvx_orderselect(mvx_ctx *ctx, const mv_value *fvar,
 /* Build a file's relational mapping (see MAP / #18): -2 unsupported,
    -1 fail, else the projected record count. */
 int64_t mvx_mapbuild(mvx_ctx *ctx, const mv_value *fvar,
-                     const mv_value *spec);
+                     const mv_value *spec, int64_t progress);
 /* Drop a file's mapping: -2 unsupported, -1 fail, 1 ok. */
 int64_t mvx_mapdrop(mvx_ctx *ctx, const mv_value *fvar,
                     const mv_value *spec);

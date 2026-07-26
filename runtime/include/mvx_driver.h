@@ -243,6 +243,10 @@ typedef struct mvx_driver {
     int (*explain)(mvx_file *f, const mvx_pred *preds, int npred,
                    const char *ocol, int otext, int64_t limit,
                    char *out, size_t cap);
+    /* Optional (may be NULL): the number of ids a cursor snapshotted, so a
+       long backfill can show a percentage.  select_begin captures the id list
+       up front, so this is known at no extra cost.  NULL = total unknown. */
+    int64_t (*select_count)(mvx_cursor *c);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */
@@ -263,7 +267,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 6
+#define MVX_DRIVER_ABI 7
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

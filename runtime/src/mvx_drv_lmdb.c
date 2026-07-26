@@ -201,6 +201,8 @@ static void lmdb_select_end(mvx_cursor *c) {
     free(c);
 }
 
+static int64_t lmdb_select_count(mvx_cursor *c) { return c ? c->n : 0; }
+
 static int lmdb_create(const char *spec, char *err, size_t errlen);
 static int lmdb_remove(const char *spec, char *err, size_t errlen);
 static int lmdb_names(const char *loc, mv_value *out, char *err, size_t errlen);
@@ -222,6 +224,7 @@ static const mvx_driver mvx_driver_lmdb = {
     lmdb_names,
     lmdb_write_ix, lmdb_del_ix, lmdb_index_select, lmdb_index_drop,
     NULL, NULL,                         /* locks: runtime local table */
+    .select_count = lmdb_select_count,
 };
 
 static int lmdb_create(const char *spec, char *err, size_t errlen) {
