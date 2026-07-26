@@ -1,10 +1,7 @@
-# The live hash-file store and compiled artifacts are rebuilt from the
-# tracked directory form (mvx-git runs mvx-convert-acct on checkout;
-# programs recompile with BASIC + CATALOG), so they are not versioned.
-mvxdata.lmdb
+# The demo is a legible directory account: its records are the tracked
+# files, so there is no LMDB store and nothing to export.  Only the
+# compiled objects and the cataloged binary are derived — rebuild them
+# with BASIC + CATALOG.
 BP.O/
 BP.O.DICT/
 CATALOG/
-
-# Account-local package links hold absolute host paths — not portable.
-PACKAGES

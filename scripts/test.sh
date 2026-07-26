@@ -637,6 +637,16 @@ EOF
   MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPD" </dev/null >/dev/null 2>&1
   MGPY="$TESTROOT/mgplain-optin"
   MVXGIT_CREATE=1 MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGP" "$MGPY" </dev/null >/dev/null 2>&1
+  # a legible/directory account (no LMDB store) commits via mvx-git with no
+  # convert step — its records are already the tracked files, so mvx-git is
+  # plain git for it and never grows an LMDB store.
+  MGD="$TESTROOT/mgdir"
+  mkdir -p "$MGD/BP"
+  printf '# MVX account descriptor\nname = mgdir\nversion = 1\n' > "$MGD/.mvx"
+  printf 'PRINT "hi"\n' > "$MGD/BP/HELLO"
+  ( cd "$MGD" && git init -q -b main && \
+    MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" add -A && \
+    git -c user.email=t@t -c user.name=t commit -qm acct ) >/dev/null 2>&1
   check tcl-mvxgit "$( \
     { [ -d "$MGC/mvxdata.lmdb" ] && echo 'account clone (.mvx) rebuilt' \
         || echo 'account clone NOT rebuilt'; }; \
@@ -644,7 +654,10 @@ EOF
     { [ -f "$MGPD/.mvx" ] && echo 'plain clone became account (WRONG)' \
         || echo 'plain clone stayed plain'; }; \
     { [ -f "$MGPY/.mvx" ] && echo 'opt-in clone created account' \
-        || echo 'opt-in clone NOT created'; })"
+        || echo 'opt-in clone NOT created'; }; \
+    { [ -d "$MGD/mvxdata.lmdb" ] && echo 'DIR account grew an LMDB store (WRONG)' \
+        || echo 'DIR account stayed legible'; }; \
+    ( cd "$MGD" && git ls-files BP/HELLO ))"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
