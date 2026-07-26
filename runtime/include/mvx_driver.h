@@ -52,6 +52,16 @@ typedef struct mvx_mapfield {
     const char *type;                   /* abstract type: TEXT/NUMERIC/... */
 } mvx_mapfield;
 
+/* One WITH condition for a multi-predicate push-down (select_multi). */
+typedef struct mvx_pred {
+    const char *col;                    /* mapped column, or NULL for the blob */
+    int64_t attr;                       /* record attribute (when col NULL) */
+    const char *op;                     /* "=", "#", ">", "<", ">=", "<=" */
+    int numeric;                        /* compare numerically (range) */
+    const char *val;
+    int64_t vlen;
+} mvx_pred;
+
 typedef struct mvx_driver {
     const char *name;
 
@@ -212,6 +222,11 @@ typedef struct mvx_driver {
                                 const char *fop, const char *fval,
                                 int64_t fvlen, const char *ocol, int otext,
                                 int64_t limit);
+    /* Optional multi-condition WITH push-down (may be NULL): the ids matching
+       every predicate (AND).  Each `mvx_pred` names a mapped column `col` or
+       the raw record attribute `attr`, an op ("=","#",">","<",">=","<="), and
+       whether to compare numerically.  NULL result = cannot push. */
+    mvx_cursor *(*select_multi)(mvx_file *f, const mvx_pred *preds, int npred);
 } mvx_driver;
 
 /* Common header every driver embeds first in its mvx_file. */

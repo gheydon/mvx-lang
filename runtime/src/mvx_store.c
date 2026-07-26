@@ -1773,6 +1773,94 @@ int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* Push a multi-condition WITH (AND of predicates) into the backend as one
+   WHERE.  `spec` is the conditions, @AM-separated, each "attr<VM>op<VM>value".
+   Each is resolved with the same rules as the single-condition push-down
+   (identity column / numeric-range-on-blob / raw blob); if any one is not
+   pushable, returns 0 (all-or-nothing) so the verb filters them all. */
+int64_t mvx_multiselect(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *spec) {
+    mvx_file *f = file_of(fvar, "MULTISELECT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->select_multi) return 0;
+    open_file *o = find_open(state(ctx), f);
+    if (!o) return 0;
+    map_load(o);
+
+    char sb[64];
+    const char *sp;
+    int64_t sl = mv_val_chars(spec, sb, sizeof sb, &sp);
+    if (sl <= 0 || sl >= 2048) return 0;
+    char buf[2048];
+    memcpy(buf, sp, (size_t)sl);
+    buf[sl] = '\0';
+
+    mvx_pred preds[32];
+    int np = 0;
+    char *p = buf;
+    while (p && *p && np < 32) {
+        char *amend = p;
+        while (*amend && *amend != (char)0xFE) amend++;
+        char amsave = *amend;
+        *amend = '\0';
+        /* split condition on VM into attr / op / value */
+        char *parts[3] = {p, NULL, NULL};
+        int nv = 0;
+        for (char *q = p; *q; q++)
+            if (*q == (char)0xFD) { *q = '\0'; if (++nv < 3) parts[nv] = q + 1; }
+        if (!parts[1] || !parts[2]) return 0;
+        int64_t attrno = strtoll(parts[0], NULL, 10);
+        const char *op = parts[1];
+        const char *val = parts[2];
+        if (attrno < 1 || val[0] == '\0') return 0;
+        int range = (op[0] == '>' || op[0] == '<') &&
+                    (op[1] == '\0' || (op[1] == '=' && op[2] == '\0'));
+        int iseq = (op[0] == '=' || op[0] == '#') && op[1] == '\0';
+        if (!range && !iseq) return 0;
+        int identity = 0, numeric = 0;
+        const char *col = NULL;
+        for (int i = 0; i < o->map.nf; i++)
+            if (o->map.anos[i] == attrno && o->map.assocs[i][0] == '\0') {
+                identity = strcmp(o->map.types[i], "TEXT") == 0 &&
+                           o->map.convs[i][0] == '\0';
+                numeric = strcmp(o->map.types[i], "NUMERIC") == 0 ||
+                          strcmp(o->map.types[i], "DATE") == 0 ||
+                          strcmp(o->map.types[i], "TIME") == 0;
+                if (identity) col = o->map.names[i];
+                break;
+            }
+        if (range && !numeric) return 0;  /* text range: not pushable */
+        preds[np].col = range ? NULL : col;   /* range uses the blob */
+        preds[np].attr = attrno;
+        preds[np].op = op;
+        preds[np].numeric = range ? 1 : 0;
+        preds[np].val = val;
+        preds[np].vlen = (int64_t)strlen(val);
+        np++;
+        if (amsave == 0) break;
+        p = amend + 1;
+    }
+    if (np == 0) return 0;
+
+    mvx_cursor *c = b->driver->select_multi(f, preds, np);
+    if (!c) return 0;
+    store_state *st = state(ctx);
+    clear_select(st);
+    st->sel_active = 1;
+    int64_t cap = 0;
+    mv_value rid;
+    mv_init(&rid);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        sel_push(st, &cap, rp, rl);
+    }
+    mv_clear(&rid);
+    b->driver->select_end(c);
+    return 1;
+}
+
 /* The name of the mapped identity column (TEXT, no conversion) for a file's
    attribute `attr`, or NULL if it isn't mapped that way — so a JOIN can use
    a real, indexable column instead of a split_part on the record blob. */

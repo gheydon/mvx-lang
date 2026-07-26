@@ -427,8 +427,12 @@ attributes, matching MV) with a non-empty value. Range operators (`>`, `<`,
 range matches the backend's numeric compare, while a text range is
 byte-vs-numeric ambiguous and stays a scan. A numeric range compares the raw
 internal value (`NULLIF(mvx_attr(rec,N),'')::numeric`), the same value the
-scan compares. Computed (`I`-type) items and multi-condition filters still
-fall back to the record scan, so the result is never wrong — they just aren't
-accelerated yet. Editing the tables
+scan compares.
+
+**Multiple conditions combine.** `WITH a op b AND c op d` (or a repeated
+`WITH`) ANDs the conditions into one `WHERE a … AND c …`, so a filtered query
+still returns only survivors. It is all-or-nothing: if any single condition
+can't push down (a computed `I`-type, a text range), the whole filter falls
+back to the record scan — correct, just not accelerated. Editing the tables
 directly keeps everything correct, since the columns and indexes belong to
 the database.

@@ -354,6 +354,28 @@ check tcl-range "$( \
     'SORT FST STATE PRICE WITH PRICE <= "450" BY @ID' \
     'SORT FST STATE WITH STATE > "N" BY STATE' | tclrun)"
 
+# multi-condition WITH (#49): conditions AND together. On a local file LIST
+# filters all of them; FST5 adds a second NSW below 500 so the AND discriminates.
+mwseed="$TESTROOT/mwseed.b"
+cat > "$mwseed" <<'EOF'
+X = CREATEFILE("MWF")
+OPEN "MWF" TO F ELSE STOP
+WRITE "NSW":@AM:"999" ON F, "O1"
+WRITE "VIC":@AM:"450" ON F, "O2"
+WRITE "QLD":@AM:"1200" ON F, "O3"
+WRITE "NSW":@AM:"100" ON F, "O5"
+OPEN "DICT", "MWF" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+PRINT "mw-seeded"
+EOF
+"$MVX" "$mwseed" -o "$TESTROOT/mwseedbin" 2>/dev/null
+check tcl-multiwith "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/mwseedbin"); \
+  printf '%s\n' \
+    'LIST MWF STATE PRICE WITH STATE = "NSW" AND PRICE > "500" BY @ID' \
+    'LIST MWF STATE PRICE WITH STATE = "NSW" WITH PRICE < "500" BY @ID' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.
@@ -1012,6 +1034,28 @@ FTEOF
     "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE PRICE WITH PRICE > "500" BY @ID' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE PRICE WITH PRICE <= "450" BY @ID' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE WITH STATE > "N" BY STATE' 2>&1)"
+
+  # multi-condition WITH push-down (#49): conditions AND into one WHERE.
+  # Result must equal the local tcl-multiwith.
+  printf 'MWP @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE MWP' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE MWP USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/pgmw.b" <<'MWEOF'
+OPEN "MWP" TO F ELSE STOP
+WRITE "NSW":@AM:"999" ON F, "O1"
+WRITE "VIC":@AM:"450" ON F, "O2"
+WRITE "QLD":@AM:"1200" ON F, "O3"
+WRITE "NSW":@AM:"100" ON F, "O5"
+OPEN "DICT", "MWP" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"2":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+MWEOF
+  "$MVX" "$TESTROOT/pgmw.b" -o "$TESTROOT/pgmwbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgmwbin")
+  "$TCL" -a "$PGACCT" -c 'CREATE-MAP MWP STATE PRICE' >/dev/null 2>&1
+  check tcl-pgmultiwith "$( \
+    "$TCL" -a "$PGACCT" -c 'LIST MWP STATE PRICE WITH STATE = "NSW" AND PRICE > "500" BY @ID' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'LIST MWP STATE PRICE WITH STATE = "NSW" WITH PRICE < "500" BY @ID' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.

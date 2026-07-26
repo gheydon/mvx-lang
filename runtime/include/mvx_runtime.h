@@ -241,6 +241,9 @@ int64_t mvx_index_select(mvx_ctx *ctx, const mv_value *fvar,
 int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
                          const mv_value *item, const mv_value *op,
                          const mv_value *value, const mv_value *attr);
+/* Push a multi-condition WITH (AND) as one WHERE; 1 if the list was formed. */
+int64_t mvx_multiselect(mvx_ctx *ctx, const mv_value *fvar,
+                        const mv_value *spec);
 /* Push a WITH filter on a TRANS() I-type down to a co-located JOIN: 1 if the
    select list was formed server-side, 0 to evaluate TRANS per record. */
 int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,

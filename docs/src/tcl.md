@@ -35,7 +35,7 @@ standard verbs.
 | `LISTF` | the account's files |
 | `COUNT {DICT} file {WITH item op value}` | record count; pushes `count(*)` (optionally filtered) into a SQL backend, or uses an active select list |
 | `SUM {DICT} file field {WITH item op value}` | total a numeric field; pushes `sum(col)` into a SQL backend when the field is a mapped `NUMERIC` column, else scans and OCONVs |
-| `LIST {DICT} file {items} {WITH item op value} {BY item}` | query |
+| `LIST {DICT} file {items} {WITH item op value {AND …}} {BY item}` | query; multiple `WITH`/`AND` conditions are ANDed (pushed to one SQL `WHERE`) |
 | `SORT {DICT} file {items} {WITH item op value} {BY item} {FIRST n}` | like `LIST`, but sorted by id (or the `BY` key); `FIRST n` keeps the top _n_, pushed to `ORDER BY … LIMIT` on a SQL backend when the `BY` field is a mapped column |
 | `SELECT {DICT} file {WITH item op value}` | form a select list for the next command |
 | `SSELECT {DICT} file {WITH item op value} {BY item}` | like `SELECT`, but the list is sorted |

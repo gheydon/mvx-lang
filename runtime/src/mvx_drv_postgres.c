@@ -1055,6 +1055,69 @@ static mvx_cursor *pg_select_order(mvx_file *fh, const char *fcol,
     return cur;
 }
 
+/* Multi-condition WITH: SELECT id WHERE p1 AND p2 AND ... — each predicate a
+   column or the mvx_attr blob expression, numeric for a range. */
+static mvx_cursor *pg_select_multi(mvx_file *fh, const mvx_pred *preds,
+                                   int npred) {
+    pg_file *f = (pg_file *)fh;
+    if (npred < 1 || npred > 32) return NULL;
+    char qt[512];
+    qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char sql[4000];
+    size_t p = (size_t)snprintf(sql, sizeof sql, "SELECT id FROM %s WHERE ", qt);
+    const char *pv[32];
+    int pl[32], pf[32];
+    for (int i = 0; i < npred; i++) {
+        const mvx_pred *q = &preds[i];
+        const char *sqlop;
+        if (strcmp(q->op, "=") == 0) sqlop = "=";
+        else if (strcmp(q->op, "#") == 0) sqlop = q->col ? "IS DISTINCT FROM" : "<>";
+        else if (strcmp(q->op, ">") == 0 || strcmp(q->op, "<") == 0 ||
+                 strcmp(q->op, ">=") == 0 || strcmp(q->op, "<=") == 0)
+            sqlop = q->op;
+        else return NULL;
+        char expr[400];
+        if (q->col && q->col[0]) {
+            char *qc = PQescapeIdentifier(f->conn, q->col, strlen(q->col));
+            snprintf(expr, sizeof expr, "%s", qc ? qc : "\"\"");
+            if (qc) PQfreemem(qc);
+        } else {
+            char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+            if (q->numeric)
+                snprintf(expr, sizeof expr, "NULLIF(%s.mvx_attr(rec,%lld),'')::numeric",
+                         qs ? qs : "\"\"", (long long)q->attr);
+            else
+                snprintf(expr, sizeof expr, "%s.mvx_attr(rec,%lld)",
+                         qs ? qs : "\"\"", (long long)q->attr);
+            if (qs) PQfreemem(qs);
+        }
+        p += (size_t)snprintf(sql + p, sizeof sql - p, "%s%s %s $%d%s",
+                              i ? " AND " : "", expr, sqlop, i + 1,
+                              q->numeric ? "::numeric" : "");
+        pv[i] = q->val;
+        pl[i] = (int)q->vlen;
+        pf[i] = 0;
+    }
+    PGresult *r = PQexecParams(f->conn, sql, npred, NULL, pv, pl, pf, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres select_multi");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres select_multi");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -1076,6 +1139,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_count_where,                       /* server-side COUNT */
     pg_sum_where,                         /* server-side SUM */
     pg_select_order,                      /* ORDER BY / LIMIT push-down */
+    pg_select_multi,                      /* multi-condition WITH (AND) */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {
