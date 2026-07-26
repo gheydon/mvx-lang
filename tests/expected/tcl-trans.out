@@ -2,6 +2,8 @@ trans-seeded
 intrinsic: Melbourne
 orphan X: ''
 orphan C: 'Ghost'
+mv X: Melbourne//Sydney
+mv C: Melbourne/Ghost/Sydney
 @ID          Customer     City         State 
 O1           Acme Corp    Sydney       NSW   
 O2           Beta Ltd     Melbourne    VIC   

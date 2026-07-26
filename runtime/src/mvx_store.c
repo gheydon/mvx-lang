@@ -787,22 +787,63 @@ void mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
     const char *kp;
     int64_t kl = mv_val_chars(key, kb, sizeof kb, &kp);
 
-    if (nl > 0 && kl > 0) {
-        trans_ent *t = trans_file(ctx, np, nl);
-        if (t->ok) {
-            mv_value rec;
+    trans_ent *t = (nl > 0) ? trans_file(ctx, np, nl) : NULL;
+
+    /* Classic TRANS maps element-wise over a multivalued key: translate each
+       value and rejoin the results with @VM.  A single-valued key is the
+       degenerate one-element case. */
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    const char *p = kp, *end = kp + kl;
+    int first = 1;
+    while (1) {
+        const char *vm = memchr(p, '\xFD', (size_t)(end - p));
+        const char *ve = vm ? vm : end;
+        int64_t vlen = ve - p;
+
+        mv_value one;
+        mv_init(&one);
+        int got = 0;
+        if (t && t->ok && vlen > 0) {
+            mv_value kv, rec;
+            mv_init(&kv);
             mv_init(&rec);
-            if (mvx_read(ctx, &rec, &t->fvar, key, 0) > 0) {
-                if (attrno <= 0) mv_copy(dst, key);   /* attr 0 -> the key */
-                else mv_extract_fn(dst, &rec, attrno, 0, 0);
-                mv_clear(&rec);
-                return;
+            mv_set_str(&kv, p, vlen);
+            if (mvx_read(ctx, &rec, &t->fvar, &kv, 0) > 0) {
+                if (attrno <= 0) mv_set_str(&one, p, vlen);   /* attr 0 -> key */
+                else mv_extract_fn(&one, &rec, attrno, 0, 0);
+                got = 1;
             }
             mv_clear(&rec);
+            mv_clear(&kv);
         }
+        if (!got) {
+            if (ctl == 'C') mv_set_str(&one, p, vlen);   /* missing -> the key */
+            else mv_set_str(&one, "", 0);                /* X (default) -> null */
+        }
+
+        char ob[64];
+        const char *op;
+        int64_t ol = mv_val_chars(&one, ob, sizeof ob, &op);
+        size_t need = (size_t)ol + 1;
+        if (len + need > cap) {
+            cap = cap ? cap * 2 : 128;
+            while (cap < len + need) cap *= 2;
+            char *nb2 = realloc(buf, cap);
+            if (!nb2) mvx_fatal("out of memory in TRANS");
+            buf = nb2;
+        }
+        if (!first) buf[len++] = (char)0xFD;
+        memcpy(buf + len, op, (size_t)ol);
+        len += (size_t)ol;
+        mv_clear(&one);
+        first = 0;
+
+        if (!vm) break;
+        p = vm + 1;
     }
-    if (ctl == 'C') mv_copy(dst, key);   /* missing: return the key */
-    else mv_set_str(dst, "", 0);
+    mv_set_str(dst, buf ? buf : "", (int64_t)len);
+    free(buf);
 }
 
 /* Returns 0 on success, or -2 on a backend write failure when the caller

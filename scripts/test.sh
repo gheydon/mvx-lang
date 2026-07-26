@@ -269,6 +269,9 @@ PRINT "trans-seeded"
 PRINT "intrinsic: ":TRANS("CUSTMASTER", "Beta Ltd", 1, "X")
 PRINT "orphan X: '":TRANS("CUSTMASTER", "Ghost", 1, "X"):"'"
 PRINT "orphan C: '":TRANS("CUSTMASTER", "Ghost", 1, "C"):"'"
+MVK = "Beta Ltd":@VM:"Ghost":@VM:"Acme Corp"
+PRINT "mv X: ":CHANGE(TRANS("CUSTMASTER", MVK, 1, "X"), @VM, "/")
+PRINT "mv C: ":CHANGE(TRANS("CUSTMASTER", MVK, 1, "C"), @VM, "/")
 EOF
 "$MVX" "$tseed" -o "$TESTROOT/tseedbin" 2>/dev/null
 check tcl-trans "$( \
