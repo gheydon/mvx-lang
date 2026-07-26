@@ -1,0 +1,3 @@
+{"customer":"Acme Corp","items":[{"product":"Widget","qty":2,"price":9.99},{"product":"Gadget","qty":1,"price":4.50}]}
+roundtrip: Acme Corp | Widget/Gadget | 999/450
+inbound: Beta Nut price=[]

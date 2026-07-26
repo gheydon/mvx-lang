@@ -38,6 +38,11 @@ set(MVX_WITH_POSTGRES "${_mvx_pg_default}" CACHE STRING
 set_property(CACHE MVX_WITH_POSTGRES PROPERTY STRINGS AUTO ON OFF)
 option(MVX_WITH_DAEMON "Build the mvx-lmdbd daemon and admin tool"
   ${_mvx_daemon_default})
+# JSON encode/decode (#24): built into the runtime by default; -DMVX_JSON=OFF
+# excludes it (the JSONENCODE/JSONDECODE intrinsics then have no symbol to link).
+# The single mapper (mvx_map) stays regardless — MAPSPEC/MAPFIELD and the SQL
+# mapping do not depend on JSON.
+option(MVX_JSON "Build JSON encode/decode support into the runtime" ON)
 
 # --- runtime -----------------------------------------------------------
 # A SHARED library so its code is mapped once and shared across every mvx
@@ -51,6 +56,7 @@ add_library(mvxrt SHARED
   runtime/src/mv_str.c
   runtime/src/mv_conv.c
   runtime/src/mvx_ctx.c
+  runtime/src/mvx_map.c
   runtime/src/mvx_store.c
   runtime/src/mvx_exec.c
   runtime/src/mvx_cred.c
@@ -73,6 +79,13 @@ target_compile_definitions(mvxrt PRIVATE
   MVX_SYSTEM_DIR="${CMAKE_BINARY_DIR}/system")
 set_target_properties(mvxrt PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+if(MVX_JSON)
+  target_sources(mvxrt PRIVATE runtime/src/mvx_json.c)
+  target_compile_definitions(mvxrt PRIVATE MVX_HAVE_JSON)
+  message(STATUS "  JSON encode/decode : ON")
+else()
+  message(STATUS "  JSON encode/decode : OFF")
+endif()
 
 # --- storage drivers: dlopen'd shared libraries ------------------------
 # Each driver links its own backend dependency; compiled programs link

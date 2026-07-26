@@ -280,6 +280,55 @@ check tcl-trans "$( \
     'LIST TORD CUSTOMER CITY CSTATE BY @ID' \
     'LIST TORD CUSTOMER CITY WITH CSTATE = "VIC"' | tclrun)"
 
+# JSON encode/decode (#24): the shared mapper + MAPFIELD build a mapping,
+# JSONENCODE renders the record (single attrs -> scalar keys, an association ->
+# array of objects; NUMERIC via MD2 unquoted, an absent value null), JSONDECODE
+# maps a record back, and arbitrary inbound JSON is decoded on the fly.  No
+# storage — a standalone program, so it runs anywhere.
+jsonsrc="$TESTROOT/json.b"
+cat > "$jsonsrc" <<'EOF'
+SPEC = ""
+SPEC<-1> = MAPFIELD("customer", 1)
+SPEC<-1> = MAPFIELD("product", 5, "", "TEXT", "items")
+SPEC<-1> = MAPFIELD("qty", 6, "", "NUMERIC", "items")
+SPEC<-1> = MAPFIELD("price", 7, "MD2", "", "items")
+R = ""
+R<1> = "Acme Corp"
+R<5> = "Widget":@VM:"Gadget"
+R<6> = "2":@VM:"1"
+R<7> = "999":@VM:"450"
+PRINT JSONENCODE(R, SPEC)
+R2 = JSONDECODE(JSONENCODE(R, SPEC), SPEC)
+PRINT "roundtrip: ":R2<1>:" | ":CHANGE(R2<5>, @VM, "/"):" | ":CHANGE(R2<7>, @VM, "/")
+IN = '{"customer":"Beta","items":[{"product":"Nut","qty":5,"price":null}]}'
+R3 = JSONDECODE(IN, SPEC)
+PRINT "inbound: ":R3<1>:" ":R3<5>:" price=[":CHANGE(R3<7>, @VM, "/"):"]"
+EOF
+"$MVX" "$jsonsrc" -o "$TESTROOT/jsonbin" 2>/dev/null
+check tcl-json "$("$TESTROOT/jsonbin")"
+
+# JSON verb (#24): MAPSPEC derives the mapping from the file's dictionary, and
+# the verb prepends the record id.  Local LMDB dicted file with an ITEMS assoc.
+jvseed="$TESTROOT/jvseed.b"
+cat > "$jvseed" <<'EOF'
+X = CREATEFILE("JVF")
+OPEN "JVF" TO F ELSE STOP
+R = ""
+R<1> = "Acme Corp"
+R<5> = "Widget":@VM:"Gadget"
+R<7> = "999":@VM:"450"
+WRITE R ON F, "O1"
+OPEN "DICT", "JVF" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Customer":@AM:"12L" ON D, "CUSTOMER"
+WRITE "D":@AM:"5":@AM:"":@AM:"Product":@AM:"10L":@AM:"ITEMS" ON D, "PRODUCT"
+WRITE "D":@AM:"7":@AM:"MD2":@AM:"Price":@AM:"8R":@AM:"ITEMS" ON D, "PRICE"
+PRINT "jv-seeded"
+EOF
+"$MVX" "$jvseed" -o "$TESTROOT/jvseedbin" 2>/dev/null
+check tcl-jsonverb "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/jvseedbin"); \
+  printf 'JSON JVF O1\n' | tclrun)"
+
 # COUNT with WITH (#45): on a local file the backend has no count push-down,
 # so COUNT falls back to forming a filtered list and counting it. Also plain
 # COUNT of every record.

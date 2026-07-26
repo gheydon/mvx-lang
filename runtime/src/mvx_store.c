@@ -19,6 +19,7 @@
  *                                                LMDB environment
  */
 #include "mvx_driver.h"
+#include "mvx_map.h"
 
 #include <dirent.h>
 #include <dlfcn.h>
@@ -121,20 +122,8 @@ typedef struct ixmeta {
     } it[IX_MAX_ITEMS];
 } ixmeta;
 
-/* Relational mapping declared for a file (%MAP%), cached per open file so
-   writes can be mirrored into the projection (#18). */
-#define MAP_MAXF 64
-#define MAP_MAXA 16
-typedef struct mapmeta {
-    int loaded;
-    int ensured;                        /* schema materialised this session */
-    int native;                         /* %MAPMODE% = native: strict writes */
-    int nf;
-    char *buf;                          /* owns the parsed field strings */
-    char *names[MAP_MAXF], *convs[MAP_MAXF], *types[MAP_MAXF];
-    char *assocs[MAP_MAXF];
-    int64_t anos[MAP_MAXF];
-} mapmeta;
+/* The relational mapping (mapmeta) and its pure projection/typing engine live in
+   the shared mapper (mvx_map.h); this file keeps the persistence side. */
 
 typedef struct open_file {
     mvx_file *f;
@@ -152,7 +141,6 @@ static int map_project(mvx_ctx *ctx, mvx_file *f, mapmeta *m, const char *id,
                        int64_t idlen, const mv_value *rec,
                        const mv_value *old);
 static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec);
-static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av);
 static int map_recompose(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                          const char *id, int64_t idlen, mv_value *rec);
 static const char *map_identity_col(open_file *o, int64_t attr);
@@ -936,6 +924,75 @@ int64_t mvx_matwrite(mvx_ctx *ctx, const mv_array *arr, const mv_value *fvar,
     return st;
 }
 
+/* MAPSPEC(file) — derive a mapping from a file's dictionary (#24): every D-item
+   becomes one mapping field (its id is the name, DI<2> the attribute, DI<3> the
+   conversion, DI<6> the association; the type is derived from the conversion via
+   the shared mapper), assembled with the MAPFIELD builder and @AM-joined.  The
+   result is the same %MAP%-format mapping JSONENCODE/JSONDECODE (and the SQL
+   mapping) consume — one dict->spec derivation, reusable. */
+void mvx_mapspec(mvx_ctx *ctx, mv_value *dst, const mv_value *fname) {
+    mv_value dictv;
+    mv_init(&dictv);
+    mv_set_str(&dictv, "DICT", 4);
+    mv_value fvar;
+    mv_init(&fvar);
+    int64_t ok = mvx_open(ctx, &dictv, fname, &fvar);
+    mv_clear(&dictv);
+    if (!ok) { mv_set_str(dst, "", 0); mv_clear(&fvar); return; }
+
+    mvx_file *f = file_of(&fvar, "MAPSPEC");
+    mvx_file_base *b = (mvx_file_base *)f;
+    mvx_cursor *c = b->driver->select_begin(f);
+
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    mv_value id, rec, di[7], type, field;
+    mv_init(&id); mv_init(&rec); mv_init(&type); mv_init(&field);
+    for (int i = 0; i < 7; i++) mv_init(&di[i]);
+    mv_set_str(&type, "", 0);
+    while (c && b->driver->select_next(c, &id)) {
+        char ib[128];
+        const char *ip;
+        int64_t il = mv_val_chars(&id, ib, sizeof ib, &ip);
+        if (il == 0 || ip[0] == '%') continue;     /* skip control records */
+        if (mvx_read(ctx, &rec, &fvar, &id, 0) <= 0) continue;
+        mv_extract_fn(&di[1], &rec, 1, 0, 0);      /* DI<1> = item type */
+        char t1[8];
+        const char *t1p;
+        int64_t t1l = mv_val_chars(&di[1], t1, sizeof t1, &t1p);
+        if (t1l == 0 || t1p[0] != 'D') continue;   /* only D-items map */
+        mv_extract_fn(&di[2], &rec, 2, 0, 0);      /* attr */
+        char a2[24];
+        const char *a2p;
+        int64_t a2l = mv_val_chars(&di[2], a2, sizeof a2, &a2p);
+        if (a2l == 0 || strtoll(a2p, NULL, 10) < 1) continue;  /* skip @ID/attr 0 */
+        mv_extract_fn(&di[3], &rec, 3, 0, 0);      /* conversion */
+        mv_extract_fn(&di[6], &rec, 6, 0, 0);      /* association */
+        /* type left empty -> derived from the conversion by MAPFIELD */
+        mvx_map_field(&field, &id, &di[2], &di[3], &type, &di[6]);
+        char fb[512];
+        const char *fp;
+        int64_t fl = mv_val_chars(&field, fb, sizeof fb, &fp);
+        size_t need = (size_t)fl + 1;
+        if (len + need > cap) {
+            cap = cap ? cap * 2 : 256;
+            while (cap < len + need) cap *= 2;
+            char *nb = realloc(buf, cap);
+            if (!nb) mvx_fatal("out of memory in MAPSPEC");
+            buf = nb;
+        }
+        if (len) buf[len++] = (char)0xFE;          /* @AM between fields */
+        memcpy(buf + len, fp, (size_t)fl);
+        len += (size_t)fl;
+    }
+    if (c) b->driver->select_end(c);
+    mv_set_str(dst, buf ? buf : "", (int64_t)len);
+    free(buf);
+    mv_clear(&id); mv_clear(&rec); mv_clear(&type); mv_clear(&field);
+    for (int i = 0; i < 7; i++) mv_clear(&di[i]);
+    mv_clear(&fvar);
+}
+
 /* READV var FROM file, id, attr: read one attribute of a record.
    Returns found (drives THEN/ELSE); target untouched when absent. */
 int64_t mvx_readv(mvx_ctx *ctx, mv_value *dst, const mv_value *fvar,
@@ -1071,70 +1128,6 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
    driver materialises columns / child tables and persists.  Returns the
    record count, -1 on error, or -2 when the backend has no mapping. */
 
-/* Reduce a display value to a plain number (drop currency/grouping/mask
-   characters), keeping a sign and one decimal point.  Empty (-> SQL NULL)
-   when there are no digits — the mirror-mode policy for a value that
-   doesn't fit a numeric column. */
-static int64_t map_num(const char *in, int64_t len, char *out, size_t cap) {
-    int neg = 0;
-    for (int64_t i = 0; i < len; i++)
-        if (in[i] == '-') neg = 1;
-    size_t o = 0;
-    int dot = 0, digits = 0;
-    if (neg && o < cap - 1) out[o++] = '-';
-    for (int64_t i = 0; i < len && o < cap - 1; i++) {
-        char ch = in[i];
-        if (ch >= '0' && ch <= '9') { out[o++] = ch; digits = 1; }
-        else if (ch == '.' && !dot) { out[o++] = '.'; dot = 1; }
-    }
-    if (!digits) { out[0] = '\0'; return 0; }
-    out[o] = '\0';
-    return (int64_t)o;
-}
-
-/* Extract attribute `ano` value `seq` (seq 0 = whole attribute), OCONV by
-   `conv` if set, and coerce to `type` (NUMERIC is reduced to a plain
-   number), into a NUL-terminated scratch cell.  Returns the cell length,
-   0 for an empty cell (→ SQL NULL), or -1 when a *non-empty* value does not
-   fit the column type — a mismatch mirror mode tolerates (as NULL) but
-   native mode rejects. */
-static int64_t map_cell(mvx_ctx *ctx, const mv_value *rec, int64_t ano,
-                        int64_t seq, const char *conv, const char *type,
-                        mv_value *av, mv_value *ov, mv_value *code,
-                        char *dst, size_t cap) {
-    mv_extract_fn(av, rec, ano, seq, 0);
-    /* DATE/TIME columns take the stored internal value (day/second count)
-       straight to ISO-8601 — the dict display conversion is locale-shaped
-       and would be ambiguous to the backend.  An empty cell is NULL; a
-       non-numeric internal is a type mismatch. */
-    if (strcmp(type, "DATE") == 0 || strcmp(type, "TIME") == 0) {
-        char ib[40];
-        const char *ip;
-        int64_t il = mv_val_chars(av, ib, sizeof ib, &ip);
-        if (il == 0) { dst[0] = '\0'; return 0; }
-        int64_t n = type[0] == 'D' ? mvx_iso_date_str(ip, il, dst, cap)
-                                   : mvx_iso_time_str(ip, il, dst, cap);
-        return n > 0 ? n : -1;
-    }
-    const mv_value *src = av;
-    if (conv[0]) {
-        mv_set_str(code, conv, (int64_t)strlen(conv));
-        mv_oconv(ctx, ov, av, code);
-        src = ov;
-    }
-    char tb[40];
-    const char *tp;
-    int64_t tl = mv_val_chars(src, tb, sizeof tb, &tp);
-    if (strcmp(type, "NUMERIC") == 0) {
-        int64_t n = map_num(tp, tl, dst, cap);
-        return (n == 0 && tl > 0) ? -1 : n;       /* non-numeric text */
-    }
-    if (tl >= (int64_t)cap) tl = (int64_t)cap - 1;
-    memcpy(dst, tp, (size_t)tl);
-    dst[tl] = '\0';
-    return tl;
-}
-
 /* Validate a record against a mapping without touching the backend: 1 if
    every typed cell fits its column, 0 if any non-empty value mismatches.
    Native mode calls this to reject a bad WRITE before it commits. */
@@ -1156,49 +1149,6 @@ static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec) {
     }
     mv_clear(&av); mv_clear(&ov); mv_clear(&code);
     return ok;
-}
-
-/* Number of values in an attribute (0 if empty). */
-static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av) {
-    mv_extract_fn(av, rec, ano, 0, 0);
-    char tb[40];
-    const char *tp;
-    int64_t tl = mv_val_chars(av, tb, sizeof tb, &tp);
-    if (tl == 0) return 0;
-    int n = 1;
-    for (int64_t x = 0; x < tl; x++)
-        if (tp[x] == (char)0xFD) n++;
-    return n;
-}
-
-/* Parse a %MAP% / spec string (@AM fields, each
-   "name<VM>attr<VM>conv<VM>type<VM>assoc") into m, which owns the text. */
-static void map_parse(const char *sp, int64_t slen, mapmeta *m) {
-    m->nf = 0;
-    m->buf = malloc((size_t)slen + 1);
-    if (!m->buf) return;
-    memcpy(m->buf, sp, (size_t)slen);
-    m->buf[slen] = '\0';
-    char *p = m->buf;
-    while (m->nf < MAP_MAXF && *p) {
-        char *amend = p;
-        while (*amend && *amend != (char)0xFE) amend++;
-        char save = *amend;
-        *amend = '\0';
-        char *parts[5] = {p, NULL, NULL, NULL, NULL};
-        int np = 0;
-        for (char *q = p; *q; q++)
-            if (*q == (char)0xFD) { *q = '\0'; if (++np < 5) parts[np] = q + 1; }
-        int i = m->nf;
-        m->names[i] = parts[0];
-        m->anos[i] = parts[1] ? strtoll(parts[1], NULL, 10) : 0;
-        m->convs[i] = parts[2] ? parts[2] : (char *)"";
-        m->types[i] = parts[3] ? parts[3] : (char *)"TEXT";
-        m->assocs[i] = parts[4] ? parts[4] : (char *)"";
-        m->nf++;
-        if (save == 0) break;
-        p = amend + 1;
-    }
 }
 
 /* Group m's fields into parent columns + per-association members and
@@ -1244,39 +1194,6 @@ static int map_ensure_schema(mvx_file *f, mapmeta *m, char *err,
             return 0;
     }
     return 1;
-}
-
-/* True when attribute `ano` is byte-identical in two records.  Because a
-   projected cell is a deterministic function of its attribute, an unchanged
-   attribute has an unchanged projection — so this drives the write-time diff
-   that skips columns/associations a WRITE did not touch. */
-static int map_attr_equal(const mv_value *a, const mv_value *b, int64_t ano,
-                          mv_value *ta, mv_value *tb) {
-    mv_extract_fn(ta, a, ano, 0, 0);
-    mv_extract_fn(tb, b, ano, 0, 0);
-    char ba[64], bb[64];
-    const char *pa, *pb;
-    int64_t la = mv_val_chars(ta, ba, sizeof ba, &pa);
-    int64_t lb = mv_val_chars(tb, bb, sizeof bb, &pb);
-    return la == lb && (la == 0 || memcmp(pa, pb, (size_t)la) == 0);
-}
-
-/* Group the mapping's association members: fills an[]/am[][]/anm[] (member
-   field indices per association) and returns the association count. */
-static int map_group_assoc(mapmeta *m, char *an[MAP_MAXA],
-                           int am[MAP_MAXA][MAP_MAXF], int anm[MAP_MAXA]) {
-    int na = 0;
-    for (int i = 0; i < m->nf; i++) {
-        if (m->assocs[i][0] == '\0') continue;
-        int slot = -1;
-        for (int a = 0; a < na; a++)
-            if (strcmp(an[a], m->assocs[i]) == 0) slot = a;
-        if (slot < 0 && na < MAP_MAXA) {
-            slot = na; an[na] = m->assocs[i]; anm[na++] = 0;
-        }
-        if (slot >= 0 && anm[slot] < MAP_MAXF) am[slot][anm[slot]++] = i;
-    }
-    return na;
 }
 
 /* Project one association's rows (members am, count nm) for a record and
@@ -1383,34 +1300,6 @@ static int map_project_one(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                            const char *id, int64_t idlen,
                            const mv_value *rec) {
     return map_project(ctx, f, m, id, idlen, rec, NULL);
-}
-
-/* Inverse of map_cell: turn a stored column string back into the attribute's
-   internal value.  NULL (or empty) -> empty; DATE/TIME parse ISO back to the
-   internal count; a converted column ICONVs back; plain text is verbatim. */
-static void map_uncell(mvx_ctx *ctx, const char *type, const char *conv,
-                       const char *cv, int64_t cl, mv_value *dst,
-                       mv_value *tmp, mv_value *code) {
-    if (cv == NULL || cl == 0) { mv_set_str(dst, "", 0); return; }
-    if (strcmp(type, "DATE") == 0) {
-        char ib[32];
-        int64_t n = mvx_iso_date_intern(cv, cl, ib, sizeof ib);
-        mv_set_str(dst, ib, n);
-        return;
-    }
-    if (strcmp(type, "TIME") == 0) {
-        char ib[32];
-        int64_t n = mvx_iso_time_intern(cv, cl, ib, sizeof ib);
-        mv_set_str(dst, ib, n);
-        return;
-    }
-    if (conv[0]) {
-        mv_set_str(tmp, cv, cl);
-        mv_set_str(code, conv, (int64_t)strlen(conv));
-        mv_iconv(ctx, dst, tmp, code);
-        return;
-    }
-    mv_set_str(dst, cv, cl);
 }
 
 /* Native read: overlay the mapped attributes of `rec` with the current

@@ -1037,6 +1037,27 @@ private:
                    {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
                     evalPtr(*e.args[2])});
             return; }
+        if (f == "MAPSPEC") { need(1);
+            callRt("mvx_mapspec", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0])});
+            return; }
+        if (f == "MAPFIELD") {
+            if (e.args.size() < 2 || e.args.size() > 5)
+                err(e.line, "MAPFIELD() takes 2 to 5 arguments");
+            auto opt = [&](size_t k) -> Value * {
+                return e.args.size() > k ? evalPtr(*e.args[k])
+                                         : (Value *)ConstantPointerNull::get(ptrTy_);
+            };
+            callRt("mvx_map_field", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]), opt(2),
+                    opt(3), opt(4)});
+            return; }
+        if (f == "JSONENCODE" || f == "JSONDECODE") { need(2);
+            callRt(f == "JSONENCODE" ? "mvx_jsonencode" : "mvx_jsondecode",
+                   voidTy_, {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1])});
+            return; }
         if (f == "@") {
             if (e.args.size() != 1 && e.args.size() != 2)
                 err(e.line, "@() takes 1 or 2 arguments");
