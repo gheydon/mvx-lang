@@ -345,6 +345,15 @@ check tcl-first "$( \
     'SORT FST STATE PRICE BY PRICE FIRST 2' \
     'SORT FST STATE BY STATE FIRST 2' | tclrun)"
 
+# range WITH (#48): >, <, >=, <= filter. On a local file the verb compares
+# (numeric for the right-justified PRICE); FST reused (prices 999,450,1200,300
+# internal). A text range on STATE stays a byte-order scan.
+check tcl-range "$( \
+  printf '%s\n' \
+    'SORT FST STATE PRICE WITH PRICE > "500" BY @ID' \
+    'SORT FST STATE PRICE WITH PRICE <= "450" BY @ID' \
+    'SORT FST STATE WITH STATE > "N" BY STATE' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.
@@ -996,6 +1005,13 @@ FTEOF
   check tcl-pgfirst "$( \
     "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE PRICE BY PRICE FIRST 2' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE BY STATE FIRST 2' 2>&1)"
+
+  # range push-down (#48): numeric range pushes NULLIF(mvx_attr,'')::numeric;
+  # text range falls back to the scan. Result must equal the local tcl-range.
+  check tcl-pgrange "$( \
+    "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE PRICE WITH PRICE > "500" BY @ID' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE PRICE WITH PRICE <= "450" BY @ID' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT FSTP STATE WITH STATE > "N" BY STATE' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.

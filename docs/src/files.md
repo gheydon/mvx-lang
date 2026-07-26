@@ -421,8 +421,14 @@ file. There are two push-down paths, in order of preference:
   column.
 
 Push-down covers `=` and `#` (not-equal, which includes empty/absent
-attributes, matching MV) with a non-empty value; range operators and
-computed (`I`-type) items still fall back to the record scan, so the result
-is never wrong — they just aren't accelerated yet. Editing the tables
+attributes, matching MV) with a non-empty value. Range operators (`>`, `<`,
+`>=`, `<=`) push down too, but **only on a numeric field** (mapped `NUMERIC`,
+`DATE`, or `TIME`): MV compares numeric strings numerically, so a numeric
+range matches the backend's numeric compare, while a text range is
+byte-vs-numeric ambiguous and stays a scan. A numeric range compares the raw
+internal value (`NULLIF(mvx_attr(rec,N),'')::numeric`), the same value the
+scan compares. Computed (`I`-type) items and multi-condition filters still
+fall back to the record scan, so the result is never wrong — they just aren't
+accelerated yet. Editing the tables
 directly keeps everything correct, since the columns and indexes belong to
 the database.

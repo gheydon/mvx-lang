@@ -1708,12 +1708,17 @@ int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
     char ob[8];
     const char *opp;
     int64_t ol = mv_val_chars(op, ob, sizeof ob, &opp);
-    if (!(ol == 1 && (opp[0] == '=' || opp[0] == '#'))) return 0;
+    int iseq = ol == 1 && (opp[0] == '=' || opp[0] == '#');
+    int isrange = (ol == 1 && (opp[0] == '>' || opp[0] == '<')) ||
+                  (ol == 2 && (opp[0] == '>' || opp[0] == '<') && opp[1] == '=');
+    if (!iseq && !isrange) return 0;
     char vb[40];
     const char *vp;
     int64_t vl = mv_val_chars(value, vb, sizeof vb, &vp);
     if (vl == 0) return 0;              /* empty value: NULL semantics differ */
-    char opz[2] = {opp[0], '\0'};
+    char opz[3];
+    memcpy(opz, opp, (size_t)ol);
+    opz[ol] = '\0';
 
     char nbuf[40];
     const char *ip;
@@ -1722,24 +1727,33 @@ int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
     if (il > 0 && il < 127) { memcpy(iname, ip, (size_t)il); iname[il] = '\0'; }
     else iname[0] = '\0';
 
-    /* Prefer the mapped column when it is an identity projection (TEXT, no
-       conversion) — the column equals the raw attribute the WITH compares,
-       and the backend can use its index.  Otherwise read the attribute
-       straight out of the record blob, which is exact for any field type
-       (raw attribute vs raw value) but cannot use an index. */
-    mvx_cursor *c = NULL;
+    /* Classify the field from the mapping: an identity projection (TEXT, no
+       conversion) whose column equals the raw attribute, and/or numeric
+       (NUMERIC/DATE/TIME) whose raw internal value compares numerically. */
     map_load(o);
-    int identity = 0;
+    int identity = 0, numeric = 0;
     for (int i = 0; iname[0] && i < o->map.nf; i++)
         if (strcmp(o->map.names[i], iname) == 0) {
             identity = strcmp(o->map.types[i], "TEXT") == 0 &&
                        o->map.convs[i][0] == '\0';
+            numeric = strcmp(o->map.types[i], "NUMERIC") == 0 ||
+                      strcmp(o->map.types[i], "DATE") == 0 ||
+                      strcmp(o->map.types[i], "TIME") == 0;
             break;
         }
-    if (identity && b->driver->select_where)
-        c = b->driver->select_where(f, iname, opz, vp, vl);
-    else if (b->driver->select_attr)
+
+    /* A range (>, <, ...) is only exact on a numeric field — MV compares its
+       raw internal value numerically, which matches the backend numeric
+       compare; text range is byte-vs-numeric ambiguous, so it scans. */
+    mvx_cursor *c = NULL;
+    if (isrange) {
+        if (!numeric || !b->driver->select_attr) return 0;
         c = b->driver->select_attr(f, mv_get_int(attr), opz, vp, vl);
+    } else if (identity && b->driver->select_where) {
+        c = b->driver->select_where(f, iname, opz, vp, vl);
+    } else if (b->driver->select_attr) {
+        c = b->driver->select_attr(f, mv_get_int(attr), opz, vp, vl);
+    }
     if (!c) return 0;
 
     store_state *st = state(ctx);

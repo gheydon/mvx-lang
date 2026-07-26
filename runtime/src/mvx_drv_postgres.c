@@ -783,17 +783,29 @@ static mvx_cursor *pg_select_attr(mvx_file *fh, int64_t attr, const char *op,
                                   const char *val, int64_t vlen) {
     pg_file *f = (pg_file *)fh;
     const char *sqlop;
+    int isrange = 0;
     if (strcmp(op, "=") == 0) sqlop = "=";
     else if (strcmp(op, "#") == 0) sqlop = "<>";   /* split_part never NULL */
-    else return NULL;
+    else if (strcmp(op, ">") == 0 || strcmp(op, "<") == 0 ||
+             strcmp(op, ">=") == 0 || strcmp(op, "<=") == 0) {
+        sqlop = op; isrange = 1;           /* numeric range, caller gated */
+    } else return NULL;
     if (attr < 1) return NULL;
     char qt[512];
     qualify(f->conn, f->schema, f->table, qt, sizeof qt);
     char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
     char sql[900];
-    snprintf(sql, sizeof sql,
-             "SELECT id FROM %s WHERE %s.mvx_attr(rec,%lld) %s $1",
-             qt, qs ? qs : "\"\"", (long long)attr, sqlop);
+    if (isrange)
+        /* compare the raw internal value numerically, matching MV's numeric
+           compare; an empty attribute becomes NULL and drops out. */
+        snprintf(sql, sizeof sql,
+                 "SELECT id FROM %s WHERE "
+                 "NULLIF(%s.mvx_attr(rec,%lld),'')::numeric %s $1::numeric",
+                 qt, qs ? qs : "\"\"", (long long)attr, sqlop);
+    else
+        snprintf(sql, sizeof sql,
+                 "SELECT id FROM %s WHERE %s.mvx_attr(rec,%lld) %s $1",
+                 qt, qs ? qs : "\"\"", (long long)attr, sqlop);
     if (qs) PQfreemem(qs);
     const char *pv[1] = {val};
     int pl[1] = {(int)vlen}, pf[1] = {0};   /* text value */

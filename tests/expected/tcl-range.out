@@ -1,0 +1,13 @@
+@ID          State     Price
+P1           NSW        9.99
+P3           QLD       12.00
+2 record(s) listed
+@ID          State     Price
+P2           VIC        4.50
+P4           ACT        3.00
+2 record(s) listed
+@ID          State 
+P1           NSW   
+P3           QLD   
+P2           VIC   
+3 record(s) listed
