@@ -1174,6 +1174,58 @@ static int pg_explain(mvx_file *fh, const mvx_pred *preds, int npred,
     return 1;
 }
 
+/* Cross-process record locks (#16) via Postgres session-level advisory locks.
+   The runtime's process-local lock table only arbitrates within one process;
+   two MVX processes on the same PG-backed file need the backend to arbitrate.
+   Connections are pooled one per location, so every file on a location shares
+   one PGconn == one PG session: an advisory lock taken here is held for this
+   process and seen as held by every other process (each its own session).
+
+   The key is a 64-bit FNV-1a hash of the file spec + record id — the same
+   composition the runtime's lock_key uses — so any session opening the same
+   file hashes an id to the same advisory key.  pg_try_advisory_lock is
+   non-blocking (returns whether it got it); the runtime does the blocking
+   READU poll and the LOCKED single-try itself. */
+static int64_t pg_advkey(mvx_file *fh, const char *id, int64_t idlen) {
+    pg_file *f = (pg_file *)fh;
+    uint64_t h = 1469598103934665603ULL;
+    for (const char *p = f->base.spec; *p; p++) {
+        h ^= (unsigned char)*p;
+        h *= 1099511628211ULL;
+    }
+    h ^= 0x01;                            /* the lock_key spec/id separator */
+    h *= 1099511628211ULL;
+    for (int64_t i = 0; i < idlen; i++) {
+        h ^= (unsigned char)id[i];
+        h *= 1099511628211ULL;
+    }
+    return (int64_t)h;                    /* advisory keys are signed int8 */
+}
+
+static int pg_advisory(mvx_file *fh, const char *id, int64_t idlen,
+                       const char *fn) {
+    pg_file *f = (pg_file *)fh;
+    char keytxt[24];
+    snprintf(keytxt, sizeof keytxt, "%lld",
+             (long long)pg_advkey(fh, id, idlen));
+    char sql[48];
+    snprintf(sql, sizeof sql, "SELECT %s($1)", fn);
+    const char *pv[1] = {keytxt};
+    PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, NULL, NULL, 0);
+    int ok = r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1 &&
+             PQgetvalue(r, 0, 0)[0] == 't';
+    if (r) PQclear(r);
+    return ok;
+}
+
+/* 1 = acquired, 0 = another session holds it (runtime retries or reports). */
+static int pg_lock(mvx_file *fh, const char *id, int64_t idlen) {
+    return pg_advisory(fh, id, idlen, "pg_try_advisory_lock");
+}
+static int pg_unlock(mvx_file *fh, const char *id, int64_t idlen) {
+    return pg_advisory(fh, id, idlen, "pg_advisory_unlock");
+}
+
 static const mvx_driver mvx_driver_postgres = {
     "postgres",
     pg_open, pg_close,
@@ -1183,7 +1235,7 @@ static const mvx_driver mvx_driver_postgres = {
     NULL,                                 /* names: TODO */
     NULL, NULL,                           /* no MVX-maintained index writes */
     pg_index_select, pg_index_drop,       /* native SQL indexes on columns */
-    NULL, NULL,                           /* no lock authority (yet) */
+    pg_lock, pg_unlock,                   /* cross-process advisory locks */
     pg_map_ensure, pg_map_apply,          /* relational mapping: parent */
     pg_map_child_ensure, pg_map_child_apply,   /* association child tables */
     pg_map_drop,                          /* tear down a mapping */

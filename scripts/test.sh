@@ -1080,6 +1080,54 @@ MWEOF
     "$TCL" -a "$PGACCT" -c 'SORT EXPLAIN MWP BY PRICE FIRST 3' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST MWP WITH @ID = "O1" DESCRIBE' 2>&1)"
 
+  # cross-process record locks (#16): a READU on a PG-backed file takes a
+  # Postgres advisory lock, so a second *process* sees the record LOCKED.  A
+  # background holder grabs it and signals via an OS file; while it holds, a
+  # second process finds it locked; after the holder RELEASEs and exits, a
+  # third acquires it.  Deterministic — poll the held-flag before probing, and
+  # wait for the holder to exit (its RELEASE is synchronous) before re-probing.
+  printf 'LK @pgtest\n' >> "$PGACCT/BINDINGS"
+  "$TCL" -a "$PGACCT" -c 'DELETE-FILE LK' >/dev/null 2>&1
+  "$TCL" -a "$PGACCT" -c 'CREATE-FILE LK USING @pgtest' >/dev/null 2>&1
+  cat > "$TESTROOT/lkseed.b" <<'EOF'
+OPEN "LK" TO F ELSE STOP
+WRITE "widget" ON F, "K1"
+EOF
+  "$MVX" "$TESTROOT/lkseed.b" -o "$TESTROOT/lkseedbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkseedbin") >/dev/null 2>&1
+  cat > "$TESTROOT/lkhold.b" <<'EOF'
+OPEN "LK" TO F ELSE STOP
+READU R FROM F, "K1" ELSE R = ""
+J = OSWRITE("1", "HELDFLAG")
+LOOP
+   G = OSREAD("GOFLAG")
+UNTIL STATUS() = 0 DO
+REPEAT
+RELEASE F, "K1"
+EOF
+  "$MVX" "$TESTROOT/lkhold.b" -o "$TESTROOT/lkholdbin" 2>/dev/null
+  cat > "$TESTROOT/lktry.b" <<'EOF'
+OPEN "LK" TO F ELSE STOP
+READU R FROM F, "K1" LOCKED
+   PRINT "locked by another session"
+END THEN
+   PRINT "acquired ":R<1>
+   RELEASE F, "K1"
+END ELSE
+   PRINT "gone"
+END
+EOF
+  "$MVX" "$TESTROOT/lktry.b" -o "$TESTROOT/lktrybin" 2>/dev/null
+  rm -f "$PGACCT/HELDFLAG" "$PGACCT/GOFLAG"
+  ( cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lkholdbin" >/dev/null 2>&1 ) &
+  LKPID=$!
+  for i in $(seq 1 200); do [ -f "$PGACCT/HELDFLAG" ] && break; sleep 0.05; done
+  LKB="$(cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lktrybin" 2>&1)"
+  : > "$PGACCT/GOFLAG"
+  wait "$LKPID" 2>/dev/null
+  LKC="$(cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/lktrybin" 2>&1)"
+  check tcl-pglock "$(printf '%s\n%s\n' "$LKB" "$LKC")"
+
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.
   printf 'MORD @pgtest\n' >> "$PGACCT/BINDINGS"
