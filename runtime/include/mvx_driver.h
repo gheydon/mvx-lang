@@ -153,8 +153,12 @@ typedef struct mvx_driver {
        the mapping) and its own index, so there is no per-record backfill and
        no write_ix/del_ix maintenance.  A driver providing this advertises
        index_select/index_drop but leaves write_ix/del_ix NULL.  Returns the
-       indexed row count, or -1 on error (e.g. the column is not mapped). */
-    int (*index_create)(mvx_file *f, const char *item);
+       indexed row count, or -1 on error (e.g. the column is not mapped).
+       `col` names a mapped identity column to index (NULL to index the raw
+       record attribute `attr` via an expression index on the blob), so any
+       dictionary field is indexable, not only mapped ones. */
+    int (*index_create)(mvx_file *f, const char *item, const char *col,
+                        int64_t attr);
     /* Optional server-side WITH push-down (may be NULL): the ids whose
        mapped column `col` satisfies `op` `val`, filtered in the backend so a
        query need not stream every record to the verb.  `op` is "=" or "#"

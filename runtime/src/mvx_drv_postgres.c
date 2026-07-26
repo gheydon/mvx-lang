@@ -149,6 +149,25 @@ static const char *split_spec(const char *spec, char *loc, size_t cap) {
     return nl + 1;
 }
 
+/* An IMMUTABLE helper for the blob attribute expression: convert_from is only
+   STABLE, so the raw split_part expression cannot go in an index.  Wrapping
+   it in a function we declare IMMUTABLE (safe — the database encoding is
+   fixed) makes both the expression index and the push-down query index-
+   eligible, and using the same schema-qualified function in both makes them
+   match.  attr N is the field between the (N-1)th and Nth field mark. */
+static void pg_ensure_attr_fn(PGconn *c, const char *schema) {
+    char *qs = PQescapeIdentifier(c, schema, strlen(schema));
+    char sql[512];
+    snprintf(sql, sizeof sql,
+             "CREATE OR REPLACE FUNCTION %s.mvx_attr(bytea, integer) "
+             "RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS "
+             "$f$ SELECT split_part(convert_from($1,'LATIN1'),chr(254),$2) $f$",
+             qs ? qs : "\"\"");
+    if (qs) PQfreemem(qs);
+    PGresult *r = PQexec(c, sql);
+    if (r) PQclear(r);
+}
+
 static mvx_file *pg_open(const char *spec, char *err, size_t errlen) {
     char loc[1024];
     const char *rspec = split_spec(spec, loc, sizeof loc);
@@ -172,6 +191,7 @@ static mvx_file *pg_open(const char *spec, char *err, size_t errlen) {
     f->conn = c;
     snprintf(f->schema, sizeof f->schema, "%s", schema);
     snprintf(f->table, sizeof f->table, "%s", rspec);
+    pg_ensure_attr_fn(c, schema);         /* for blob expression indexes */
     return (mvx_file *)f;
 }
 
@@ -628,24 +648,33 @@ static char *pg_index_ident(pg_file *f, const char *item) {
 
 /* CREATE INDEX on the mapped column (the mapping already stores/maintains
    it).  Returns the row count, or -1 if the column is absent / on error. */
-static int pg_index_create(mvx_file *fh, const char *item) {
+static int pg_index_create(mvx_file *fh, const char *item, const char *col,
+                           int64_t attr) {
     pg_file *f = (pg_file *)fh;
     char qt[512];
     qualify(f->conn, f->schema, f->table, qt, sizeof qt);
     char *qi = pg_index_ident(f, item);
-    char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
-    char *qc = PQescapeIdentifier(f->conn, item, strlen(item));
+    /* A mapped identity column indexes directly; any other field indexes the
+       expression the blob push-down uses, so it too becomes an index scan. */
+    char target[400];
+    if (col && col[0]) {
+        char *qc = PQescapeIdentifier(f->conn, col, strlen(col));
+        snprintf(target, sizeof target, "(%s)", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    } else {
+        char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
+        snprintf(target, sizeof target, "(%s.mvx_attr(rec,%lld))",
+                 qs ? qs : "\"\"", (long long)attr);
+        if (qs) PQfreemem(qs);
+    }
     char sql[1200];
-    snprintf(sql, sizeof sql,
-             "CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
-             qi ? qi : "\"\"", qt, qc ? qc : "\"\"");
-    if (qs) PQfreemem(qs);
+    snprintf(sql, sizeof sql, "CREATE INDEX IF NOT EXISTS %s ON %s %s",
+             qi ? qi : "\"\"", qt, target);
     PGresult *r = PQexec(f->conn, sql);
     int ok = r && PQresultStatus(r) == PGRES_COMMAND_OK;
     if (r) PQclear(r);
     if (qi) PQfreemem(qi);
-    if (qc) PQfreemem(qc);
-    if (!ok) return -1;                   /* e.g. column not mapped */
+    if (!ok) return -1;
     char csql[560];
     snprintf(csql, sizeof csql, "SELECT count(*) FROM %s", qt);
     PGresult *cr = PQexec(f->conn, csql);
@@ -760,11 +789,12 @@ static mvx_cursor *pg_select_attr(mvx_file *fh, int64_t attr, const char *op,
     if (attr < 1) return NULL;
     char qt[512];
     qualify(f->conn, f->schema, f->table, qt, sizeof qt);
+    char *qs = PQescapeIdentifier(f->conn, f->schema, strlen(f->schema));
     char sql[900];
     snprintf(sql, sizeof sql,
-             "SELECT id FROM %s WHERE "
-             "split_part(convert_from(rec,'LATIN1'), chr(254), %lld) %s $1",
-             qt, (long long)attr, sqlop);
+             "SELECT id FROM %s WHERE %s.mvx_attr(rec,%lld) %s $1",
+             qt, qs ? qs : "\"\"", (long long)attr, sqlop);
+    if (qs) PQfreemem(qs);
     const char *pv[1] = {val};
     int pl[1] = {(int)vlen}, pf[1] = {0};   /* text value */
     PGresult *r = PQexecParams(f->conn, sql, 1, NULL, pv, pl, pf, 1);
@@ -821,18 +851,20 @@ static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk,
         snprintf(skexpr, sizeof skexpr, "s.%s", qc ? qc : "\"\"");
         if (qc) PQfreemem(qc);
     } else {
-        snprintf(skexpr, sizeof skexpr,
-                 "split_part(convert_from(s.rec,'LATIN1'),chr(254),%lld)",
-                 (long long)sk);
+        char *qs = PQescapeIdentifier(s->conn, s->schema, strlen(s->schema));
+        snprintf(skexpr, sizeof skexpr, "%s.mvx_attr(s.rec,%lld)",
+                 qs ? qs : "\"\"", (long long)sk);
+        if (qs) PQfreemem(qs);
     }
     if (tgt_col && tgt_col[0]) {
         char *qc = PQescapeIdentifier(t->conn, tgt_col, strlen(tgt_col));
         snprintf(taexpr, sizeof taexpr, "t.%s", qc ? qc : "\"\"");
         if (qc) PQfreemem(qc);
     } else {
-        snprintf(taexpr, sizeof taexpr,
-                 "split_part(convert_from(t.rec,'LATIN1'),chr(254),%lld)",
-                 (long long)ta);
+        char *qs = PQescapeIdentifier(t->conn, t->schema, strlen(t->schema));
+        snprintf(taexpr, sizeof taexpr, "%s.mvx_attr(t.rec,%lld)",
+                 qs ? qs : "\"\"", (long long)ta);
+        if (qs) PQfreemem(qs);
     }
     char sql[1600];
     snprintf(sql, sizeof sql,

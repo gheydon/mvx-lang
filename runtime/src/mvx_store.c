@@ -155,6 +155,7 @@ static int map_validate_one(mvx_ctx *ctx, mapmeta *m, const mv_value *rec);
 static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av);
 static int map_recompose(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                          const char *id, int64_t idlen, mv_value *rec);
+static const char *map_identity_col(open_file *o, int64_t attr);
 
 /* A file opened on demand by TRANS(), cached for the session so a query
    does not reopen (and reconnect) its lookup target once per record. */
@@ -968,10 +969,14 @@ int64_t mvx_index_build(mvx_ctx *ctx, const mv_value *fvar,
         if (strcmp(o->ix.it[k].item, iname) == 0) slot = k;
     if (slot < 0) return -1;
 
-    /* Backend-maintained index (SQL CREATE INDEX on the mapped column): one
-       shot, no per-record backfill and no write_ix maintenance. */
+    /* Backend-maintained index (SQL CREATE INDEX): one shot, no per-record
+       backfill.  Index a mapped identity column directly, else index the raw
+       attribute via an expression on the blob — so any field is indexable and
+       the mapped-column-preferred rule still holds. */
     if (b->driver->index_create)
-        return b->driver->index_create(f, iname);
+        return b->driver->index_create(f, iname,
+                                       map_identity_col(o, o->ix.it[slot].attr),
+                                       o->ix.it[slot].attr);
 
     b->driver->index_drop(f, iname);    /* rebuild from empty */
 

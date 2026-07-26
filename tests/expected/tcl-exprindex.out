@@ -1,0 +1,3 @@
+TIER (unmapped) index kind: expression
+STATE (mapped) index kind: column
+blob filter uses the expression index: yes

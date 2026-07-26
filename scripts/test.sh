@@ -1173,6 +1173,26 @@ PDNEOF
       "$TCL" -a "$VMACCT" -c 'LIST PDN NAME TIER WITH TIER = "gold" BY NAME' 2>&1; \
       echo "-- WITH CREDIT = 1500 (converted field, raw -> blob push-down) --"; \
       "$TCL" -a "$VMACCT" -c 'LIST PDN NAME CREDIT WITH CREDIT = "1500"' 2>&1)"
+
+    # expression indexes (#43): CREATE-INDEX on an un-mapped field builds a
+    # Postgres expression index on the blob (via the IMMUTABLE mvx_attr
+    # helper), so the blob push-down becomes an index scan. A mapped identity
+    # field still gets a column index. PDN has STATE mapped, TIER unmapped.
+    "$TCL" -a "$VMACCT" -c 'CREATE-INDEX PDN STATE' >/dev/null 2>&1
+    "$TCL" -a "$VMACCT" -c 'CREATE-INDEX PDN TIER' >/dev/null 2>&1
+    IDXDEF=$(psql_ext "SELECT CASE WHEN indexdef LIKE '%mvx_attr(rec, 4)%' \
+      THEN 'expression' ELSE 'other' END FROM pg_indexes \
+      WHERE schemaname='vmtest' AND indexname='PDN_TIER_idx'")
+    STDEF=$(psql_ext "SELECT CASE WHEN indexdef LIKE '%(\"STATE\")%' \
+      THEN 'column' ELSE 'other' END FROM pg_indexes \
+      WHERE schemaname='vmtest' AND indexname='PDN_STATE_idx'")
+    EXPLN=$(psql_ext "SET enable_seqscan=off; EXPLAIN SELECT id FROM \
+      vmtest.\"PDN\" WHERE vmtest.mvx_attr(rec,4)='gold'")
+    USES=$(printf '%s' "$EXPLN" | grep -q 'PDN_TIER_idx' && echo yes || echo no)
+    check tcl-exprindex "$(printf '%s\n' \
+      "TIER (unmapped) index kind: $IDXDEF" \
+      "STATE (mapped) index kind: $STDEF" \
+      "blob filter uses the expression index: $USES")"
   else
     echo "  (postgres psql-dependent map/index tests skipped — psql not found)"
   fi

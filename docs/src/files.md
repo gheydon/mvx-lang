@@ -407,11 +407,15 @@ file. There are two push-down paths, in order of preference:
   backfill).
 - **Any other field — straight off the record blob.** An un-mapped field, or
   a converted one (numeric, date), is read out of the stored record with
-  `split_part(convert_from(rec,'LATIN1'), chr(254), N)` — attribute *N*
-  between the field marks. Comparing that raw attribute to the raw `WITH`
-  value is exact for every field type, and needs no column, though it cannot
-  use a column index. So even a filter on a field you never mapped filters in
-  Postgres rather than in the verb.
+  `mvx_attr(rec, N)` (attribute *N* between the field marks). Comparing that
+  raw attribute to the raw `WITH` value is exact for every field type and
+  needs no column, and `CREATE-INDEX` on such a field builds a Postgres
+  **expression index** on `mvx_attr(rec, N)` — so even a field you never
+  mapped gets an index scan, not a sequential one. (`mvx_attr` is a small
+  `IMMUTABLE` helper the driver installs; the index and the query use the
+  same function so the index applies.) The mapped-column rule still holds:
+  when a field is mapped to an identity column, `CREATE-INDEX` indexes the
+  column and the query prefers it.
 
 Push-down covers `=` and `#` (not-equal, which includes empty/absent
 attributes, matching MV) with a non-empty value; range operators and
