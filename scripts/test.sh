@@ -658,6 +658,30 @@ EOF
     { [ -d "$MGD/mvxdata.lmdb" ] && echo 'DIR account grew an LMDB store (WRONG)' \
         || echo 'DIR account stayed legible'; }; \
     ( cd "$MGD" && git ls-files BP/HELLO ))"
+
+  # #58: in a record-git account (one with a .recgit) mvx-git drives the engine
+  # directly — init/add/commit/log/show read and write the live hash-file
+  # records straight to/from git objects, with no legible export and no real
+  # .git.  Same mechanism as the GIT verb (tcl-gitnative), via the executable.
+  MGR="$TESTROOT/mgrecgit"
+  "$ROOT/scripts/mkaccount.sh" "$MGR" >/dev/null
+  cat > "$TESTROOT/mgrseed.b" <<'RGEOF'
+OPEN "CUST" TO F ELSE STOP
+WRITE "Ada":@AM:"London" ON F, "C1"
+WRITE "Bob":@AM:"Paris" ON F, "C2"
+RGEOF
+  "$TCL" -a "$MGR" -c 'CREATE-FILE CUST' >/dev/null 2>&1
+  "$MVX" "$TESTROOT/mgrseed.b" -o "$TESTROOT/mgrseedbin" 2>/dev/null
+  (cd "$MGR" && MVXACCOUNT=. "$TESTROOT/mgrseedbin") >/dev/null
+  check tcl-mvxgit-recgit "$( \
+    ( cd "$MGR"; "$ROOT/build/bin/mvx-git" init; \
+      "$ROOT/build/bin/mvx-git" add CUST; \
+      "$ROOT/build/bin/mvx-git" commit -m initial; \
+      "$ROOT/build/bin/mvx-git" log ) 2>&1 | sed -E 's/[0-9a-f]{7,40}/HASH/g'; \
+    { [ -d "$MGR/.recgit" ] && echo 'record-git store present'; }; \
+    { [ -d "$MGR/.git" ] && echo 'a real .git appeared (WRONG)' \
+        || echo 'no legible .git'; }; \
+    ( cd "$MGR"; "$ROOT/build/bin/mvx-git" show CUST C1 ))"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
