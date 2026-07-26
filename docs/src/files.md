@@ -91,12 +91,16 @@ SELECT s.id FROM orders s JOIN customers t
 ```
 
 The whole filter runs in the backend and only matching ids come back — no
-per-record probing. It works purely off the record blobs, so neither file
-needs mapped columns, and joins on the target's primary key. The push-down
-covers `=` with the default `X` control (the inner-join case that exactly
-matches the reference); anything else — a different backend for the target,
-`#`, control `C` — falls back to the per-record lookup, so the result is
-never wrong. (For a networked key-value target the equivalent optimisation
+per-record probing. It joins on the target's primary key, and reads the
+foreign key and the filtered attribute off the record blobs
+(`split_part`), so **neither file needs mapped columns**. When a field *is*
+mapped to an identity column the join uses that column instead
+(`… ON … = s."CUSTID" WHERE t."CITY" = $1`) — which can use an index, and in
+native mode is the authoritative value rather than a possibly-stale blob. The
+push-down covers `=` with the default `X` control (the inner-join case that
+exactly matches the reference); anything else — a different backend for the
+target, `#`, control `C` — falls back to the per-record lookup, so the result
+is never wrong. (For a networked key-value target the equivalent optimisation
 is a batched multi-get rather than a join.)
 
 `LIST` and `SELECT` drive columns, filters (`WITH`), and ordering

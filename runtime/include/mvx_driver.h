@@ -175,9 +175,13 @@ typedef struct mvx_driver {
        target record whose attribute `tgt_attr` satisfies `op` `val`.  `tgt`
        is the opened target file; the driver runs the join only when it lives
        on the same backend/database as `src` (else NULL -> per-record TRANS).
-       op is "=".  Turns an N+1 per-record lookup into one JOIN. */
+       op is "=".  Turns an N+1 per-record lookup into one JOIN.
+       src_keycol/tgt_col name a mapped identity column for the source key
+       and the target attribute (NULL/"" to read it from the record blob);
+       a real column can use an index and, in native mode, is authoritative. */
     mvx_cursor *(*select_join)(mvx_file *src, int64_t src_keyattr,
-                               mvx_file *tgt, int64_t tgt_attr,
+                               const char *src_keycol, mvx_file *tgt,
+                               int64_t tgt_attr, const char *tgt_col,
                                const char *op, const char *val, int64_t vlen);
 } mvx_driver;
 

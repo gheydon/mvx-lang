@@ -802,8 +802,10 @@ static int pg_same_db(PGconn *a, PGconn *b) {
    `sk`) points at a target row whose attribute `ta` equals val.  The whole
    filter runs in one JOIN on the source connection (the target table is in
    the same database), so only matching ids come back. */
-static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk, mvx_file *tgth,
-                                  int64_t ta, const char *op, const char *val,
+static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk,
+                                  const char *src_keycol, mvx_file *tgth,
+                                  int64_t ta, const char *tgt_col,
+                                  const char *op, const char *val,
                                   int64_t vlen) {
     if (strcmp(op, "=") != 0) return NULL;   /* only equality for now */
     pg_file *s = (pg_file *)srch, *t = (pg_file *)tgth;
@@ -811,12 +813,32 @@ static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk, mvx_file *tgth,
     char sqt[512], tqt[512];
     qualify(s->conn, s->schema, s->table, sqt, sizeof sqt);
     qualify(s->conn, t->schema, t->table, tqt, sizeof tqt);
-    char sql[1400];
+    /* Prefer a mapped identity column over the blob split_part: it can use an
+       index and, in native mode, is the authoritative value. */
+    char skexpr[320], taexpr[320];
+    if (src_keycol && src_keycol[0]) {
+        char *qc = PQescapeIdentifier(s->conn, src_keycol, strlen(src_keycol));
+        snprintf(skexpr, sizeof skexpr, "s.%s", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    } else {
+        snprintf(skexpr, sizeof skexpr,
+                 "split_part(convert_from(s.rec,'LATIN1'),chr(254),%lld)",
+                 (long long)sk);
+    }
+    if (tgt_col && tgt_col[0]) {
+        char *qc = PQescapeIdentifier(t->conn, tgt_col, strlen(tgt_col));
+        snprintf(taexpr, sizeof taexpr, "t.%s", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    } else {
+        snprintf(taexpr, sizeof taexpr,
+                 "split_part(convert_from(t.rec,'LATIN1'),chr(254),%lld)",
+                 (long long)ta);
+    }
+    char sql[1600];
     snprintf(sql, sizeof sql,
-             "SELECT s.id FROM %s s JOIN %s t ON convert_from(t.id,'LATIN1') "
-             "= split_part(convert_from(s.rec,'LATIN1'),chr(254),%lld) "
-             "WHERE split_part(convert_from(t.rec,'LATIN1'),chr(254),%lld) = $1",
-             sqt, tqt, (long long)sk, (long long)ta);
+             "SELECT s.id FROM %s s JOIN %s t "
+             "ON convert_from(t.id,'LATIN1') = %s WHERE %s = $1",
+             sqt, tqt, skexpr, taexpr);
     const char *pv[1] = {val};
     int pl[1] = {(int)vlen}, pf[1] = {0};
     PGresult *r = PQexecParams(s->conn, sql, 1, NULL, pv, pl, pf, 1);

@@ -1754,6 +1754,19 @@ int64_t mvx_query_select(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* The name of the mapped identity column (TEXT, no conversion) for a file's
+   attribute `attr`, or NULL if it isn't mapped that way — so a JOIN can use
+   a real, indexable column instead of a split_part on the record blob. */
+static const char *map_identity_col(open_file *o, int64_t attr) {
+    if (!o) return NULL;
+    map_load(o);
+    for (int i = 0; i < o->map.nf; i++)
+        if (o->map.anos[i] == attr && o->map.assocs[i][0] == '\0' &&
+            strcmp(o->map.types[i], "TEXT") == 0 && o->map.convs[i][0] == '\0')
+            return o->map.names[i];
+    return NULL;
+}
+
 /* Push a WITH filter on a TRANS() I-type down to a co-located JOIN: parse the
    TRANS(file,keyattr,attr,control) descriptor, and if the target file is on
    the same backend as the source, form the select list from the joined ids
@@ -1800,11 +1813,16 @@ int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,
     mvx_file *tf = (mvx_file *)(intptr_t)t->fvar.i;
     if (((mvx_file_base *)tf)->driver != b->driver) return 0;  /* same driver */
 
+    store_state *st = state(ctx);
+    /* Prefer a mapped identity column for either side of the join. */
+    const char *src_keycol = map_identity_col(find_open(st, f), keyattr);
+    const char *tgt_col = map_identity_col(find_open(st, tf), tattr);
+
     char opz[2] = {'=', '\0'};
-    mvx_cursor *c = b->driver->select_join(f, keyattr, tf, tattr, opz, vp, vl);
+    mvx_cursor *c = b->driver->select_join(f, keyattr, src_keycol, tf, tattr,
+                                           tgt_col, opz, vp, vl);
     if (!c) return 0;
 
-    store_state *st = state(ctx);
     clear_select(st);
     st->sel_active = 1;
     int64_t cap = 0;

@@ -845,10 +845,21 @@ WRITE "I":@AM:"TRANS(CUSJ,1,2,X)":@AM:"":@AM:"City":@AM:"10L" ON D, "CITY"
 JEOF
   "$MVX" "$TESTROOT/pgjn.b" -o "$TESTROOT/pgjnbin" 2>/dev/null
   (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgjnbin")
-  # Sydney -> O1,O3 (C1,C3); Melbourne -> O2; orphan C9 (O4) matches neither
+  # Sydney -> O1,O3 (C1,C3); Melbourne -> O2; orphan C9 (O4) matches neither.
+  # First over the raw blobs (split_part); then with the target CITY mapped to
+  # an identity column (#42) the join uses t."CITY" instead — same result.
+  cat > "$TESTROOT/pgjndict.b" <<'JDEOF'
+OPEN "DICT", "CUSJ" TO DC ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"10L" ON DC, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"City":@AM:"10L" ON DC, "CITY"
+JDEOF
+  "$MVX" "$TESTROOT/pgjndict.b" -o "$TESTROOT/pgjndictbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgjndictbin")
   check tcl-transjoin "$( \
     "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Sydney" BY @ID' 2>&1; \
-    "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Melbourne" BY @ID' 2>&1)"
+    "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Melbourne" BY @ID' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'CREATE-MAP CUSJ NAME CITY' >/dev/null 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Sydney" BY @ID' 2>&1)"
 
   # mapping phase 2 (#23/#26): BUILD-MAP projects single-valued attrs into
   # columns on the record's table and each association into a child table.
