@@ -23,11 +23,13 @@
  */
 #include "mvx_driver.h"
 
+#include <errno.h>
 #include <lmdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #define MAX_KEY 511
 
@@ -43,6 +45,21 @@ struct mvx_cursor {
 
 /* One environment per process (per account).  Opened lazily. */
 static MDB_env *g_env;
+static pid_t g_env_pid;
+
+/* Close the environment on a clean exit so LMDB releases its lock.  On macOS
+   that lock is a *named* POSIX semaphore (one per environment); leaving it
+   open leaks the semaphore, and enough leaks — churning short-lived accounts,
+   or a crash storm — exhaust the system-wide limit until every later open
+   fails with ENOSPC (only a reboot clears them).  Guarded by the opener's pid
+   so a forked child never closes the parent's env.  (Companion to the
+   mdb_reader_check below, which reaps dead reader-table slots.) */
+static void env_atexit(void) {
+    if (g_env && getpid() == g_env_pid) {
+        mdb_env_close(g_env);
+        g_env = NULL;
+    }
+}
 
 static MDB_env *env_get(char *err, size_t errlen) {
     if (g_env) return g_env;
@@ -58,7 +75,17 @@ static MDB_env *env_get(char *err, size_t errlen) {
     if (rc == 0) rc = mdb_env_set_mapsize(env, (size_t)1 << 30);
     if (rc == 0) rc = mdb_env_open(env, path, 0, 0664);
     if (rc != 0) {
-        snprintf(err, errlen, "lmdb: %s: %s", path, mdb_strerror(rc));
+#ifdef __APPLE__
+        /* On macOS ENOSPC here is usually the named-semaphore lock table being
+           full, not the disk — point at the real cause and the real fix. */
+        if (rc == ENOSPC)
+            snprintf(err, errlen,
+                     "lmdb: %s: No space left on device — if the disk has free "
+                     "space this is the macOS lock-semaphore limit (stale locks "
+                     "from crashed processes); restart to clear it", path);
+        else
+#endif
+            snprintf(err, errlen, "lmdb: %s: %s", path, mdb_strerror(rc));
         if (env) mdb_env_close(env);
         return NULL;
     }
@@ -67,7 +94,10 @@ static MDB_env *env_get(char *err, size_t errlen) {
        open fails with MDB_READERS_FULL. */
     int dead = 0;
     mdb_reader_check(env, &dead);
-    return g_env = env;
+    g_env = env;
+    g_env_pid = getpid();
+    atexit(env_atexit);
+    return env;
 }
 
 static const mvx_driver mvx_driver_lmdb;
