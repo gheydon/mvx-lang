@@ -222,6 +222,13 @@ static int run_verb(const char *verb) {
 static int infra(const char *n) {
     return !strcmp(n, "CATALOG") || !strcmp(n, "LIB") || !strcmp(n, "bin");
 }
+
+/* The account's master dictionary — VOC (Pick/UniVerse) or MD (classic).
+ * It must be rebuilt before any other file, because creating a file
+ * registers its pointer there. */
+static int is_master(const char *n) {
+    return !strcmp(n, "VOC") || !strcmp(n, "MD");
+}
 static int ends_dict(const char *n, size_t len) {
     return len > 5 && memcmp(n + len - 5, ".DICT", 5) == 0;
 }
@@ -251,6 +258,22 @@ int mvx_acct_import(mvx_ctx *ctx) {
         nn++;
     }
     closedir(d);
+
+    /* Rebuild the master dictionary (VOC / MD) first: every createfile below
+     * registers its file pointer there, so it must already exist — with its
+     * own declared backend — before the rest are created.  readdir order is
+     * otherwise arbitrary, so move any master name to the front. */
+    size_t front = 0;
+    for (size_t i = 0; i < nn; i++)
+        if (is_master(names[i])) {
+            if (i != front) {
+                char tmp[256];
+                memcpy(tmp, names[front], sizeof tmp);
+                memcpy(names[front], names[i], sizeof names[front]);
+                memcpy(names[i], tmp, sizeof names[i]);
+            }
+            front++;
+        }
 
     int nmig = 0;
     for (size_t i = 0; i < nn; i++) {
