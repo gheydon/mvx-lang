@@ -1,7 +1,8 @@
-# The demo is a legible directory account: its records are the tracked
-# files, so there is no LMDB store and nothing to export.  Only the
-# compiled objects and the cataloged binary are derived — rebuild them
-# with BASIC + CATALOG.
+# VOC is a hash (LMDB) file and BP a directory file — see each
+# X.DICT/%FILE%.  The live LMDB store holds the hash files and is rebuilt
+# from the tracked legible form (mvx-convert-acct), so it — along with the
+# compiled objects and the cataloged binary — is derived and not versioned.
+mvxdata.lmdb
 BP.O/
 BP.O.DICT/
 CATALOG/
