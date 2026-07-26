@@ -57,6 +57,7 @@ add_library(mvxrt SHARED
   runtime/src/mv_conv.c
   runtime/src/mvx_ctx.c
   runtime/src/mvx_map.c
+  runtime/src/mvx_ext.c
   runtime/src/mvx_store.c
   runtime/src/mvx_exec.c
   runtime/src/mvx_cred.c

@@ -22,8 +22,12 @@ namespace {
 
 class Parser {
 public:
-    Parser(std::vector<Token> toks, std::string item)
-        : toks_(std::move(toks)), item_(std::move(item)) {}
+    Parser(std::vector<Token> toks, std::string item,
+           const std::set<std::string> &extFuncs)
+        : toks_(std::move(toks)), item_(std::move(item)) {
+        // package extension functions read as user functions (sets e->call)
+        for (const auto &f : extFuncs) deffuns_[f] = -1;
+    }
 
     Program run(const std::string &sourcePath) {
         Program prog;
@@ -1122,9 +1126,10 @@ private:
 
 } // namespace
 
-Program parse(const std::string &src, const std::string &sourcePath) {
+Program parse(const std::string &src, const std::string &sourcePath,
+              const std::set<std::string> &extFuncs) {
     std::string item = std::filesystem::path(sourcePath).filename().string();
-    Parser p(lex(src, item), item);
+    Parser p(lex(src, item), item, extFuncs);
     return p.run(sourcePath);
 }
 

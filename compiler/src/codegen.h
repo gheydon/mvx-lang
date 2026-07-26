@@ -14,6 +14,7 @@
 
 #include "ast.h"
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,9 @@ struct CodegenOptions {
     // Output-line -> source line for DWARF (1-based; empty = identity).
     // Lets $INCLUDE'd programs still map to the right source lines.
     std::vector<int> dwarfLines;
+    // Package extension functions: a call to one of these dispatches to the
+    // runtime extension registry (mvx_ext_invoke) rather than mvx_call.
+    std::set<std::string> extFuncs;
 };
 
 // Compile one parsed program to a native object file.

@@ -25,6 +25,7 @@
 #include "preprocess.h"
 
 #include <map>
+#include <set>
 
 #include <cstdio>
 #include <cstdlib>
@@ -84,6 +85,43 @@ int usage() {
     return 2;
 }
 
+// Collect the names in a package EXPORTS manifest ("NAME MINARGS MAXARGS").
+void readExports(const fs::path &exportsFile, std::set<std::string> &out) {
+    std::ifstream f(exportsFile);
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        std::istringstream is(line);
+        std::string name;
+        if (is >> name && !name.empty() && name[0] != '#' && name[0] != '*')
+            out.insert(name);
+    }
+}
+
+// The expression functions available at compile time: from the always-on
+// system-installed packages (aggregated <system>/EXPORTS) plus, when compiling
+// in an account, that account's linked packages (PACKAGES -> each <pkg>/EXPORTS).
+// No per-compile flag: inclusion is configuration.
+std::set<std::string> loadExtFuncs() {
+    std::set<std::string> out;
+    fs::path sys;
+    if (const char *s = getenv("MVXSYSTEM"); s && *s) sys = s;
+    else sys = exeDir().parent_path() / "system";
+    readExports(sys / "EXPORTS", out);
+
+    if (const char *acct = getenv("MVXACCOUNT"); acct && *acct) {
+        std::ifstream pf(fs::path(acct) / "PACKAGES");
+        std::string dir;
+        while (std::getline(pf, dir)) {
+            while (!dir.empty() && (dir.back() == '\n' || dir.back() == '\r' ||
+                                    dir.back() == ' '))
+                dir.pop_back();
+            if (!dir.empty()) readExports(fs::path(dir) / "EXPORTS", out);
+        }
+    }
+    return out;
+}
+
 std::string shellQuote(const std::string &s) {
     std::string out = "'";
     for (char c : s) {
@@ -105,6 +143,10 @@ int main(int argc, char **argv) {
     // source ($IFDEF MVX ... $ELSE ... $ENDIF).
     std::map<std::string, std::string> defines;
     defines["MVX"] = "";
+
+    // Package extension functions available to this compile (config, not a flag).
+    std::set<std::string> extFuncs = loadExtFuncs();
+    cg.extFuncs = extFuncs;
 
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -186,7 +228,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         try {
-            mvx::Program prog = mvx::parse(ppr.text, src);
+            mvx::Program prog = mvx::parse(ppr.text, src, extFuncs);
             cg.dwarfLines.clear();
             cg.dwarfLines.reserve(ppr.map.size());
             for (const auto &m : ppr.map) cg.dwarfLines.push_back(m.dwarf);

@@ -14,6 +14,7 @@
 
 #include "ast.h"
 
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -29,6 +30,10 @@ struct CompileError : std::runtime_error {
         : std::runtime_error(msg), item(std::move(item_)), line(line_) {}
 };
 
-Program parse(const std::string &src, const std::string &sourcePath);
+// extFuncs: names of package-provided extension functions (from EXPORTS
+// manifests) — treated as callable functions so `X = NAME(args)` parses as a
+// call, not an array reference.  codegen dispatches them to mvx_ext_invoke.
+Program parse(const std::string &src, const std::string &sourcePath,
+              const std::set<std::string> &extFuncs = {});
 
 } // namespace mvx

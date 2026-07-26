@@ -2160,6 +2160,23 @@ private:
         // value-less RETURN leaves the result empty
         callRt("mv_set_str", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
                {dest, stringConst(""), ConstantInt::get(i64Ty_, 0)});
+        // Package extension function: result slot is passed separately, argv
+        // holds only the inputs, dispatched through the extension registry.
+        if (opts_.extFuncs.count(e.sval)) {
+            Value *eargv = eb_.CreateAlloca(ptrTy_,
+                               ConstantInt::get(i64Ty_, n ? n : 1), "eargv");
+            for (size_t k = 0; k < n; k++) {
+                Value *a = acquireTemp();
+                evalInto(*e.args[k], a);
+                b_.CreateStore(a, b_.CreateGEP(ptrTy_, eargv,
+                                               ConstantInt::get(i64Ty_, k)));
+            }
+            callRt("mvx_ext_invoke", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, i32Ty_, ptrTy_},
+                   {ctxArg_, stringConst(e.sval), dest,
+                    ConstantInt::get(i32Ty_, (int)n), eargv});
+            return;
+        }
         Value *argv = eb_.CreateAlloca(ptrTy_,
                                        ConstantInt::get(i64Ty_, n + 1), "fargv");
         b_.CreateStore(dest, b_.CreateGEP(ptrTy_, argv,
