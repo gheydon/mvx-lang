@@ -156,12 +156,23 @@ static int map_vcount(const mv_value *rec, int64_t ano, mv_value *av);
 static int map_recompose(mvx_ctx *ctx, mvx_file *f, mapmeta *m,
                          const char *id, int64_t idlen, mv_value *rec);
 
+/* A file opened on demand by TRANS(), cached for the session so a query
+   does not reopen (and reconnect) its lookup target once per record. */
+typedef struct trans_ent {
+    char name[64];
+    int64_t nlen;
+    mv_value fvar;                      /* MV_FILE handle, or unopened */
+    int ok;
+    struct trans_ent *next;
+} trans_ent;
+
 typedef struct store_state {
     open_file *files;
     lock_ent *locks;
     mv_value *sel_ids;                  /* materialised select list */
     int64_t sel_n, sel_pos;
     int sel_active;                     /* a list was formed this process */
+    trans_ent *trans;                   /* TRANS() lookup-file cache */
 } store_state;
 
 static void sel_push(store_state *st, int64_t *cap, const char *p,
@@ -719,6 +730,67 @@ int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
         if (pr == 0 && !had) return 0;
     }
     return had;
+}
+
+/* Open (once, then cached) the file TRANS() looks up.  The handle lives for
+   the session so a query does not reopen its target per record. */
+static trans_ent *trans_file(mvx_ctx *ctx, const char *nm, int64_t nl) {
+    store_state *st = state(ctx);
+    for (trans_ent *t = st->trans; t; t = t->next)
+        if (t->nlen == nl && memcmp(t->name, nm, (size_t)nl) == 0) return t;
+    trans_ent *t = calloc(1, sizeof *t);
+    if (!t) mvx_fatal("out of memory in TRANS");
+    if (nl >= (int64_t)sizeof t->name) nl = (int64_t)sizeof t->name - 1;
+    memcpy(t->name, nm, (size_t)nl);
+    t->name[nl] = '\0';
+    t->nlen = nl;
+    mv_value spec;
+    mv_init(&spec);
+    mv_set_str(&spec, nm, nl);
+    mv_init(&t->fvar);
+    t->ok = mvx_open(ctx, NULL, &spec, &t->fvar) ? 1 : 0;
+    mv_clear(&spec);
+    t->next = st->trans;
+    st->trans = t;
+    return t;
+}
+
+/* TRANS(file, key, attr, control): read record `key` from `file` and return
+   its attribute `attr` (attr 0 = the key itself).  A missing record yields
+   the empty string, or the key when control is "C".  The reference (per-
+   record) semantics; #40 pushes it down to a JOIN when co-located. */
+void mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
+               const mv_value *key, const mv_value *attr,
+               const mv_value *control) {
+    char nb[72];
+    const char *np;
+    int64_t nl = mv_val_chars(fname, nb, sizeof nb, &np);
+    char cb[8];
+    const char *cp;
+    int64_t cl = mv_val_chars(control, cb, sizeof cb, &cp);
+    char ctl = cl > 0 ? cp[0] : 'X';
+    int64_t attrno = mv_get_int(attr);
+
+    char kb[64];
+    const char *kp;
+    int64_t kl = mv_val_chars(key, kb, sizeof kb, &kp);
+
+    if (nl > 0 && kl > 0) {
+        trans_ent *t = trans_file(ctx, np, nl);
+        if (t->ok) {
+            mv_value rec;
+            mv_init(&rec);
+            if (mvx_read(ctx, &rec, &t->fvar, key, 0) > 0) {
+                if (attrno <= 0) mv_copy(dst, key);   /* attr 0 -> the key */
+                else mv_extract_fn(dst, &rec, attrno, 0, 0);
+                mv_clear(&rec);
+                return;
+            }
+            mv_clear(&rec);
+        }
+    }
+    if (ctl == 'C') mv_copy(dst, key);   /* missing: return the key */
+    else mv_set_str(dst, "", 0);
 }
 
 /* Returns 0 on success, or -2 on a backend write failure when the caller

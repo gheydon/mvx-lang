@@ -991,6 +991,12 @@ private:
             callRt("mvx_filelist", voidTy_, {ptrTy_, ptrTy_},
                    {ctxArg_, dest});
             return; }
+        if (f == "TRANS" || f == "XLATE") { need(4);
+            callRt("mvx_trans", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
+                    evalPtr(*e.args[2]), evalPtr(*e.args[3])});
+            return; }
         if (f == "@") {
             if (e.args.size() != 1 && e.args.size() != 2)
                 err(e.line, "@() takes 1 or 2 arguments");

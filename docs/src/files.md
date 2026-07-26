@@ -61,6 +61,23 @@ scans a record's comment lines for a docblock annotation `@tag value`
 
 reads program metadata straight out of source docblocks.
 
+**`TRANS(file,keyattr,attr,control)`** is a computed item that follows a
+foreign key: it reads attribute `keyattr` of the record as a key into
+`file` and returns that record's attribute `attr` (`attr` 0 is the key
+itself). A missing target yields the empty string, or the key when
+`control` is `C`. So an `ORDERS` file that keeps a customer id can show and
+filter the customer's own fields:
+
+```
+> LIST ORDERS PRODUCT CUSTNAME CUSTCITY WITH CUSTCITY = "Sydney"
+```
+
+where `CUSTNAME` is `TRANS(CUSTOMERS,1,1,X)`. The same lookup is available to
+programs as the `TRANS(file,key,attr,control)` / `XLATE(...)` function. This
+is the reference (per-record) form — correct on every backend; when the
+source and target files share a SQL backend it will push down to a single
+`JOIN` ([#40](https://github.com/mvx-lang/mvx/issues/40)).
+
 `LIST` and `SELECT` drive columns, filters (`WITH`), and ordering
 (`BY` — numeric when the item's format is right-justified) entirely
 from the dictionary.

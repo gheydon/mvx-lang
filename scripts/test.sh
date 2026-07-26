@@ -244,6 +244,33 @@ check tcl-assoc "$(printf '%s\n' \
   'LIST ORDERS CUSTOMER PRODUCT QTY PRICE' \
   'SORT ORDERS CUSTOMER PRODUCT QTY PRICE' | tclrun)"
 
+# TRANS() foreign-key lookup (#41): a CUSTMASTER file keyed by customer name,
+# and a TRANS I-type on ORDERS that reads the city from it per record. Tests
+# the TRANS()/XLATE() intrinsic, a TRANS I-type column, WITH on it, and the
+# missing-record control codes.
+tseed="$TESTROOT/tseed.b"
+cat > "$tseed" <<'EOF'
+X = CREATEFILE("CUSTMASTER")
+OPEN "CUSTMASTER" TO C ELSE STOP
+WRITE "Sydney":@AM:"NSW" ON C, "Acme Corp"
+WRITE "Melbourne":@AM:"VIC" ON C, "Beta Ltd"
+OPEN "DICT", "ORDERS" TO D ELSE STOP
+WRITE "I":@AM:"TRANS(CUSTMASTER,1,1,X)":@AM:"":@AM:"City":@AM:"12L" ON D, "CITY"
+WRITE "I":@AM:"TRANS(CUSTMASTER,1,2,X)":@AM:"":@AM:"State":@AM:"6L" ON D, "CSTATE"
+OPEN "ORDERS" TO F ELSE STOP
+WRITE "Nobody Inc":@AM:"Orphan" ON F, "O9"
+PRINT "trans-seeded"
+PRINT "intrinsic: ":TRANS("CUSTMASTER", "Beta Ltd", 1, "X")
+PRINT "orphan X: '":TRANS("CUSTMASTER", "Ghost", 1, "X"):"'"
+PRINT "orphan C: '":TRANS("CUSTMASTER", "Ghost", 1, "C"):"'"
+EOF
+"$MVX" "$tseed" -o "$TESTROOT/tseedbin" 2>/dev/null
+check tcl-trans "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/tseedbin"); \
+  printf '%s\n' \
+    'LIST ORDERS CUSTOMER CITY CSTATE BY @ID' \
+    'LIST ORDERS CUSTOMER CITY WITH CSTATE = "VIC"' | tclrun)"
+
 # SQL mapping (#18 phase 1): the dictionary -> relational schema. Single
 # attrs become parent columns; the ORDERITEMS association a child table.
 # First a selective map (QTY omitted), then map-all with the data preview.

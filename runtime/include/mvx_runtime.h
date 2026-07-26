@@ -213,6 +213,10 @@ double  mvx_num_atan(double x);
 /* --- storage (Slice 2) --------------------------------------------------
    File variables carry MV_FILE tag.  All boolean results are int64:
    1 = success/found, 0 = failure/not-found (drives THEN/ELSE).         */
+/* TRANS(file, key, attr, control): foreign-key lookup into another file. */
+void    mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
+                  const mv_value *key, const mv_value *attr,
+                  const mv_value *control);
 int64_t mvx_open(mvx_ctx *ctx, const mv_value *dict, const mv_value *spec,
                  mv_value *fvar);
 int64_t mvx_read(mvx_ctx *ctx, mv_value *rec, const mv_value *fvar,
