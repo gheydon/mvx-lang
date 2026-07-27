@@ -641,6 +641,19 @@ check tcl-account "$(printf '%s\n' \
   'LIST PARTS NAME BY NAME' \
   'CT VOC FOO' | "$TCL" -a "$RTC" 2>&1 | normalise)"
 
+# #71: CREATE-FILE registers the file in the VOC as an "F" file pointer (attr 1
+# F, attr 2 data, attr 3 dictionary), for both directory and lmdb files;
+# DELETE-FILE removes it.
+CFV="$TESTROOT/cfvoc"
+"$ROOT/scripts/mkaccount.sh" "$CFV" >/dev/null
+check tcl-createfile-voc "$(printf '%s\n' \
+  'CREATE-FILE PARTS DIR' \
+  'CREATE-FILE ORDERS' \
+  'CT VOC PARTS' \
+  'CT VOC ORDERS' \
+  'DELETE-FILE ORDERS' \
+  'CT VOC ORDERS' | "$TCL" -a "$CFV" 2>&1 | normalise)"
+
 # %FILE%-driven type: on import each file is rebuilt as the backend its
 # dictionary's %FILE% names - a hash file for ORDERS, a directory file
 # for ARCHIVE.

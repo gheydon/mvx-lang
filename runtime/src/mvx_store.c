@@ -2913,6 +2913,74 @@ static void write_file_meta(const mvx_driver *drv, const char *dictspec,
     drv->close(d);
 }
 
+/* Register a newly created file in the account's VOC as a file pointer, so
+   every MV file is discoverable there (#71) alongside its dictionary.  The
+   record is the classic "F" file-defining item — attr 1 "F", attr 2 the data
+   location, attr 3 the dictionary location (by name; MVX resolves files by
+   name through the driver).  Skips the master dictionary itself and bare
+   dictionaries (a file's own VOC item already covers its dictionary), never
+   clobbers an existing VOC record, and is a silent no-op before the VOC exists
+   (the bootstrap CREATE-FILE VOC). */
+static void voc_register(const char *name) {
+    size_t nl = strlen(name);
+    if (strcmp(name, "VOC") == 0 || strcmp(name, "MD") == 0) return;
+    if (nl > 5 && strcmp(name + nl - 5, ".DICT") == 0) return;
+
+    char vspec[1152];
+    const mvx_driver *drv = resolve("VOC", 0, vspec, sizeof vspec);
+    char err[256] = "";
+    mvx_file *v = drv->open(vspec, err, sizeof err);
+    if (!v) return;
+
+    mv_value existing;
+    mv_init(&existing);
+    if (drv->read(v, name, (int64_t)nl, &existing)) {   /* already present */
+        mv_clear(&existing);
+        drv->close(v);
+        return;
+    }
+    mv_clear(&existing);
+
+    char rec[600];
+    size_t n = 0;
+    rec[n++] = 'F';
+    rec[n++] = (char)0xFE;                 /* attribute mark */
+    memcpy(rec + n, name, nl); n += nl;
+    rec[n++] = (char)0xFE;
+    memcpy(rec + n, name, nl); n += nl;
+    memcpy(rec + n, ".DICT", 5); n += 5;
+
+    mv_value rv;
+    mv_init(&rv);
+    mv_set_str(&rv, rec, (int64_t)n);
+    drv->write(v, name, (int64_t)nl, &rv);
+    mv_clear(&rv);
+    drv->close(v);
+}
+
+/* Remove a file's VOC pointer on DELETE-FILE — but only if the record is in
+   fact a file pointer (attr 1 == "F"), never a verb that happens to share the
+   name. */
+static void voc_unregister(const char *name) {
+    size_t nl = strlen(name);
+    char vspec[1152];
+    const mvx_driver *drv = resolve("VOC", 0, vspec, sizeof vspec);
+    char err[256] = "";
+    mvx_file *v = drv->open(vspec, err, sizeof err);
+    if (!v) return;
+    mv_value rec;
+    mv_init(&rec);
+    if (drv->read(v, name, (int64_t)nl, &rec)) {
+        char nb[40];
+        const char *p;
+        int64_t len = mv_val_chars(&rec, nb, sizeof nb, &p);
+        if (len >= 1 && p[0] == 'F' && (len == 1 || p[1] == (char)0xFE))
+            drv->del(v, name, (int64_t)nl);
+    }
+    mv_clear(&rec);
+    drv->close(v);
+}
+
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type) {
     (void)ctx;
@@ -2965,6 +3033,7 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
             return 0;
         }
         write_file_meta(drv, dictspec, drvname, ap);
+        voc_register(cspec);
         return 1;
     }
 
@@ -2982,6 +3051,7 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
             return 0;
         }
         write_file_meta(drv, dspec, "dir", "");
+        voc_register(cspec);
         return 1;
     }
 
@@ -2996,6 +3066,7 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
         return 0;
     }
     write_file_meta(drv, dictspec, "lmdb", "");
+    voc_register(cspec);
     return 1;
 }
 
@@ -3010,6 +3081,9 @@ int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec) {
     drv->remove(dspec, err, sizeof err);        /* dict first, may be absent */
     resolve(cspec, 0, rspec, sizeof rspec);
     int64_t r = drv->remove(rspec, err, sizeof err);
-    if (r) binding_remove(cspec);           /* binding dies with it */
+    if (r) {
+        binding_remove(cspec);              /* binding dies with it */
+        voc_unregister(cspec);              /* and its VOC file pointer (#71) */
+    }
     return r;
 }

@@ -1,0 +1,12 @@
+[417] file PARTS created
+[417] file ORDERS created
+PARTS
+001 F
+002 PARTS
+003 PARTS.DICT
+ORDERS
+001 F
+002 ORDERS
+003 ORDERS.DICT
+[418] file ORDERS deleted
+ORDERS not on file
