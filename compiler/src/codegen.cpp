@@ -1031,6 +1031,11 @@ private:
                    {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]),
                     evalPtr(*e.args[2]), evalPtr(*e.args[3])});
             return; }
+        if (f == "IEVAL") { need(2);
+            callRt("mvx_ieval", voidTy_,
+                   {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0]), evalPtr(*e.args[1])});
+            return; }
         if (f == "QUERYSUM") { need(6);
             callRt("mvx_querysum", voidTy_,
                    {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_,

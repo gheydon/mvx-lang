@@ -1,0 +1,15 @@
+flat   : Acme
+nested : North
+nestmv : North/South
+orphan : ''
+ieval  : North
+@ID          Product    Customer   Region  
+O1           Widget     Acme       North   
+O2           Gadget     Beta       South   
+O3           Orphan                        
+3 record(s) listed
+@ID          Product    Region  
+O3           Orphan             
+O1           Widget     North   
+O2           Gadget     South   
+3 record(s) listed

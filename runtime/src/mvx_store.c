@@ -153,6 +153,8 @@ typedef struct trans_ent {
     int64_t nlen;
     mv_value fvar;                      /* MV_FILE handle, or unopened */
     int ok;
+    mv_value dfvar;                     /* the file's DICT handle (lazy) */
+    int dok;                            /* 0 untried, 1 open, -1 failed */
     struct trans_ent *next;
 } trans_ent;
 
@@ -756,31 +758,174 @@ static trans_ent *trans_file(mvx_ctx *ctx, const char *nm, int64_t nl) {
     return t;
 }
 
-/* TRANS(file, key, attr, control): read record `key` from `file` and return
-   its attribute `attr` (attr 0 = the key itself).  A missing record yields
-   the empty string, or the key when control is "C".  The reference (per-
-   record) semantics; #40 pushes it down to a JOIN when co-located. */
-void mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
-               const mv_value *key, const mv_value *attr,
-               const mv_value *control) {
-    char nb[72];
-    const char *np;
-    int64_t nl = mv_val_chars(fname, nb, sizeof nb, &np);
-    char cb[8];
-    const char *cp;
-    int64_t cl = mv_val_chars(control, cb, sizeof cb, &cp);
-    char ctl = cl > 0 ? cp[0] : 'X';
-    int64_t attrno = mv_get_int(attr);
+/* --- runtime I-type evaluator (#63) ----------------------------------------
+   I-type descriptors (TRANS, DOCTAG) are evaluated here rather than only in the
+   verbs, so a TRANS whose target names a dictionary item (a *nested* TRANS,
+   #53a) resolves recursively.  ieval / dict_eval / trans_core are mutually
+   recursive; a depth cap stops a self-referential dictionary looping. */
+#define IEVAL_MAXDEPTH 16
 
+static void ieval(mvx_ctx *ctx, mv_value *dst, const mv_value *rec,
+                  const char *sp, int64_t sl, int depth);
+static void trans_core(mvx_ctx *ctx, mv_value *dst, const char *np, int64_t nl,
+                       const mv_value *key, const char *attr, int64_t attrl,
+                       char ctl, int depth);
+
+/* Open (lazily, cached) the DICT of a TRANS lookup file. */
+static int trans_dict(mvx_ctx *ctx, trans_ent *t) {
+    if (t->dok == 0) {
+        mv_value dictv, fname;
+        mv_init(&dictv);
+        mv_set_str(&dictv, "DICT", 4);
+        mv_init(&fname);
+        mv_set_str(&fname, t->name, t->nlen);
+        mv_init(&t->dfvar);
+        t->dok = mvx_open(ctx, &dictv, &fname, &t->dfvar) ? 1 : -1;
+        mv_clear(&dictv);
+        mv_clear(&fname);
+    }
+    return t->dok > 0;
+}
+
+/* DOCTAG(tag): the value after "@tag " on the first comment line (* or !). */
+static void ieval_doctag(mv_value *dst, const mv_value *rec, const char *tag,
+                         int64_t tlen) {
+    mv_set_str(dst, "", 0);
+    if (tlen >= 2 && (tag[0] == '\'' || tag[0] == '"') && tag[tlen - 1] == tag[0]) {
+        tag++;
+        tlen -= 2;
+    }
+    if (tlen <= 0 || tlen > 200) return;
+    char pat[204];
+    pat[0] = '@';
+    memcpy(pat + 1, tag, (size_t)tlen);
+    pat[tlen + 1] = ' ';
+    size_t patlen = (size_t)tlen + 2;
+    char nb[40];
+    const char *rp;
+    int64_t rl = mv_val_chars(rec, nb, sizeof nb, &rp);
+    const char *p = rp, *end = rp + rl;
+    while (p <= end) {
+        const char *am = memchr(p, '\xFE', (size_t)(end - p));
+        const char *le = am ? am : end;
+        const char *ls = p;
+        while (ls < le && (*ls == ' ' || *ls == '\t')) ls++;
+        if (ls < le && (*ls == '*' || *ls == '!')) {
+            const char *hit = memmem(ls, (size_t)(le - ls), pat, patlen);
+            if (hit) {
+                const char *vs = hit + patlen;
+                while (vs < le && (*vs == ' ' || *vs == '\t')) vs++;
+                const char *vend = le;
+                while (vend > vs && (vend[-1] == ' ' || vend[-1] == '\t')) vend--;
+                mv_set_str(dst, vs, vend - vs);
+                return;
+            }
+        }
+        if (!am) break;
+        p = am + 1;
+    }
+}
+
+/* Resolve dictionary item `item` of lookup file `t` against target record
+   `rec` (id `id` for an @ID/attr-0 item): a D-type yields the attribute, an
+   I-type is evaluated (recursively). */
+static void dict_eval(mvx_ctx *ctx, mv_value *dst, trans_ent *t,
+                      const char *item, int64_t ilen, const mv_value *rec,
+                      const mv_value *id, int depth) {
+    mv_set_str(dst, "", 0);
+    if (depth >= IEVAL_MAXDEPTH || !t || !trans_dict(ctx, t)) return;
+    mv_value key, di;
+    mv_init(&key);
+    mv_init(&di);
+    mv_set_str(&key, item, ilen);
+    if (mvx_read(ctx, &di, &t->dfvar, &key, 0) > 0) {
+        mv_value ty;
+        mv_init(&ty);
+        mv_extract_fn(&ty, &di, 1, 0, 0);
+        char tb[8];
+        const char *tp;
+        int64_t tl = mv_val_chars(&ty, tb, sizeof tb, &tp);
+        if (tl > 0 && (tp[0] == 'I' || tp[0] == 'i')) {
+            mv_value spec;
+            mv_init(&spec);
+            mv_extract_fn(&spec, &di, 2, 0, 0);
+            char sbf[256];
+            const char *sp;
+            int64_t sl = mv_val_chars(&spec, sbf, sizeof sbf, &sp);
+            ieval(ctx, dst, rec, sp, sl, depth + 1);
+            mv_clear(&spec);
+        } else {
+            mv_value amc;
+            mv_init(&amc);
+            mv_extract_fn(&amc, &di, 2, 0, 0);
+            int64_t ano = mv_get_int(&amc);
+            if (ano >= 1) mv_extract_fn(dst, rec, ano, 0, 0);
+            else if (id) mv_copy(dst, id);      /* @ID / attr 0 -> the key */
+            mv_clear(&amc);
+        }
+        mv_clear(&ty);
+    }
+    mv_clear(&key);
+    mv_clear(&di);
+}
+
+/* Evaluate an I-descriptor `sp[0..sl)` against record `rec`. */
+static void ieval(mvx_ctx *ctx, mv_value *dst, const mv_value *rec,
+                  const char *sp, int64_t sl, int depth) {
+    mv_set_str(dst, "", 0);
+    if (depth >= IEVAL_MAXDEPTH || sl < 8 || sp[sl - 1] != ')') return;
+    if (sl >= 9 && strncmp(sp, "DOCTAG(", 7) == 0) {
+        ieval_doctag(dst, rec, sp + 7, sl - 8);
+        return;
+    }
+    if (strncmp(sp, "TRANS(", 6) == 0) {
+        char inner[256];
+        int64_t il = sl - 7;                    /* between "TRANS(" and ")" */
+        if (il <= 0 || il >= (int64_t)sizeof inner) return;
+        memcpy(inner, sp + 6, (size_t)il);
+        inner[il] = '\0';
+        char *parts[4] = {inner, NULL, NULL, NULL};
+        int np = 0;
+        for (char *q = inner; *q; q++)
+            if (*q == ',') { *q = '\0'; if (++np < 4) parts[np] = q + 1; }
+        if (np < 2) return;
+        int64_t keyattr = parts[1] ? strtoll(parts[1], NULL, 10) : 0;
+        const char *tat = parts[2] ? parts[2] : "";
+        char ctl = (parts[3] && parts[3][0]) ? parts[3][0] : 'X';
+        mv_value kv;
+        mv_init(&kv);
+        mv_extract_fn(&kv, rec, keyattr, 0, 0);       /* key = current<keyattr> */
+        trans_core(ctx, dst, parts[0], (int64_t)strlen(parts[0]), &kv, tat,
+                   (int64_t)strlen(tat), ctl, depth);
+        mv_clear(&kv);
+    }
+}
+
+/* Is [s,n) a decimal integer (an attribute number) rather than a dict-item
+   name?  An empty target is attr 0. */
+static int attr_is_numeric(const char *s, int64_t n) {
+    if (n == 0) return 1;
+    int64_t i = (s[0] == '-') ? 1 : 0;
+    if (i == n) return 0;
+    for (; i < n; i++)
+        if (s[i] < '0' || s[i] > '9') return 0;
+    return 1;
+}
+
+/* The guts of TRANS: look up each @VM element of `key` in `file` and take
+   target attribute `attr` — a number (classic, a raw attribute) or a dict-item
+   name evaluated through the target's dictionary (nested, #53a).  Results are
+   rejoined with @VM; a miss is "" ('X') or the key ('C'). */
+static void trans_core(mvx_ctx *ctx, mv_value *dst, const char *np, int64_t nl,
+                       const mv_value *key, const char *attr, int64_t attrl,
+                       char ctl, int depth) {
+    int numeric = attr_is_numeric(attr, attrl);
+    int64_t attrno = numeric ? strtoll(attr, NULL, 10) : 0;
     char kb[64];
     const char *kp;
     int64_t kl = mv_val_chars(key, kb, sizeof kb, &kp);
-
     trans_ent *t = (nl > 0) ? trans_file(ctx, np, nl) : NULL;
 
-    /* Classic TRANS maps element-wise over a multivalued key: translate each
-       value and rejoin the results with @VM.  A single-valued key is the
-       degenerate one-element case. */
     char *buf = NULL;
     size_t len = 0, cap = 0;
     const char *p = kp, *end = kp + kl;
@@ -799,8 +944,12 @@ void mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
             mv_init(&rec);
             mv_set_str(&kv, p, vlen);
             if (mvx_read(ctx, &rec, &t->fvar, &kv, 0) > 0) {
-                if (attrno <= 0) mv_set_str(&one, p, vlen);   /* attr 0 -> key */
-                else mv_extract_fn(&one, &rec, attrno, 0, 0);
+                if (numeric) {
+                    if (attrno <= 0) mv_set_str(&one, p, vlen);  /* attr 0 -> key */
+                    else mv_extract_fn(&one, &rec, attrno, 0, 0);
+                } else {
+                    dict_eval(ctx, &one, t, attr, attrl, &rec, &kv, depth);
+                }
                 got = 1;
             }
             mv_clear(&rec);
@@ -833,6 +982,41 @@ void mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
     }
     mv_set_str(dst, buf ? buf : "", (int64_t)len);
     free(buf);
+}
+
+/* TRANS(file, key, attr, control): read record `key` from `file` and return
+   its attribute `attr` (a number, or a dict-item name for a nested lookup;
+   attr 0 = the key itself).  A missing record yields the empty string, or the
+   key when control is "C".  The reference (per-record) semantics; #40/#53
+   push it down to a JOIN when co-located and the target is a plain attribute. */
+void mvx_trans(mvx_ctx *ctx, mv_value *dst, const mv_value *fname,
+               const mv_value *key, const mv_value *attr,
+               const mv_value *control) {
+    char nb[72];
+    const char *np;
+    int64_t nl = mv_val_chars(fname, nb, sizeof nb, &np);
+    char cb[8];
+    const char *cp;
+    int64_t cl = mv_val_chars(control, cb, sizeof cb, &cp);
+    char ctl = cl > 0 ? cp[0] : 'X';
+    char ab[64];
+    const char *ap;
+    int64_t al = mv_val_chars(attr, ab, sizeof ab, &ap);
+    char abuf[64];
+    if (al >= (int64_t)sizeof abuf) al = (int64_t)sizeof abuf - 1;
+    memcpy(abuf, ap, (size_t)al);
+    abuf[al] = '\0';
+    trans_core(ctx, dst, np, nl, key, abuf, al, ctl, 0);
+}
+
+/* IEVAL(rec, ispec): evaluate an I-descriptor against a record — the runtime
+   evaluator exposed to the verbs (and to programs).  "" for an unknown spec. */
+void mvx_ieval(mvx_ctx *ctx, mv_value *dst, const mv_value *rec,
+               const mv_value *spec) {
+    char sb[256];
+    const char *sp;
+    int64_t sl = mv_val_chars(spec, sb, sizeof sb, &sp);
+    ieval(ctx, dst, rec, sp, sl, 0);
 }
 
 /* Returns 0 on success, or -2 on a backend write failure when the caller

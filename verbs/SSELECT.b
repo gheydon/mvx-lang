@@ -205,9 +205,7 @@ UNTIL DONE DO
          CASE WANOS<K> = 0
             RV = ID
          CASE WANOS<K> = -1
-            ISPEC = WSPECS<K>
-            GOSUB 9000
-            RV = IV
+            RV = IEVAL(R, WSPECS<K>)
          CASE 1
             RV = R<WANOS<K>>
          END CASE
@@ -236,9 +234,7 @@ UNTIL DONE DO
       CASE BANO = 0
          K = ID
       CASE BANO = -1
-         ISPEC = BSPEC
-         GOSUB 9000
-         K = IV
+         K = IEVAL(R, BSPEC)
       CASE 1
          K = R<BANO>
       END CASE
@@ -255,39 +251,3 @@ FORMLIST IDS
 PRINT DCOUNT(IDS, @AM):" record(s) selected"
 STOP
 
-* ---- I-descriptor evaluation (see LIST) --------------------------------
-9000 IV = ""
-IF ISPEC[1, 7] = "DOCTAG(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
-   TAG = ISPEC[8, LEN(ISPEC) - 8]
-   IF LEN(TAG) >= 2 THEN
-      TQ = TAG[1, 1]
-      IF TQ = "'" OR TQ = '"' THEN
-         TAG = TAG[2, LEN(TAG) - 2]
-      END
-   END
-   NA = DCOUNT(R, @AM)
-   FOR IL = 1 TO NA
-      LN = TRIM(R<IL>)
-      IF LN[1, 1] = "*" OR LN[1, 1] = "!" THEN
-         IP = INDEX(LN, "@":TAG:" ", 1)
-         IF IP > 0 THEN
-            IV = TRIM(LN[IP + LEN(TAG) + 2, LEN(LN)])
-            GOTO 9090
-         END
-      END
-   NEXT IL
-END
-* TRANS(file,keyattr,attr,control) — foreign-key lookup: read R<keyattr> as
-* the key into `file` and return its attribute `attr` (the reference,
-* per-record; #40/#53 push this down to a JOIN when co-located).
-IF ISPEC[1, 6] = "TRANS(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
-   TARGS = ISPEC[7, LEN(ISPEC) - 7]
-   TFILE = FIELD(TARGS, ",", 1)
-   TKA = FIELD(TARGS, ",", 2)
-   TAT = FIELD(TARGS, ",", 3)
-   TCT = FIELD(TARGS, ",", 4)
-   IF TCT = "" THEN TCT = "X"
-   IV = TRANS(TFILE, R<TKA>, TAT, TCT)
-   GOTO 9090
-END
-9090 RETURN

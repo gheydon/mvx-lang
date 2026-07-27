@@ -343,3 +343,19 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
 - **Driver**: `mvx-basic -c prog.b -o prog.o` (object), `mvx-basic prog.b -o prog`
   (compile+link executable), `mvx-basic -shared sub.b -o libsub.dylib`.
   Errors to stderr as `item:line: message`.
+- **I-type evaluation is a runtime primitive** (#63): `TRANS`/`DOCTAG`
+  descriptors are evaluated in the runtime (`mvx_ieval` / `mvx_dict_eval`,
+  exposed to BASIC as `IEVAL(rec, ispec)`), and the query verbs
+  (LIST/SELECT/SORT/SSELECT) call it instead of each carrying a duplicate
+  evaluator — one evaluator, no drift.
+- **Nested TRANS is an MVX extension beyond classic R83.** Classic `TRANS`
+  takes a numeric attribute and returns a *raw* attribute; chaining was done
+  with further correlatives. MVX additionally lets the target argument name a
+  **dictionary item** in the target file, which is evaluated through that
+  file's dictionary — so if it is itself an I-type it recurses
+  (`TRANS(CUST,1,REGIONNAME,X)` where `REGIONNAME` is another `TRANS`). A
+  numeric target keeps the exact classic behaviour, so this is purely
+  additive; a depth cap stops a self-referential dictionary looping. This is
+  the one place the "classic is the tie-breaker" rule is deliberately
+  extended, because the classic form (a bare attribute number) cannot express
+  a chained lookup at all.

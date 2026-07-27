@@ -302,6 +302,48 @@ check tcl-sorttrans "$(printf '%s\n' \
   'SSELECT TORD BY CITY' \
   'LIST TORD CITY' | tclrun)"
 
+# Nested TRANS (#63): a TRANS whose target names a dict item recurses through
+# the target file's dictionary. Chain NORD -> NCUST -> NREGION: NORD.CUSTREGION
+# = TRANS(NCUST,1,REGIONNAME,X) and NCUST.REGIONNAME = TRANS(NREGION,2,1,X), so
+# an order resolves to its customer's region. Covers the TRANS()/IEVAL runtime
+# evaluator and a nested TRANS column through the verbs (a multivalued key maps
+# element-wise, an orphan is blank). Own local files.
+nnest="$TESTROOT/nnest.b"
+cat > "$nnest" <<'EOF'
+X = CREATEFILE("NREGION")
+X = CREATEFILE("NCUST")
+X = CREATEFILE("NORD")
+OPEN "NREGION" TO RG ELSE STOP
+WRITE "North" ON RG, "R1"
+WRITE "South" ON RG, "R2"
+OPEN "NCUST" TO CU ELSE STOP
+WRITE "Acme":@AM:"R1" ON CU, "C1"
+WRITE "Beta":@AM:"R2" ON CU, "C2"
+OPEN "NORD" TO ND ELSE STOP
+WRITE "C1":@AM:"Widget" ON ND, "O1"
+WRITE "C2":@AM:"Gadget" ON ND, "O2"
+WRITE "C9":@AM:"Orphan" ON ND, "O3"
+OPEN "DICT", "NCUST" TO DCU ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"10L" ON DCU, "NAME"
+WRITE "I":@AM:"TRANS(NREGION,2,1,X)":@AM:"":@AM:"Region":@AM:"8L" ON DCU, "REGIONNAME"
+OPEN "DICT", "NORD" TO DND ELSE STOP
+WRITE "D":@AM:"2":@AM:"":@AM:"Product":@AM:"10L" ON DND, "PRODUCT"
+WRITE "I":@AM:"TRANS(NCUST,1,1,X)":@AM:"":@AM:"Customer":@AM:"10L" ON DND, "CUSTNAME"
+WRITE "I":@AM:"TRANS(NCUST,1,REGIONNAME,X)":@AM:"":@AM:"Region":@AM:"8L" ON DND, "CUSTREGION"
+PRINT "flat   : ":TRANS("NCUST", "C1", 1, "X")
+PRINT "nested : ":TRANS("NCUST", "C1", "REGIONNAME", "X")
+PRINT "nestmv : ":CHANGE(TRANS("NCUST", "C1":@VM:"C2", "REGIONNAME", "X"), @VM, "/")
+PRINT "orphan : '":TRANS("NCUST", "C9", "REGIONNAME", "X"):"'"
+READ ROW FROM ND, "O1" ELSE STOP
+PRINT "ieval  : ":IEVAL(ROW, "TRANS(NCUST,1,REGIONNAME,X)")
+EOF
+"$MVX" "$nnest" -o "$TESTROOT/nnestbin" 2>/dev/null
+check tcl-transnest "$( \
+  (cd "$ACCT" && MVXACCOUNT=. "$TESTROOT/nnestbin"); \
+  printf '%s\n' \
+    'LIST NORD PRODUCT CUSTNAME CUSTREGION BY @ID' \
+    'SORT NORD PRODUCT CUSTREGION BY CUSTREGION' | tclrun)"
+
 # JSON encode/decode (#24): the shared mapper + MAPFIELD build a mapping,
 # JSONENCODE renders the record (single attrs -> scalar keys, an association ->
 # array of objects; NUMERIC via MD2 unquoted, an absent value null), JSONDECODE
