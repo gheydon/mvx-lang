@@ -992,8 +992,19 @@ private:
             callRt("mv_str_fn", voidTy_, {ptrTy_, ptrTy_, i64Ty_},
                    {dest, evalPtr(*e.args[0]), numIndex(*e.args[1])});
             return; }
-        if (f == "TRIM") { need(1);
-            call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
+        if (f == "TRIM") {
+            if (e.args.size() == 1) {
+                call2("mv_trim_fn", dest, evalPtr(*e.args[0]));
+            } else if (e.args.size() == 2 || e.args.size() == 3) {
+                Value *opt = e.args.size() == 3
+                                 ? evalPtr(*e.args[2])
+                                 : (Value *)ConstantPointerNull::get(ptrTy_);
+                callRt("mv_trim_opt", voidTy_,
+                       {ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                       {dest, evalPtr(*e.args[0]), evalPtr(*e.args[1]), opt});
+            } else {
+                err(e.line, "TRIM() takes 1 to 3 arguments");
+            }
             return; }
         if (f == "TRIMB") { need(1);
             call2("mv_trimb_fn", dest, evalPtr(*e.args[0]));

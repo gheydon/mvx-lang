@@ -398,6 +398,19 @@ else
   echo "  (http test skipped — python3 not found)"
 fi
 
+# TRIM(str, char[, option]) (#69): the character-trimming variants.
+trimsrc="$TESTROOT/trim.b"
+cat > "$trimsrc" <<'EOF'
+PRINT "[":TRIM("  a  b  "):"]"                ;* classic squeeze
+PRINT "[":TRIM("xxaxxbxx", "x"):"]"           ;* R (default)
+PRINT "[":TRIM("xxaxxbxx", "x", "L"):"]"      ;* leading
+PRINT "[":TRIM("xxaxxbxx", "x", "T"):"]"      ;* trailing
+PRINT "[":TRIM("xxaxxbxx", "x", "B"):"]"      ;* both ends
+PRINT "[":TRIM("xxaxxbxx", "x", "A"):"]"      ;* all
+EOF
+"$MVX" "$trimsrc" -o "$TESTROOT/trimbin" 2>/dev/null
+check tcl-trim "$("$TESTROOT/trimbin")"
+
 # JSON verb (#24): MAPSPEC derives the mapping from the file's dictionary, and
 # the verb prepends the record id.  Local LMDB dicted file with an ITEMS assoc.
 jvseed="$TESTROOT/jvseed.b"

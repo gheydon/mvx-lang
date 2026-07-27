@@ -126,6 +126,8 @@ void    mv_change_fn(mv_value *dst, const mv_value *src,
                      const mv_value *oldv, const mv_value *newv);
 void    mv_trimb_fn(mv_value *dst, const mv_value *src);
 void    mv_trimf_fn(mv_value *dst, const mv_value *src);
+void    mv_trim_opt(mv_value *dst, const mv_value *src, const mv_value *charv,
+                    const mv_value *optv);
 void    mv_convert_fn(mv_value *dst, const mv_value *fromv,
                       const mv_value *tov, const mv_value *src);
 int64_t mv_alpha_fn(const mv_value *src);

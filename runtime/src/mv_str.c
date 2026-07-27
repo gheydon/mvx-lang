@@ -242,6 +242,56 @@ void mv_trimf_fn(mv_value *dst, const mv_value *src) {
     mv_set_str(dst, s.p + i, s.len - i);
 }
 
+/* TRIM(str, char [, option]) — trim a specific character (UniVerse/UniData
+   signature).  `charv`'s first byte is the target (empty ⇒ space).  `optv`
+   selects the variant (case-insensitive; NULL ⇒ default "R"):
+     L leading   T trailing   B both ends   A all   R both ends + squeeze
+   F/E are accepted as aliases for L/T. */
+void mv_trim_opt(mv_value *dst, const mv_value *src, const mv_value *charv,
+                 const mv_value *optv) {
+    char nb[40], cb[40], ob[40];
+    span s = val_span(src, nb, sizeof nb);
+    span cs = val_span(charv, cb, sizeof cb);
+    char tc = cs.len > 0 ? cs.p[0] : ' ';
+    char opt = 'R';
+    if (optv) {
+        span os = val_span(optv, ob, sizeof ob);
+        if (os.len > 0) {
+            opt = os.p[0];
+            if (opt >= 'a' && opt <= 'z') opt = (char)(opt - 'a' + 'A');
+        }
+    }
+    if (opt == 'F') opt = 'L';
+    if (opt == 'E') opt = 'T';
+
+    int64_t lo = 0, hi = s.len;                       /* [lo,hi) window */
+    if (opt == 'L' || opt == 'B' || opt == 'R')
+        while (lo < hi && s.p[lo] == tc) lo++;
+    if (opt == 'T' || opt == 'B' || opt == 'R')
+        while (hi > lo && s.p[hi - 1] == tc) hi--;
+
+    if (opt == 'A' || opt == 'R') {
+        /* A: drop every tc.  R: collapse embedded runs of tc to one. */
+        char *buf = malloc(s.len ? (size_t)s.len : 1);
+        if (!buf) mvx_fatal("out of memory in TRIM");
+        int64_t out = 0, pending = 0;
+        int64_t from = opt == 'A' ? 0 : lo, to = opt == 'A' ? s.len : hi;
+        for (int64_t i = from; i < to; i++) {
+            char c = s.p[i];
+            if (c == tc) {
+                if (opt == 'R' && out > 0) pending = 1;   /* squeeze */
+            } else {
+                if (pending) { buf[out++] = tc; pending = 0; }
+                buf[out++] = c;
+            }
+        }
+        mv_set_str(dst, buf, out);
+        free(buf);
+        return;
+    }
+    mv_set_str(dst, s.p + lo, hi - lo);
+}
+
 /* CONVERT(from, to, str) — translate each character of str: a char found
  * at position i of `from` becomes to[i], or is deleted when `to` is
  * shorter; characters not in `from` pass through unchanged. */
