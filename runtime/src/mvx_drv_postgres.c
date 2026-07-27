@@ -970,10 +970,17 @@ static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk,
                  qs ? qs : "\"\"", (long long)ta);
         if (qs) PQfreemem(qs);
     }
+    /* The source key may be multivalued (@VM-separated); classic TRANS maps
+       element-wise, so a record matches when ANY of its key values points at a
+       target row satisfying the filter.  Split the key on @VM (chr 253) and
+       match any element — a single-valued key is a one-element array, so this
+       is identical for the scalar case.  DISTINCT collapses a source record
+       that matches through more than one of its key values. */
     char sql[1600];
     snprintf(sql, sizeof sql,
-             "SELECT s.id FROM %s s JOIN %s t "
-             "ON convert_from(t.id,'LATIN1') = %s WHERE %s = $1",
+             "SELECT DISTINCT s.id FROM %s s JOIN %s t "
+             "ON convert_from(t.id,'LATIN1') = "
+             "ANY(string_to_array(%s, chr(253))) WHERE %s = $1",
              sqt, tqt, skexpr, taexpr);
     const char *pv[1] = {val};
     int pl[1] = {(int)vlen}, pf[1] = {0};

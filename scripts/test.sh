@@ -1052,8 +1052,8 @@ if [ -n "${MVX_PG:-}" ]; then
   # with source and target co-located on the same Postgres, compiles to one
   # JOIN — the filter runs server-side, only matching ids return. Result must
   # equal the per-record reference (verified by the same query on both).
-  printf 'ORDJ @pgtest\nCUSJ @pgtest\n' >> "$PGACCT/BINDINGS"
-  for jf in ORDJ CUSJ; do
+  printf 'ORDJ @pgtest\nCUSJ @pgtest\nORDJMV @pgtest\n' >> "$PGACCT/BINDINGS"
+  for jf in ORDJ CUSJ ORDJMV; do
     "$TCL" -a "$PGACCT" -c "DELETE-FILE $jf" >/dev/null 2>&1
     "$TCL" -a "$PGACCT" -c "CREATE-FILE $jf USING @pgtest" >/dev/null 2>&1
   done
@@ -1088,6 +1088,27 @@ JDEOF
     "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Melbourne" BY @ID' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'CREATE-MAP CUSJ NAME CITY' >/dev/null 2>&1; \
     "$TCL" -a "$PGACCT" -c 'LIST ORDJ PRODUCT CITY WITH CITY = "Sydney" BY @ID' 2>&1)"
+
+  # TRANS() JOIN with a multivalued key (#53): classic TRANS maps element-wise
+  # over a multivalued foreign key, so the pushed-down JOIN must match a record
+  # when ANY of its key values points at a target row satisfying the filter
+  # (unnest the key on @VM).  M2's key is C1@VM C2 -> Sydney AND Melbourne; a
+  # scalar JOIN would match neither.  CUSJ is mapped (above) so the join uses
+  # the CITY column.
+  cat > "$TESTROOT/pgjnmv.b" <<'MVEOF'
+OPEN "ORDJMV" TO O ELSE STOP
+WRITE "C1":@AM:"Single" ON O, "M1"
+WRITE "C1":@VM:"C2":@AM:"Multi" ON O, "M2"
+OPEN "DICT", "ORDJMV" TO D ELSE STOP
+WRITE "D":@AM:"2":@AM:"":@AM:"Product":@AM:"10L" ON D, "PRODUCT"
+WRITE "I":@AM:"TRANS(CUSJ,1,2,X)":@AM:"":@AM:"City":@AM:"10L" ON D, "CITY"
+MVEOF
+  "$MVX" "$TESTROOT/pgjnmv.b" -o "$TESTROOT/pgjnmvbin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgjnmvbin")
+  # Sydney -> M1 (C1) + M2 (C1) = 2; Melbourne -> M2 (C2) = 1.
+  check tcl-transjoinmv "$( \
+    "$TCL" -a "$PGACCT" -c 'SELECT ORDJMV WITH CITY = "Sydney"' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SELECT ORDJMV WITH CITY = "Melbourne"' 2>&1)"
 
   # COUNT push-down (#45): count(*) server-side, filtered by a mapped column
   # or the raw blob attribute — one number back, no id stream. ORDJ has
