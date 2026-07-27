@@ -16,7 +16,11 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${1:?usage: mkpkg.sh <package-directory>}"
 
-[ -d "$PKG/BP" ] || { echo "mkpkg: $PKG has no BP source directory" >&2; exit 1; }
+# A package has BASIC source (BP/) and/or a native language extension (NATIVE,
+# e.g. the http package: functions only, no BP programs).
+[ -d "$PKG/BP" ] || [ -f "$PKG/NATIVE" ] || {
+  echo "mkpkg: $PKG has neither a BP source directory nor a NATIVE manifest" >&2
+  exit 1; }
 # A subroutine-only package has an empty VOC; git does not track empty
 # directories, so recreate it here rather than failing a fresh checkout.
 mkdir -p "$PKG/VOC"

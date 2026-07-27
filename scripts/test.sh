@@ -371,6 +371,33 @@ EOF
 "$MVX" "$jsonsrc" -o "$TESTROOT/jsonbin" 2>/dev/null
 check tcl-json "$("$TESTROOT/jsonbin")"
 
+# http extension package (#68): HTTPGET / HTTPGETFILE against a throwaway local
+# server.  Needs python3 for the server; skipped where absent.
+if command -v python3 >/dev/null 2>&1; then
+  HSRV="$TESTROOT/httpsrv"; mkdir -p "$HSRV"
+  printf 'hello from mvx http' > "$HSRV/hello.txt"
+  # Let the OS pick a free port, so a leftover server from an aborted run can
+  # never make us bind-fail (and then answer 404 from a since-deleted dir).
+  HPORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+  python3 -m http.server "$HPORT" --directory "$HSRV" >/dev/null 2>&1 &
+  HPID=$!
+  sleep 1
+  HDL="$TESTROOT/http.dl"
+  httpsrc="$TESTROOT/http.b"
+  cat > "$httpsrc" <<EOF
+X = HTTPGET("http://127.0.0.1:$HPORT/hello.txt")
+PRINT "get: [":X:"] len=":LEN(X)
+S = HTTPGETFILE("http://127.0.0.1:$HPORT/hello.txt", "$HDL")
+PRINT "getfile status=":S
+PRINT "missing len=":LEN(HTTPGET("http://127.0.0.1:$HPORT/nope"))
+EOF
+  "$MVX" "$httpsrc" -o "$TESTROOT/httpbin" 2>/dev/null
+  check tcl-http "$("$TESTROOT/httpbin"; echo "downloaded: [$(cat "$HDL" 2>/dev/null)]")"
+  { kill "$HPID" && wait "$HPID"; } 2>/dev/null
+else
+  echo "  (http test skipped — python3 not found)"
+fi
+
 # JSON verb (#24): MAPSPEC derives the mapping from the file's dictionary, and
 # the verb prepends the record id.  Local LMDB dicted file with an ITEMS assoc.
 jvseed="$TESTROOT/jvseed.b"

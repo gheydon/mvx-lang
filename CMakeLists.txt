@@ -46,7 +46,7 @@ option(MVX_WITH_DAEMON "Build the mvx-lmdbd daemon and admin tool"
 # with no LINK-PKG.  Defaults to `json` (the JSON codec is now a package —
 # JSONENCODE/JSONDECODE come from packages/json).  Set to "" to exclude it, or
 # add more (semicolon-separated) to bundle them into a distribution.
-set(MVX_PACKAGES "json" CACHE STRING "Packages built into the system account")
+set(MVX_PACKAGES "json;http" CACHE STRING "Packages built into the system account")
 
 # --- runtime -----------------------------------------------------------
 # A SHARED library so its code is mapped once and shared across every mvx
