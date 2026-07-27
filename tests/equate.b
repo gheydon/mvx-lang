@@ -24,3 +24,6 @@ PRINT "squares=":V(1):",":V(2):",":V(3):",":V(4):",":V(5)
 * LITERALLY spelling
 EQUATE MAX LITERALLY 100
 PRINT "max=":MAX
+* EQU short spelling
+EQU VM TO CHAR(253)
+PRINT "vm=":SEQ(VM)

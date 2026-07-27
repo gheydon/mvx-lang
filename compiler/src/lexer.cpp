@@ -46,7 +46,7 @@ static const std::unordered_map<std::string, Tok> kKeywords = {
     {"EXECUTE", Tok::KwExecute},   {"PERFORM", Tok::KwExecute},
     {"CAPTURING", Tok::KwCapturing}, {"RETURNING", Tok::KwReturning},
     {"FORMLIST", Tok::KwFormlist}, {"ECHO", Tok::KwEcho},
-    {"EQUATE", Tok::KwEquate},
+    {"EQUATE", Tok::KwEquate}, {"EQU", Tok::KwEquate},
     {"LITERALLY", Tok::KwLit}, {"LIT", Tok::KwLit},
     {"AND", Tok::KwAnd},     {"OR", Tok::KwOr},
     {"NOT", Tok::KwNot},
