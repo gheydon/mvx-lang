@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true          # packages/git is the ev_git record-git engine
+          submodules: true          # packages/git is the mv_git record-git engine
 
       - name: Install toolchain
         run: |

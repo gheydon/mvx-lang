@@ -4,4 +4,4 @@
 	branch = master
 [submodule "packages/git"]
 	path = packages/git
-	url = git@github.com:mvx-lang/ev_git.git
+	url = git@github.com:mvx-lang/mv_git.git

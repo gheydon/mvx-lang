@@ -386,7 +386,7 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
     <version>`. UniData has no on-disk account descriptor, so a checkout there
     leaves no `.mv-account` on disk: `udt-git` reads it transiently to identify
     and build the native account, and synthesises it again on commit. An account
-    may sit at the **repo root** (e.g. ev_git, ev_eb) or in a **subdirectory** of
+    may sit at the **repo root** (e.g. mv_git, mv_eb) or in a **subdirectory** of
     a larger repo (some mvx accounts), so the descriptor marks the account
     directory wherever it is; a repo can carry more than one.
   Without the flag, the engine keeps storing the platform's own legible form
