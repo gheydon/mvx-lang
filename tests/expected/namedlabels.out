@@ -1,0 +1,4 @@
+hi from GREET
+two
+at numeric 500
+label SAVE, var SAVE=42

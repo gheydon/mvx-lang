@@ -456,16 +456,14 @@ private:
             if (advance().kind == Tok::KwGo && at(Tok::KwTo))
                 advance();                          // GO TO n
             s = mk(Stmt::K::Goto);
-            s->name = std::to_string(
-                expect(Tok::IntLit, "label number").ival);
+            s->name = labelRef("label after GOTO");
             endStatementSoft();
             break;
         }
         case Tok::KwGosub:
             advance();
             s = mk(Stmt::K::Gosub);
-            s->name = std::to_string(
-                expect(Tok::IntLit, "label number").ival);
+            s->name = labelRef("label after GOSUB");
             endStatementSoft();
             break;
         case Tok::KwOn: {                       // ON expr GOTO/GOSUB n, n, ...
@@ -485,8 +483,7 @@ private:
             s = mk(k);
             s->cond = std::move(sel);
             for (;;) {
-                s->labelList.push_back(std::to_string(
-                    expect(Tok::IntLit, "label number").ival));
+                s->labelList.push_back(labelRef("label in ON list"));
                 if (!at(Tok::Comma)) break;
                 advance();
             }
@@ -523,7 +520,20 @@ private:
             s = mk(Stmt::K::Exit);
             endStatementSoft();
             break;
-        case Tok::Ident:      s = assignStmt(); break;
+        case Tok::Ident:
+            // NAME: at statement start is an alphanumeric label (distinct from
+            // ':' concatenation, which only appears in expression context).  It
+            // may stand alone or precede a statement on the same line, like a
+            // numeric label — so no end-of-statement check.  `NAME :=` is the
+            // append-assignment operator, not a label.
+            if (peek().kind == Tok::Colon && peek(2).kind != Tok::Eq) {
+                s = mk(Stmt::K::Label);
+                s->name = advance().text;       // the label name
+                advance();                      // consume ':'
+                break;
+            }
+            s = assignStmt();
+            break;
         default:
             err("expected statement");
         }
@@ -536,6 +546,13 @@ private:
         s->kind = k;
         s->line = cur().line;
         return s;
+    }
+
+    // A GOTO/GOSUB/ON target: a numeric label (stringified) or an
+    // alphanumeric one.  Labels live in one string-keyed namespace.
+    std::string labelRef(const char *ctx) {
+        if (at(Tok::IntLit)) return std::to_string(advance().ival);
+        return expect(Tok::Ident, ctx).text;
     }
 
     // Statement terminator inside single-line IF bodies: ELSE and EOL are
