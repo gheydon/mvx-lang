@@ -286,6 +286,7 @@ int64_t mvx_mapdrop(mvx_ctx *ctx, const mv_value *fvar,
 /* Count records failing native validation (0 = clean), -2 unsupported. */
 int64_t mvx_mapcheck(mvx_ctx *ctx, const mv_value *fvar,
                      const mv_value *spec);
+int     mvx_openaccount(void);   /* open account format on? ($MVX_OPENACCOUNT) */
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);

@@ -359,3 +359,37 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
   the one place the "classic is the tie-breaker" rule is deliberately
   extended, because the classic form (a bare attribute number) cannot express
   a chained lookup at all.
+- **Open account format** (record-git cross-platform interchange). The record
+  a MultiValue account is stored in git so that a clone/checkout by one build
+  (`mvx-git`) rebuilds into a live account on another (`udt-git` on UniData).
+  It is **opt-in** via a git config flag, the `core.autocrlf` analogue:
+  `mvx.openaccount = true` in the account's `.git/config`. When set:
+  - **The committed working tree IS the open format** — the legible directory
+    form the record-git engine already writes (each file `X` is a directory of
+    newline-delimited records beside its dictionary `X.DICT`), normalised so it
+    carries nothing backend-specific.
+  - **`.DICT/%FILE%` type is `DIR` or `hash` only** — the portable file class,
+    not a driver name. Internally `%FILE%` is `FILE <VM> type <VM> conn`; the
+    open form drops the connection and reduces `dir → DIR`, `lmdb`/any hash
+    backend → `hash`. On rebuild, `hash` maps to the account's default hash
+    backend (local lmdb) and `DIR` to the directory driver; a per-file remote
+    binding is a *local* concern (BINDINGS), never part of the portable form.
+  - **`VOC`/`MD`** file pointers are the classic portable `F` items
+    (attr 1 `DIR`/`hash`, attr 2 data, attr 3 dictionary) — see CREATE-FILE
+    registration (mvx#71).
+  - **Dictionaries** travel in the same legible record form, so another MV
+    system can rebuild them; this is what makes the account exportable off MVX.
+  - **The account descriptor is `.mv-account`** in the open form (converted
+    `.mvx` ↔ `.mv-account`): it identifies the directory as an account — so
+    `udt-git` recognises it the same way `mvx-git` recognises `.mvx` — and holds
+    whatever is needed to build it as a native account, plus `openaccount =
+    <version>`. UniData has no on-disk account descriptor, so a checkout there
+    leaves no `.mv-account` on disk: `udt-git` reads it transiently to identify
+    and build the native account, and synthesises it again on commit. An account
+    may sit at the **repo root** (e.g. ev_git, ev_eb) or in a **subdirectory** of
+    a larger repo (some mvx accounts), so the descriptor marks the account
+    directory wherever it is; a repo can carry more than one.
+  Without the flag, the engine keeps storing the platform's own legible form
+  (backend name in `%FILE%`), i.e. current behaviour. The flag lives in git
+  config so it travels with the clone and is set once per account, like
+  `autocrlf`.

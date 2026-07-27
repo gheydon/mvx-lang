@@ -654,6 +654,24 @@ check tcl-createfile-voc "$(printf '%s\n' \
   'DELETE-FILE ORDERS' \
   'CT VOC ORDERS' | "$TCL" -a "$CFV" 2>&1 | normalise)"
 
+# open account format (#73): with MVX_OPENACCOUNT set, a dictionary's %FILE%
+# control is the portable class DIR or hash, not the driver name.  A DIR file's
+# on-disk %FILE% is literally "DIR"; import reads DIR/hash back to the right
+# backend (rebuilt PARTS is a directory file, ORDERS a hash file).
+OAS="$TESTROOT/openacct"
+"$ROOT/scripts/mkaccount.sh" "$OAS" >/dev/null
+MVX_OPENACCOUNT=1 "$TCL" -a "$OAS" -c 'CREATE-FILE PARTS DIR' >/dev/null 2>&1
+MVX_OPENACCOUNT=1 "$TCL" -a "$OAS" -c 'CREATE-FILE ORDERS'     >/dev/null 2>&1
+check tcl-openaccount "$( \
+  echo "PARTS %FILE% = $(cat "$OAS/PARTS.DICT/%FILE%")"; \
+  MVX_OPENACCOUNT=1 "$CONV" --export "$OAS" >/dev/null 2>&1; \
+  OAC="$TESTROOT/openacct-clone"; mkdir -p "$OAC"; \
+  ( cd "$OAS" && tar cf - --exclude=mvxdata.lmdb . ) | ( cd "$OAC" && tar xf - ); \
+  echo "exported PARTS %FILE% = $(cat "$OAC/PARTS.DICT/%FILE%")"; \
+  echo "exported ORDERS %FILE% = $(cat "$OAC/ORDERS.DICT/%FILE%")"; \
+  MVX_OPENACCOUNT=1 "$CONV" "$OAC" >/dev/null 2>&1; \
+  printf '%s\n' 'LISTF' | "$TCL" -a "$OAC" 2>&1 | normalise | grep -E 'PARTS|ORDERS' )"
+
 # %FILE%-driven type: on import each file is rebuilt as the backend its
 # dictionary's %FILE% names - a hash file for ORDERS, a directory file
 # for ARCHIVE.

@@ -1,0 +1,6 @@
+PARTS %FILE% = DIR
+exported PARTS %FILE% = DIR
+exported ORDERS %FILE% = hash
+PARTS                    directory
+PARTS.DICT               directory
+ORDERS                   lmdb

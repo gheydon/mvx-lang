@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -146,17 +147,24 @@ static int file_type(mvx_ctx *ctx, const char *dictname, char *type,
     if (mvx_read(ctx, &rec, &f, &id, 0)) {
         char rb[64]; const char *rp;
         int64_t rl = mv_val_chars(&rec, rb, sizeof rb, &rp);
-        /* record is  FILE <VM> type <VM> conn ; marks are 0xFD */
-        const char *p = rp, *end = rp + rl;
-        const char *m1 = memchr(p, 0xFD, (size_t)(end - p));
-        if (m1) {
-            const char *t = m1 + 1;
-            const char *m2 = memchr(t, 0xFD, (size_t)(end - t));
-            const char *te = m2 ? m2 : end;
-            snprintf(type, tcap, "%.*s", (int)(te - t), t);
-            if (m2 && conn && ccap)
-                snprintf(conn, ccap, "%.*s", (int)(end - (m2 + 1)), m2 + 1);
-            found = 1;
+        /* open form: the bare portable class DIR or hash (no marks) */
+        if (rl == 3 && strncasecmp(rp, "DIR", 3) == 0) {
+            snprintf(type, tcap, "dir"); found = 1;
+        } else if (rl == 4 && strncasecmp(rp, "hash", 4) == 0) {
+            snprintf(type, tcap, "lmdb"); found = 1;   /* default hash backend */
+        } else {
+            /* legacy record is  FILE <VM> type <VM> conn ; marks are 0xFD */
+            const char *p = rp, *end = rp + rl;
+            const char *m1 = memchr(p, 0xFD, (size_t)(end - p));
+            if (m1) {
+                const char *t = m1 + 1;
+                const char *m2 = memchr(t, 0xFD, (size_t)(end - t));
+                const char *te = m2 ? m2 : end;
+                snprintf(type, tcap, "%.*s", (int)(te - t), t);
+                if (m2 && conn && ccap)
+                    snprintf(conn, ccap, "%.*s", (int)(end - (m2 + 1)), m2 + 1);
+                found = 1;
+            }
         }
     }
     mv_clear(&id); mv_clear(&rec); mv_clear(&f);
@@ -171,8 +179,13 @@ static void ensure_dir_meta(mvx_ctx *ctx, const char *nm) {
     if (!open_dict(ctx, nm, &f)) return;
     mv_value id, rec; set(&id, "%FILE%", 6); mv_init(&rec);
     if (!mvx_read(ctx, &rec, &f, &id, 0)) {
-        char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
-        mv_value v; set(&v, meta, sizeof meta);
+        mv_value v;
+        if (mvx_openaccount()) {
+            set(&v, "DIR", 3);              /* open form: portable class */
+        } else {
+            char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
+            set(&v, meta, sizeof meta);
+        }
         mvx_write(ctx, &v, &f, &id, 0, 0);
         mv_clear(&v);
     }
