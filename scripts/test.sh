@@ -292,6 +292,16 @@ check tcl-trans "$( \
     'LIST TORD CUSTOMER CITY CSTATE BY @ID' \
     'LIST TORD CUSTOMER CITY WITH CSTATE = "VIC"' | tclrun)"
 
+# SORT / SSELECT BY a TRANS I-type column (#53b): the sort key is the
+# per-record foreign-key lookup, evaluated the same way LIST displays it
+# (an orphan sorts as blank, ahead of the real cities). Own local file, so
+# this is the client-side reference the co-located JOIN push-down must match.
+check tcl-sorttrans "$(printf '%s\n' \
+  'SORT TORD CUSTOMER CITY BY CITY' \
+  'SORT TORD CUSTOMER CITY BY CITY FIRST 2' \
+  'SSELECT TORD BY CITY' \
+  'LIST TORD CITY' | tclrun)"
+
 # JSON encode/decode (#24): the shared mapper + MAPFIELD build a mapping,
 # JSONENCODE renders the record (single attrs -> scalar keys, an association ->
 # array of objects; NUMERIC via MD2 unquoted, an absent value null), JSONDECODE
@@ -1109,6 +1119,47 @@ MVEOF
   check tcl-transjoinmv "$( \
     "$TCL" -a "$PGACCT" -c 'SELECT ORDJMV WITH CITY = "Sydney"' 2>&1; \
     "$TCL" -a "$PGACCT" -c 'SELECT ORDJMV WITH CITY = "Melbourne"' 2>&1)"
+
+  # ORDER BY a TRANS() column push-down (#53b): SORT BY a co-located TRANS
+  # I-type pushes the ORDER BY into the JOIN (a string_agg over the unnested
+  # key reproduces mvx_trans, incl. a multivalued key). Distinct looked-up
+  # cities keep it deterministic; an orphan sorts blank-first. The final block
+  # forces the client path (a pre-activated select list makes SYSTEM(11)=1,
+  # skipping the push-down) — it must match, proving the JOIN order equals the
+  # per-record reference.
+  printf 'SCUS @pgtest\nSORD @pgtest\n' >> "$PGACCT/BINDINGS"
+  for jf in SCUS SORD; do
+    "$TCL" -a "$PGACCT" -c "DELETE-FILE $jf" >/dev/null 2>&1
+    "$TCL" -a "$PGACCT" -c "CREATE-FILE $jf USING @pgtest" >/dev/null 2>&1
+  done
+  cat > "$TESTROOT/pgto.b" <<'TOEOF'
+OPEN "SCUS" TO C ELSE STOP
+WRITE "Adelaide" ON C, "CA"
+WRITE "Brisbane" ON C, "CB"
+WRITE "Canberra" ON C, "CC"
+WRITE "Darwin" ON C, "CD"
+OPEN "SORD" TO F ELSE STOP
+WRITE "CB":@AM:"Widget" ON F, "S1"
+WRITE "CD":@AM:"Gadget" ON F, "S2"
+WRITE "CA":@AM:"Bolt" ON F, "S3"
+WRITE "CC":@AM:"Nut" ON F, "S4"
+WRITE "CX":@AM:"Orphan" ON F, "S5"
+WRITE "CA":@VM:"CD":@AM:"Multi" ON F, "S6"
+OPEN "DICT", "SORD" TO D ELSE STOP
+WRITE "D":@AM:"2":@AM:"":@AM:"Product":@AM:"10L" ON D, "PRODUCT"
+WRITE "I":@AM:"TRANS(SCUS,1,1,X)":@AM:"":@AM:"City":@AM:"12L" ON D, "CITY"
+OPEN "DICT", "SCUS" TO DC ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"City":@AM:"12L" ON DC, "CITY"
+TOEOF
+  "$MVX" "$TESTROOT/pgto.b" -o "$TESTROOT/pgtobin" 2>/dev/null
+  (cd "$PGACCT" && MVXACCOUNT=. "$TESTROOT/pgtobin")
+  check tcl-transorder "$( \
+    "$TCL" -a "$PGACCT" -c 'SORT SORD PRODUCT CITY BY CITY' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT SORD PRODUCT CITY BY CITY FIRST 3' 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'CREATE-MAP SCUS CITY' >/dev/null 2>&1; \
+    "$TCL" -a "$PGACCT" -c 'SORT SORD PRODUCT CITY BY CITY' 2>&1; \
+    printf 'SELECT SORD\nSORT SORD PRODUCT CITY BY CITY\n' | \
+      "$TCL" -a "$PGACCT" 2>&1)"
 
   # COUNT push-down (#45): count(*) server-side, filtered by a mapped column
   # or the raw blob attribute — one number back, no id stream. ORDJ has

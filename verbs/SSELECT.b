@@ -277,4 +277,17 @@ IF ISPEC[1, 7] = "DOCTAG(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
       END
    NEXT IL
 END
+* TRANS(file,keyattr,attr,control) — foreign-key lookup: read R<keyattr> as
+* the key into `file` and return its attribute `attr` (the reference,
+* per-record; #40/#53 push this down to a JOIN when co-located).
+IF ISPEC[1, 6] = "TRANS(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
+   TARGS = ISPEC[7, LEN(ISPEC) - 7]
+   TFILE = FIELD(TARGS, ",", 1)
+   TKA = FIELD(TARGS, ",", 2)
+   TAT = FIELD(TARGS, ",", 3)
+   TCT = FIELD(TARGS, ",", 4)
+   IF TCT = "" THEN TCT = "X"
+   IV = TRANS(TFILE, R<TKA>, TAT, TCT)
+   GOTO 9090
+END
 9090 RETURN

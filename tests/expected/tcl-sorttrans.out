@@ -1,0 +1,15 @@
+@ID          Customer     City        
+O9           Nobody Inc               
+O2           Beta Ltd     Melbourne   
+O1           Acme Corp    Sydney      
+3 record(s) listed
+@ID          Customer     City        
+O9           Nobody Inc               
+O2           Beta Ltd     Melbourne   
+2 record(s) listed
+3 record(s) selected
+@ID          City        
+O9                       
+O2           Melbourne   
+O1           Sydney      
+3 record(s) listed

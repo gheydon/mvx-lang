@@ -1,0 +1,34 @@
+@ID          Product    City        
+S5           Orphan                 
+S3           Bolt       Adelaide    
+S6           Multi      Adelaide    
+                        Darwin      
+S1           Widget     Brisbane    
+S4           Nut        Canberra    
+S2           Gadget     Darwin      
+6 record(s) listed
+@ID          Product    City        
+S5           Orphan                 
+S3           Bolt       Adelaide    
+S6           Multi      Adelaide    
+                        Darwin      
+3 record(s) listed
+@ID          Product    City        
+S5           Orphan                 
+S3           Bolt       Adelaide    
+S6           Multi      Adelaide    
+                        Darwin      
+S1           Widget     Brisbane    
+S4           Nut        Canberra    
+S2           Gadget     Darwin      
+6 record(s) listed
+6 record(s) selected
+@ID          Product    City        
+S5           Orphan                 
+S3           Bolt       Adelaide    
+S6           Multi      Adelaide    
+                        Darwin      
+S1           Widget     Brisbane    
+S4           Nut        Canberra    
+S2           Gadget     Darwin      
+6 record(s) listed

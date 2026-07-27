@@ -1004,6 +1004,76 @@ static mvx_cursor *pg_select_join(mvx_file *srch, int64_t sk,
     return cur;
 }
 
+/* Co-located TRANS() ORDER BY: the source ids ordered by the value TRANS()
+   looks up.  Reproduces mvx_trans() exactly — the (possibly multivalued)
+   source key is unnested on @VM (chr 253), each element left-joined to its
+   target row, and the target attribute for each is re-joined with @VM in key
+   order (a miss -> "" for control 'X', the key element for 'C').  Ordered as
+   text (COLLATE "C") to match MV's byte sort, with s.id breaking ties so a
+   top-N is deterministic, LIMIT applied server-side. */
+static mvx_cursor *pg_select_join_order(mvx_file *srch, int64_t sk,
+                                        const char *src_keycol, mvx_file *tgth,
+                                        int64_t ta, const char *tgt_col,
+                                        char ctl, int otext, int64_t limit) {
+    pg_file *s = (pg_file *)srch, *t = (pg_file *)tgth;
+    if (!pg_same_db(s->conn, t->conn)) return NULL;   /* not joinable */
+    char sqt[512], tqt[512];
+    qualify(s->conn, s->schema, s->table, sqt, sizeof sqt);
+    qualify(s->conn, t->schema, t->table, tqt, sizeof tqt);
+    char skexpr[320], taexpr[320];
+    if (src_keycol && src_keycol[0]) {
+        char *qc = PQescapeIdentifier(s->conn, src_keycol, strlen(src_keycol));
+        snprintf(skexpr, sizeof skexpr, "s.%s", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    } else {
+        char *qs = PQescapeIdentifier(s->conn, s->schema, strlen(s->schema));
+        snprintf(skexpr, sizeof skexpr, "%s.mvx_attr(s.rec,%lld)",
+                 qs ? qs : "\"\"", (long long)sk);
+        if (qs) PQfreemem(qs);
+    }
+    if (tgt_col && tgt_col[0]) {
+        char *qc = PQescapeIdentifier(t->conn, tgt_col, strlen(tgt_col));
+        snprintf(taexpr, sizeof taexpr, "t.%s", qc ? qc : "\"\"");
+        if (qc) PQfreemem(qc);
+    } else {
+        char *qs = PQescapeIdentifier(t->conn, t->schema, strlen(t->schema));
+        snprintf(taexpr, sizeof taexpr, "%s.mvx_attr(t.rec,%lld)",
+                 qs ? qs : "\"\"", (long long)ta);
+        if (qs) PQfreemem(qs);
+    }
+    const char *missexpr = (ctl == 'C') ? "k.kv" : "''";
+    const char *coll = otext ? " COLLATE \"C\"" : "";
+    char limbuf[32] = "";
+    if (limit > 0) snprintf(limbuf, sizeof limbuf, " LIMIT %lld", (long long)limit);
+    char sql[2000];
+    snprintf(sql, sizeof sql,
+             "SELECT s.id FROM %s s ORDER BY COALESCE(("
+             "SELECT string_agg(CASE WHEN t.id IS NOT NULL THEN %s ELSE %s END,"
+             " chr(253) ORDER BY k.ord) "
+             "FROM unnest(string_to_array(%s, chr(253))) "
+             "WITH ORDINALITY AS k(kv, ord) "
+             "LEFT JOIN %s t ON convert_from(t.id,'LATIN1') = k.kv), '')%s, s.id%s",
+             sqt, taexpr, missexpr, skexpr, tqt, coll, limbuf);
+    PGresult *r = PQexecParams(s->conn, sql, 0, NULL, NULL, NULL, NULL, 1);
+    if (!r || PQresultStatus(r) != PGRES_TUPLES_OK) {
+        if (r) PQclear(r);
+        return NULL;
+    }
+    mvx_cursor *cur = calloc(1, sizeof(mvx_cursor));
+    if (!cur) mvx_fatal("out of memory in postgres select_join_order");
+    int n = PQntuples(r);
+    cur->ids = calloc(n ? n : 1, sizeof(mv_value));
+    if (!cur->ids) mvx_fatal("out of memory in postgres select_join_order");
+    for (int i = 0; i < n; i++) {
+        mv_init(&cur->ids[cur->n]);
+        mv_set_str(&cur->ids[cur->n], PQgetvalue(r, i, 0),
+                   PQgetlength(r, i, 0));
+        cur->n++;
+    }
+    PQclear(r);
+    return cur;
+}
+
 /* Server-side COUNT: count(*) with no filter, or filtered by a mapped column
    or the raw blob attribute — one row back instead of a stream of ids. */
 static int64_t pg_count_where(mvx_file *fh, const char *col, int64_t attr,
@@ -1393,6 +1463,7 @@ static const mvx_driver mvx_driver_postgres = {
     pg_select_count,                      /* backfill progress total */
     pg_bulk_begin, pg_bulk_commit,        /* transactional backfill batching */
     pg_map_backfill,                      /* whole-mapping backfill push-down */
+    pg_select_join_order,                 /* co-located TRANS() ORDER BY */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {

@@ -267,6 +267,23 @@ typedef struct mvx_driver {
                             const int64_t *anos, const char **convs,
                             const char **assocs, int nf, char *err,
                             size_t errlen);
+    /* Optional co-located TRANS() ORDER BY push-down (may be NULL): the source
+       ids ordered by the value TRANS() looks up — target attribute `tgt_attr`
+       of the record its foreign key (source attribute `src_keyattr`) points
+       at — limited to `limit` rows (0 = all).  Reproduces the per-record
+       TRANS() reference exactly: the (possibly multivalued) key is unnested on
+       @VM, each element translated, the results @VM-joined in key order (a
+       miss -> "" for control 'X', the key itself for 'C'); the ids are ordered
+       as text (COLLATE "C" when `otext`) to match MV's byte sort.  `ctl` is
+       'X' or 'C'.  Runs only when `tgt` is co-located with `src` (else NULL ->
+       the verb sorts the reference client-side).  src_keycol/tgt_col name a
+       mapped identity column for the source key / target attribute (NULL/""
+       to read from the record blob).  This is `select_join` (the WITH
+       push-down) with an ORDER BY / LIMIT instead of a filter. */
+    mvx_cursor *(*select_join_order)(mvx_file *src, int64_t src_keyattr,
+                                     const char *src_keycol, mvx_file *tgt,
+                                     int64_t tgt_attr, const char *tgt_col,
+                                     char ctl, int otext, int64_t limit);
 } mvx_driver;
 
 /* map_backfill sentinel: the transform is not expressible in this backend, so
@@ -291,7 +308,7 @@ typedef struct mvx_file_base {
    It must return NULL if `abi` is not an ABI version it supports,
    otherwise its driver vtable.  The search path is $MVXDRIVERS
    (colon-separated), then the runtime's built-in driver directory. */
-#define MVX_DRIVER_ABI 9
+#define MVX_DRIVER_ABI 10
 
 typedef const mvx_driver *(*mvx_driver_entry_fn)(int abi);
 

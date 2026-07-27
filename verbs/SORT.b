@@ -275,6 +275,15 @@ IF SYSTEM(11) = 0 THEN
          BYI = ""
       END
    END
+   * BY a TRANS() I-type column with no WITH: push the ORDER BY into a
+   * co-located JOIN (text order only; the runtime gates co-location, the
+   * control code, and numeric order, falling back to the per-record sort).
+   IF PUSHED = 0 AND NW = 0 AND BANO = -1 AND BSPEC[1, 6] = "TRANS(" THEN
+      BNUM = 0
+      IF BORD = "AR" THEN BNUM = 1
+      PUSHED = TRANSORDERSELECT(F, BSPEC, BNUM, LN)
+      IF PUSHED THEN BYI = ""
+   END
    IF PUSHED = 0 THEN
       IXUSED = 0
       IF NW >= 1 THEN
@@ -463,5 +472,18 @@ IF ISPEC[1, 7] = "DOCTAG(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
          END
       END
    NEXT IL
+END
+* TRANS(file,keyattr,attr,control) — foreign-key lookup: read R<keyattr> as
+* the key into `file` and return its attribute `attr` (the reference,
+* per-record; #40/#53 push this down to a JOIN when co-located).
+IF ISPEC[1, 6] = "TRANS(" AND ISPEC[LEN(ISPEC), 1] = ")" THEN
+   TARGS = ISPEC[7, LEN(ISPEC) - 7]
+   TFILE = FIELD(TARGS, ",", 1)
+   TKA = FIELD(TARGS, ",", 2)
+   TAT = FIELD(TARGS, ",", 3)
+   TCT = FIELD(TARGS, ",", 4)
+   IF TCT = "" THEN TCT = "X"
+   IV = TRANS(TFILE, R<TKA>, TAT, TCT)
+   GOTO 9090
 END
 9090 RETURN

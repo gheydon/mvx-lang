@@ -78,7 +78,7 @@ const std::set<std::string> kIntIntrinsics = {
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND", "MAPBUILD", "MAPDROP",
     "MAPCHECK", "QUERYSELECT", "TRANSSELECT", "QUERYCOUNT", "ORDERSELECT",
-    "MULTISELECT",
+    "MULTISELECT", "TRANSORDERSELECT",
     "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED", "SETCONN",
 };
 
@@ -707,6 +707,12 @@ private:
                                evalPtr(*e.args[3]), evalPtr(*e.args[4])});
             if (f == "TRANSSELECT" && e.args.size() == 4)
                 return callRt("mvx_transselect", i64Ty_,
+                              {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]),
+                               evalPtr(*e.args[1]), evalPtr(*e.args[2]),
+                               evalPtr(*e.args[3])});
+            if (f == "TRANSORDERSELECT" && e.args.size() == 4)
+                return callRt("mvx_transorderselect", i64Ty_,
                               {ptrTy_, ptrTy_, ptrTy_, ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0]),
                                evalPtr(*e.args[1]), evalPtr(*e.args[2]),

@@ -1967,6 +1967,71 @@ int64_t mvx_transselect(mvx_ctx *ctx, const mv_value *fvar,
     return 1;
 }
 
+/* Push a BY on a TRANS() I-type down to a co-located JOIN + ORDER BY / LIMIT:
+   parse the TRANS(file,keyattr,attr,control) descriptor and, if the target is
+   on the same backend, form the *ordered* select list server-side (the same
+   join the WITH push-down uses, ordered by the looked-up attribute instead of
+   filtered).  Text order only — byte order matches MV's sort; a numeric BY
+   falls back to the client, which sorts the per-record reference (X or C).
+   Returns 1 if pushed, else 0 so the verb sorts per record. */
+int64_t mvx_transorderselect(mvx_ctx *ctx, const mv_value *fvar,
+                             const mv_value *spec, const mv_value *onum,
+                             const mv_value *limit) {
+    mvx_file *f = file_of(fvar, "TRANSORDERSELECT");
+    mvx_file_base *b = (mvx_file_base *)f;
+    if (!b->driver->select_join_order) return 0;
+    if (mv_get_int(onum) != 0) return 0;       /* numeric order not pushable */
+    int64_t lim = mv_get_int(limit);
+
+    char sb[256];
+    const char *sp;
+    int64_t sl = mv_val_chars(spec, sb, sizeof sb, &sp);
+    if (sl < 8 || strncmp(sp, "TRANS(", 6) != 0 || sp[sl - 1] != ')') return 0;
+    char inner[256];
+    int64_t ilen = sl - 7;              /* between "TRANS(" and ")" */
+    if (ilen <= 0 || ilen >= (int64_t)sizeof inner) return 0;
+    memcpy(inner, sp + 6, (size_t)ilen);
+    inner[ilen] = '\0';
+    char *parts[4] = {inner, NULL, NULL, NULL};
+    int np = 0;
+    for (char *q = inner; *q; q++)
+        if (*q == ',') { *q = '\0'; if (++np < 4) parts[np] = q + 1; }
+    if (np < 2) return 0;
+    int64_t keyattr = parts[1] ? strtoll(parts[1], NULL, 10) : 0;
+    int64_t tattr = parts[2] ? strtoll(parts[2], NULL, 10) : 0;
+    char ctl = (parts[3] && parts[3][0]) ? parts[3][0] : 'X';
+    if ((ctl != 'X' && ctl != 'C') || keyattr < 1 || tattr < 1) return 0;
+
+    trans_ent *t = trans_file(ctx, parts[0], (int64_t)strlen(parts[0]));
+    if (!t->ok || t->fvar.tag != MV_FILE) return 0;
+    mvx_file *tf = (mvx_file *)(intptr_t)t->fvar.i;
+    if (((mvx_file_base *)tf)->driver != b->driver) return 0;  /* same driver */
+
+    store_state *st = state(ctx);
+    /* Prefer a mapped identity column for either side of the join. */
+    const char *src_keycol = map_identity_col(find_open(st, f), keyattr);
+    const char *tgt_col = map_identity_col(find_open(st, tf), tattr);
+
+    mvx_cursor *c = b->driver->select_join_order(f, keyattr, src_keycol, tf,
+                                                 tattr, tgt_col, ctl, 1, lim);
+    if (!c) return 0;
+
+    clear_select(st);
+    st->sel_active = 1;
+    int64_t cap = 0;
+    mv_value rid;
+    mv_init(&rid);
+    while (b->driver->select_next(c, &rid)) {
+        char rb[40];
+        const char *rp;
+        int64_t rl = mv_val_chars(&rid, rb, sizeof rb, &rp);
+        sel_push(st, &cap, rp, rl);
+    }
+    mv_clear(&rid);
+    b->driver->select_end(c);
+    return 1;
+}
+
 /* Count records in the backend: with no item, count(*); with a pushable
    filter (=/# on a mapped identity column or the raw record attribute), a
    filtered count.  Returns the count, or -1 when it cannot push down so the
