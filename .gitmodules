@@ -2,3 +2,6 @@
 	path = docs
 	url = https://github.com/mvx-lang/mvx.wiki.git
 	branch = master
+[submodule "packages/git"]
+	path = packages/git
+	url = git@github.com:mvx-lang/ev_git.git
