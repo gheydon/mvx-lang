@@ -711,6 +711,35 @@ EOF
         || echo 'DIR account stayed legible'; }; \
     ( cd "$MGD" && git ls-files BP/HELLO ))"
 
+  # #66: an account can carry a git submodule.  mvx-git stages it as a gitlink
+  # (mode 160000), not by flattening the submodule's files into records, and
+  # status stays clean.
+  MGSUB="$TESTROOT/mgsubrepo"
+  mkdir -p "$MGSUB"
+  ( cd "$MGSUB" && git init -q -b main && printf '# page\n' > Home.md && \
+    git add -A && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1
+  MGA="$TESTROOT/mgsubacct"
+  mkdir -p "$MGA/BP"
+  printf '# MVX account descriptor\nname = mgsubacct\nversion = 1\n' > "$MGA/.mvx"
+  printf 'PRINT "hi"\n' > "$MGA/BP/HELLO"
+  ( cd "$MGA" && git init -q -b main && \
+    git config user.email t@t && git config user.name t && \
+    git config protocol.file.allow always && \
+    MVX="$TCL" "$ROOT/build/bin/mvx-git" add -A >/dev/null && \
+    git commit -qm acct && \
+    MVX="$TCL" "$ROOT/build/bin/mvx-git" -c protocol.file.allow=always \
+        submodule add "$MGSUB" docs >/dev/null 2>&1 && \
+    MVX="$TCL" "$ROOT/build/bin/mvx-git" add -A >/dev/null && \
+    MVX="$TCL" "$ROOT/build/bin/mvx-git" commit "add submodule" >/dev/null ) >/dev/null 2>&1
+  check tcl-mvxgit-submodule "$( cd "$MGA"; \
+    { git ls-tree HEAD docs | grep -q '^160000 commit' \
+        && echo 'docs is a gitlink' || echo 'docs is NOT a gitlink'; }; \
+    { git ls-files .gitmodules | grep -q . \
+        && echo '.gitmodules tracked' || echo '.gitmodules missing'; }; \
+    { git ls-tree HEAD BP/HELLO | grep -q blob \
+        && echo 'records intact' || echo 'records lost'; }; \
+    MVX="$TCL" "$ROOT/build/bin/mvx-git" status 2>&1 )"
+
   # #58: inside an MVX account mvx-git drives the engine directly on the
   # account's own .git — init/add/commit/log/show read and write the live
   # hash-file records straight to/from git objects, no export copy.  The .git is
