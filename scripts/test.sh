@@ -1729,6 +1729,39 @@ if [ -n "${MVX_MONGO:-}" ]; then
     (cd "$MGACCT" && MVXACCOUNT=. "$TESTROOT/mgbin"); \
     printf 'COUNT ORDERS\nSELECT ORDERS\nLIST ORDERS\n' | \
       "$TCL" -a "$MGACCT" 2>&1)"
+
+  # relational mapping + native index + WITH/COUNT push-down (#62). CREATE-MAP
+  # projects each mapped dict column onto its { _id, rec } document as a native
+  # BSON field (NAME/STATE text, PRICE numeric) and each association as an
+  # embedded array (LINES = [{PRODUCT,QTY},…]), so equality filters and counts
+  # run server-side and CREATE-INDEX builds a real Mongo index on NAME. The
+  # query results must equal the client-side scan reference.
+  printf 'MORD @mongotest\n' >> "$MGACCT/BINDINGS"
+  "$TCL" -a "$MGACCT" -c 'DELETE-FILE MORD' >/dev/null 2>&1
+  "$TCL" -a "$MGACCT" -c 'CREATE-FILE MORD USING @mongotest' >/dev/null 2>&1
+  cat > "$TESTROOT/mgmap.b" <<'MMEOF'
+OPEN "MORD" TO F ELSE STOP
+WRITE "Widget":@AM:"NSW":@AM:"999":@AM:"A":@VM:"B":@AM:"2":@VM:"3" ON F, "O1"
+WRITE "Gadget":@AM:"VIC":@AM:"450":@AM:"C":@AM:"1" ON F, "O2"
+WRITE "Bolt":@AM:"NSW":@AM:"1200":@AM:"D":@AM:"5" ON F, "O3"
+WRITE "Nut":@AM:"NSW":@AM:"300" ON F, "O4"
+OPEN "DICT", "MORD" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+WRITE "D":@AM:"2":@AM:"":@AM:"State":@AM:"6L" ON D, "STATE"
+WRITE "D":@AM:"3":@AM:"MD2":@AM:"Price":@AM:"8R" ON D, "PRICE"
+WRITE "D":@AM:"4":@AM:"":@AM:"Product":@AM:"10L":@AM:"LINES" ON D, "PRODUCT"
+WRITE "D":@AM:"5":@AM:"MD0":@AM:"Qty":@AM:"5R":@AM:"LINES" ON D, "QTY"
+MMEOF
+  "$MVX" "$TESTROOT/mgmap.b" -o "$TESTROOT/mgmapbin" 2>/dev/null
+  (cd "$MGACCT" && MVXACCOUNT=. "$TESTROOT/mgmapbin")
+  check tcl-mongomap "$( \
+    "$TCL" -a "$MGACCT" -c 'CREATE-MAP MORD NAME STATE PRICE PRODUCT QTY' 2>&1; \
+    "$TCL" -a "$MGACCT" -c 'COUNT MORD' 2>&1; \
+    "$TCL" -a "$MGACCT" -c 'COUNT MORD WITH STATE = "NSW"' 2>&1; \
+    "$TCL" -a "$MGACCT" -c 'COUNT MORD WITH NAME = "Bolt"' 2>&1; \
+    "$TCL" -a "$MGACCT" -c 'LIST MORD NAME WITH STATE = "NSW" BY @ID' 2>&1; \
+    "$TCL" -a "$MGACCT" -c 'CREATE-INDEX MORD NAME' 2>&1; \
+    "$TCL" -a "$MGACCT" -c 'LIST MORD NAME WITH NAME = "Bolt"' 2>&1)"
 else
   echo "  (mongo test skipped — set MVX_MONGO to run)"
 fi

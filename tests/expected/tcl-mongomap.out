@@ -1,0 +1,13 @@
+mapped 4 record(s); writes are now mirrored
+4 record(s) counted
+3 record(s) counted
+1 record(s) counted
+@ID          Name        
+O1           Widget      
+O3           Bolt        
+O4           Nut         
+3 record(s) listed
+index MORD.NAME built, 4 record(s)
+@ID          Name        
+O3           Bolt        
+1 record(s) listed

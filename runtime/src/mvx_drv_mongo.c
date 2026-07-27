@@ -20,14 +20,28 @@
  * driver/address/namespace/user/password) — the same indirection the postgres
  * and lmdbnet drivers use, or a raw mongodb:// URI.
  *
- * Minimal contract only for this first cut: no relational mapping, query
- * push-down, native indexes, or lock authority — the runtime falls back to a
- * client-side scan, per-record projection, and its process-local lock table.
- * Those are follow-ups (#61).
+ * Beyond the minimal contract this driver also provides, in *mirror* mode
+ * (the record blob stays authoritative; the columns are a derived projection):
+ *   - relational mapping (#62) — a mapped file's dict columns are projected
+ *     into native BSON fields on the same document, so a record reads as
+ *     { _id, rec, CUST_NAME: "…", BALANCE: 152.34, LINES: [ {…}, … ] }:
+ *     parent columns are scalar fields, associations an embedded array of
+ *     sub-documents (the Mongo-idiomatic nested form);
+ *   - native indexes (#27/#62) — CREATE-INDEX builds a real Mongo index on a
+ *     mapped column, and index_select answers an equality lookup from it;
+ *   - WITH / COUNT push-down (#62) — an equality (=/#) filter on a mapped
+ *     column runs in the backend, so a query need not stream every id.
+ *
+ * Still deferred to the client-side fallback (#62): native read-back
+ * (map_read / native mode — mirror mode only), SUM / ORDER BY / multi-predicate
+ * push-down, raw-blob-attribute push-down (Mongo cannot split the blob
+ * server-side), TRANS() JOIN, EXPLAIN, transactional bulk batching, and lock
+ * authority (the runtime's process-local lock table applies).
  */
 #include "../include/mvx_driver.h"
 
 #include <mongoc/mongoc.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -243,20 +257,25 @@ static int mongo_write(mvx_file *fh, const char *id, int64_t idlen,
     char nb[40];
     const char *rp;
     int64_t rl = mv_val_chars(rec, nb, sizeof nb, &rp);
-    bson_t sel, doc, opts;
+    /* Update only `rec` (upserting {_id, rec} when absent) rather than
+       replacing the whole document, so any mapped columns projected onto the
+       document survive a write that did not change them — the runtime's
+       mapping projection re-applies only the *changed* columns afterwards. */
+    bson_t sel, set, update, opts;
     sel_id(&sel, id, idlen);
-    bson_init(&doc);
-    bson_append_binary(&doc, "_id", 3, BSON_SUBTYPE_BINARY,
-                       (const uint8_t *)id, (uint32_t)idlen);
-    bson_append_binary(&doc, "rec", 3, BSON_SUBTYPE_BINARY,
+    bson_init(&set);
+    bson_append_binary(&set, "rec", 3, BSON_SUBTYPE_BINARY,
                        (const uint8_t *)rp, (uint32_t)rl);
+    bson_init(&update);
+    bson_append_document(&update, "$set", 4, &set);
     bson_init(&opts);
     bson_append_bool(&opts, "upsert", 6, true);
     bson_error_t berr;
-    bool ok = mongoc_collection_replace_one(coll, &sel, &doc, &opts, NULL,
-                                            &berr);
+    bool ok = mongoc_collection_update_one(coll, &sel, &update, &opts, NULL,
+                                           &berr);
     bson_destroy(&sel);
-    bson_destroy(&doc);
+    bson_destroy(&set);
+    bson_destroy(&update);
     bson_destroy(&opts);
     mongoc_collection_destroy(coll);
     return ok ? 1 : 0;
@@ -280,20 +299,19 @@ static int mongo_del(mvx_file *fh, const char *id, int64_t idlen) {
     return deleted;
 }
 
-/* Snapshot the id list up front (a short read), then stream it. */
-static mvx_cursor *mongo_select_begin(mvx_file *fh) {
-    mongo_file *f = (mongo_file *)fh;
+/* Snapshot the _ids matching `filter` (projecting only _id — a short read),
+   then stream them.  Shared by the full select and every push-down. */
+static mvx_cursor *query_ids(mongo_file *f, const bson_t *filter) {
     mvx_cursor *c = calloc(1, sizeof(mvx_cursor));
     if (!c) mvx_fatal("out of memory in mongo select");
     mongoc_collection_t *coll = coll_of(f);
-    bson_t filter, opts, proj;
-    bson_init(&filter);                   /* {} — every document */
+    bson_t opts, proj;
     bson_init(&proj);
     bson_append_int32(&proj, "_id", 3, 1);
     bson_init(&opts);
     bson_append_document(&opts, "projection", 10, &proj);
     mongoc_cursor_t *mc =
-        mongoc_collection_find_with_opts(coll, &filter, &opts, NULL);
+        mongoc_collection_find_with_opts(coll, filter, &opts, NULL);
     const bson_t *doc;
     while (mongoc_cursor_next(mc, &doc)) {
         bson_iter_t it;
@@ -313,10 +331,18 @@ static mvx_cursor *mongo_select_begin(mvx_file *fh) {
         c->n++;
     }
     mongoc_cursor_destroy(mc);
-    bson_destroy(&filter);
     bson_destroy(&opts);
     bson_destroy(&proj);
     mongoc_collection_destroy(coll);
+    return c;
+}
+
+/* Snapshot the id list up front (a short read), then stream it. */
+static mvx_cursor *mongo_select_begin(mvx_file *fh) {
+    bson_t filter;
+    bson_init(&filter);                   /* {} — every document */
+    mvx_cursor *c = query_ids((mongo_file *)fh, &filter);
+    bson_destroy(&filter);
     return c;
 }
 
@@ -362,6 +388,320 @@ static int mongo_names(const char *loc, mv_value *out, char *err,
     return 1;
 }
 
+/* --- relational mapping / native indexes / push-down (#62) ----------------
+
+   Mirror mode: the runtime keeps the record blob authoritative and hands the
+   driver the projected column values; we render them as native BSON fields on
+   the same { _id, rec } document so the record reads relationally in Mongo and
+   equality filters/indexes can run server-side. */
+
+/* Parse [p,plen) as an MV numeric literal.  0 = not numeric; 1 = integer
+   (*iv); 2 = real (*dv).  The mapper emits canonical numeric text for a
+   NUMERIC column, so this recognises exactly those. */
+static int parse_number(const char *p, int64_t plen, int64_t *iv, double *dv) {
+    if (plen <= 0 || plen >= 64) return 0;
+    char buf[64];
+    memcpy(buf, p, (size_t)plen);
+    buf[plen] = '\0';
+    char *end;
+    errno = 0;
+    long long ll = strtoll(buf, &end, 10);
+    if (end == buf + plen && errno == 0) { *iv = (int64_t)ll; return 1; }
+    errno = 0;
+    double d = strtod(buf, &end);
+    if (end == buf + plen && errno == 0) { *dv = d; return 2; }
+    return 0;
+}
+
+/* Append value [val,vlen) under `key` into `doc`, typed by the mapping type:
+   a NUMERIC value that parses becomes a BSON number (so it sorts/sums and
+   displays as a number), everything else a UTF-8 string. */
+static void append_typed(bson_t *doc, const char *key, const char *val,
+                         int64_t vlen, const char *type) {
+    if (type && strcmp(type, "NUMERIC") == 0) {
+        int64_t iv;
+        double dv;
+        int k = parse_number(val, vlen, &iv, &dv);
+        if (k == 1) { bson_append_int64(doc, key, -1, iv); return; }
+        if (k == 2) { bson_append_double(doc, key, -1, dv); return; }
+    }
+    bson_append_utf8(doc, key, -1, val, (int)vlen);
+}
+
+/* Build the filter { col: {$in|$nin: [<string>, <number?>]} } for a "="/"#"
+   push-down.  Both representations go in the list so a NUMERIC column (stored
+   as a BSON number) and a TEXT column (stored as a string) both match; $nin
+   also matches a missing field, so "#" counts an empty attribute as not-equal
+   the way MV does. */
+static void build_pred(bson_t *filter, const char *col, const char *op,
+                       const char *val, int64_t vlen) {
+    int64_t iv;
+    double dv;
+    int k = parse_number(val, vlen, &iv, &dv);
+    int eq = (op[0] == '=');
+    bson_t inner, arr;
+    bson_append_document_begin(filter, col, -1, &inner);
+    bson_append_array_begin(&inner, eq ? "$in" : "$nin", -1, &arr);
+    bson_append_utf8(&arr, "0", 1, val, (int)vlen);
+    if (k == 1) bson_append_int64(&arr, "1", 1, iv);
+    else if (k == 2) bson_append_double(&arr, "1", 1, dv);
+    bson_append_array_end(&inner, &arr);
+    bson_append_document_end(filter, &inner);
+}
+
+/* No schema to create in a schemaless store — mapping columns appear on the
+   document the first time map_apply sets them. */
+static int mongo_map_ensure(mvx_file *fh, const mvx_mapfield *cols, int ncols,
+                            char *err, size_t errlen) {
+    (void)fh; (void)cols; (void)ncols; (void)err; (void)errlen;
+    return 1;
+}
+
+/* Project a record's parent columns onto its document: $set the non-empty
+   ones, $unset the empties (so a value cleared on re-projection disappears). */
+static int mongo_map_apply(mvx_file *fh, const char *id, int64_t idlen,
+                           const mvx_mapfield *cols, const char **vals,
+                           const int64_t *vlens, int ncols) {
+    mongo_file *f = (mongo_file *)fh;
+    if (ncols <= 0) return 1;
+    bson_t set, unset, update;
+    bson_init(&set);
+    bson_init(&unset);
+    int nset = 0, nunset = 0;
+    for (int i = 0; i < ncols; i++) {
+        if (vlens[i] > 0) {
+            append_typed(&set, cols[i].name, vals[i], vlens[i], cols[i].type);
+            nset++;
+        } else {
+            bson_append_utf8(&unset, cols[i].name, -1, "", 0);
+            nunset++;
+        }
+    }
+    bson_init(&update);
+    if (nset) bson_append_document(&update, "$set", 4, &set);
+    if (nunset) bson_append_document(&update, "$unset", 6, &unset);
+    bson_t sel;
+    sel_id(&sel, id, idlen);
+    mongoc_collection_t *coll = coll_of(f);
+    bson_error_t berr;
+    bool ok = mongoc_collection_update_one(coll, &sel, &update, NULL, NULL,
+                                           &berr);
+    mongoc_collection_destroy(coll);
+    bson_destroy(&sel);
+    bson_destroy(&set);
+    bson_destroy(&unset);
+    bson_destroy(&update);
+    return ok ? 1 : 0;
+}
+
+/* No child collections: an association is an embedded array (below). */
+static int mongo_map_child_ensure(mvx_file *fh, const char *assoc,
+                                  const mvx_mapfield *cols, int ncols,
+                                  char *err, size_t errlen) {
+    (void)fh; (void)assoc; (void)cols; (void)ncols; (void)err; (void)errlen;
+    return 1;
+}
+
+/* Replace one association's rows as an embedded array of sub-documents:
+   $set { <assoc>: [ {col: val, …}, … ] }.  An empty cell is omitted from its
+   row; nrows == 0 sets an empty array (clears prior rows). */
+static int mongo_map_child_apply(mvx_file *fh, const char *id, int64_t idlen,
+                                 const char *assoc, const mvx_mapfield *cols,
+                                 int ncols, const char **vals,
+                                 const int64_t *vlens, int nrows) {
+    mongo_file *f = (mongo_file *)fh;
+    bson_t set, arr, update;
+    bson_init(&set);
+    bson_append_array_begin(&set, assoc, -1, &arr);
+    for (int r = 0; r < nrows; r++) {
+        char rk[16];
+        snprintf(rk, sizeof rk, "%d", r);
+        bson_t row;
+        bson_append_document_begin(&arr, rk, -1, &row);
+        for (int c = 0; c < ncols; c++) {
+            int64_t vl = vlens[(int64_t)r * ncols + c];
+            if (vl <= 0) continue;
+            append_typed(&row, cols[c].name, vals[(int64_t)r * ncols + c], vl,
+                         cols[c].type);
+        }
+        bson_append_document_end(&arr, &row);
+    }
+    bson_append_array_end(&set, &arr);
+    bson_init(&update);
+    bson_append_document(&update, "$set", 4, &set);
+    bson_t sel;
+    sel_id(&sel, id, idlen);
+    mongoc_collection_t *coll = coll_of(f);
+    bson_error_t berr;
+    bool ok = mongoc_collection_update_one(coll, &sel, &update, NULL, NULL,
+                                           &berr);
+    mongoc_collection_destroy(coll);
+    bson_destroy(&sel);
+    bson_destroy(&set);
+    bson_destroy(&update);
+    return ok ? 1 : 0;
+}
+
+/* Tear a mapping down: $unset the parent columns and the association arrays
+   from every document. */
+static int mongo_map_drop(mvx_file *fh, const mvx_mapfield *cols, int ncols,
+                          const char **assocs, int nassocs, char *err,
+                          size_t errlen) {
+    mongo_file *f = (mongo_file *)fh;
+    if (ncols <= 0 && nassocs <= 0) return 1;
+    bson_t unset, update, sel;
+    bson_init(&unset);
+    for (int i = 0; i < ncols; i++)
+        bson_append_utf8(&unset, cols[i].name, -1, "", 0);
+    for (int a = 0; a < nassocs; a++)
+        bson_append_utf8(&unset, assocs[a], -1, "", 0);
+    bson_init(&update);
+    bson_append_document(&update, "$unset", 6, &unset);
+    bson_init(&sel);                      /* {} — every document */
+    mongoc_collection_t *coll = coll_of(f);
+    bson_error_t berr;
+    bool ok = mongoc_collection_update_many(coll, &sel, &update, NULL, NULL,
+                                            &berr);
+    mongoc_collection_destroy(coll);
+    bson_destroy(&sel);
+    bson_destroy(&unset);
+    bson_destroy(&update);
+    if (!ok) snprintf(err, errlen, "mongo: %s", berr.message);
+    return ok ? 1 : 0;
+}
+
+/* Does an index named "<item>_1" (as index_create names them) exist? */
+static int mongo_has_index(mongo_file *f, const char *item) {
+    char idxname[192];
+    snprintf(idxname, sizeof idxname, "%s_1", item);
+    mongoc_collection_t *coll = coll_of(f);
+    mongoc_cursor_t *cur = mongoc_collection_find_indexes_with_opts(coll, NULL);
+    const bson_t *doc;
+    int found = 0;
+    while (cur && mongoc_cursor_next(cur, &doc)) {
+        bson_iter_t it;
+        if (bson_iter_init_find(&it, doc, "name") && BSON_ITER_HOLDS_UTF8(&it)) {
+            uint32_t l;
+            const char *nm = bson_iter_utf8(&it, &l);
+            if (nm && strcmp(nm, idxname) == 0) { found = 1; break; }
+        }
+    }
+    if (cur) mongoc_cursor_destroy(cur);
+    mongoc_collection_destroy(coll);
+    return found;
+}
+
+/* Build a native Mongo index on a mapped column (the mapping already stores
+   and maintains the field).  Indexes a mapped column only — Mongo cannot
+   express the blob-attribute expression index the SQL driver uses — so a
+   NULL/empty `col` (an unmapped attribute) returns -1.  Returns the row
+   count.  The index is named "<item>_1" to match index_drop/has_index. */
+static int mongo_index_create(mvx_file *fh, const char *item, const char *col,
+                              int64_t attr) {
+    (void)attr;
+    mongo_file *f = (mongo_file *)fh;
+    if (!col || !col[0]) return -1;
+    char idxname[192];
+    snprintf(idxname, sizeof idxname, "%s_1", item);
+    /* createIndexes command — portable across libmongoc 1.x and 2.x. */
+    bson_t cmd, indexes, model, key, reply;
+    bson_error_t berr;
+    bson_init(&cmd);
+    bson_append_utf8(&cmd, "createIndexes", -1, f->coll, -1);
+    bson_append_array_begin(&cmd, "indexes", -1, &indexes);
+    bson_append_document_begin(&indexes, "0", 1, &model);
+    bson_append_document_begin(&model, "key", 3, &key);
+    bson_append_int32(&key, col, -1, 1);
+    bson_append_document_end(&model, &key);
+    bson_append_utf8(&model, "name", 4, idxname, -1);
+    bson_append_document_end(&indexes, &model);
+    bson_append_array_end(&cmd, &indexes);
+    bool ok = mongoc_client_command_simple(f->client, f->db, &cmd, NULL, &reply,
+                                           &berr);
+    bson_destroy(&cmd);
+    bson_destroy(&reply);
+    if (!ok) return -1;
+    mongoc_collection_t *coll = coll_of(f);
+    bson_t empty;
+    bson_init(&empty);
+    int64_t n = mongoc_collection_count_documents(coll, &empty, NULL, NULL,
+                                                  NULL, &berr);
+    bson_destroy(&empty);
+    mongoc_collection_destroy(coll);
+    return n < 0 ? 0 : (int)n;
+}
+
+/* Equality lookup on a mapped column via its Mongo index.  The runtime only
+   calls this for an identity TEXT column named `item`; require the index to
+   exist so a missing one returns NULL (the runtime then scans). */
+static mvx_cursor *mongo_index_select(mvx_file *fh, const char *item,
+                                      const char *key, int64_t klen) {
+    mongo_file *f = (mongo_file *)fh;
+    if (!mongo_has_index(f, item)) return NULL;
+    bson_t filter;
+    bson_init(&filter);
+    bson_append_utf8(&filter, item, -1, key, (int)klen);
+    mvx_cursor *c = query_ids(f, &filter);
+    bson_destroy(&filter);
+    return c;
+}
+
+static int mongo_index_drop(mvx_file *fh, const char *item) {
+    mongo_file *f = (mongo_file *)fh;
+    char idxname[192];
+    snprintf(idxname, sizeof idxname, "%s_1", item);
+    bson_t cmd, reply;
+    bson_error_t berr;
+    bson_init(&cmd);
+    bson_append_utf8(&cmd, "dropIndexes", -1, f->coll, -1);
+    bson_append_utf8(&cmd, "index", 5, idxname, -1);
+    bool ok = mongoc_client_command_simple(f->client, f->db, &cmd, NULL, &reply,
+                                           &berr);
+    bson_destroy(&cmd);
+    bson_destroy(&reply);
+    return ok ? 1 : 0;                    /* an absent index errors -> 0 */
+}
+
+/* Server-side WITH push-down: the ids whose mapped column satisfies "="/"#". */
+static mvx_cursor *mongo_select_where(mvx_file *fh, const char *col,
+                                      const char *op, const char *val,
+                                      int64_t vlen) {
+    if (!op || !((op[0] == '=' || op[0] == '#') && !op[1])) return NULL;
+    mongo_file *f = (mongo_file *)fh;
+    bson_t filter;
+    bson_init(&filter);
+    build_pred(&filter, col, op, val, vlen);
+    mvx_cursor *c = query_ids(f, &filter);
+    bson_destroy(&filter);
+    return c;
+}
+
+/* Server-side COUNT: matching records counted in the backend.  op NULL/""
+   counts all; a mapped column filters with "="/"#".  A raw-attribute filter
+   (col NULL) cannot be pushed -> -1 (the runtime counts by scanning). */
+static int64_t mongo_count_where(mvx_file *fh, const char *col, int64_t attr,
+                                 const char *op, const char *val,
+                                 int64_t vlen) {
+    (void)attr;
+    mongo_file *f = (mongo_file *)fh;
+    bson_t filter;
+    bson_init(&filter);
+    if (op && op[0]) {
+        if (!col || !((op[0] == '=' || op[0] == '#') && !op[1])) {
+            bson_destroy(&filter);
+            return -1;
+        }
+        build_pred(&filter, col, op, val, vlen);
+    }
+    mongoc_collection_t *coll = coll_of(f);
+    bson_error_t berr;
+    int64_t n = mongoc_collection_count_documents(coll, &filter, NULL, NULL,
+                                                  NULL, &berr);
+    mongoc_collection_destroy(coll);
+    bson_destroy(&filter);
+    return n;                             /* -1 on backend error */
+}
+
 static const mvx_driver mvx_driver_mongo = {
     .name = "mongo",
     .open = mongo_open,
@@ -376,10 +716,25 @@ static const mvx_driver mvx_driver_mongo = {
     .remove = mongo_remove,
     .names = mongo_names,
     .select_count = mongo_select_count,
-    /* All other capability hooks are NULL: no relational mapping, query
-       push-down, native index, lock authority, or bulk batching in this first
-       cut — the runtime falls back to a client-side scan, per-record
-       projection, and its process-local lock table.  Follow-ups (#61). */
+    /* Mirror-mode relational mapping (#62): columns/associations projected
+       onto the { _id, rec } document as native BSON fields / embedded arrays. */
+    .map_ensure = mongo_map_ensure,
+    .map_apply = mongo_map_apply,
+    .map_child_ensure = mongo_map_child_ensure,
+    .map_child_apply = mongo_map_child_apply,
+    .map_drop = mongo_map_drop,
+    /* Native Mongo indexes on mapped columns (#27/#62); no write_ix/del_ix —
+       the mapping maintains the field, Mongo maintains its own index. */
+    .index_create = mongo_index_create,
+    .index_select = mongo_index_select,
+    .index_drop = mongo_index_drop,
+    /* WITH / COUNT equality push-down on a mapped column (#62). */
+    .select_where = mongo_select_where,
+    .count_where = mongo_count_where,
+    /* Deferred to the runtime's client-side fallback (#62): native read-back
+       (map_read/map_child_read — mirror mode only), select_attr (Mongo cannot
+       split the raw blob server-side), select_join, sum_where, select_order,
+       select_multi, explain, bulk batching, map_backfill, and lock authority. */
 };
 
 const mvx_driver *mvx_driver_entry(int abi) {
