@@ -1711,6 +1711,28 @@ else
   echo "  (postgres test skipped — set MVX_PG to run)"
 fi
 
+# mongo backend — only when MVX_MONGO names a reachable MongoDB, e.g.
+#   MVX_MONGO='address=localhost:27017 namespace=mvxtest'
+if [ -n "${MVX_MONGO:-}" ]; then
+  MGACCT="$TESTROOT/mgacct"; mkdir -p "$MGACCT"
+  printf '# MVX account descriptor\nname=mgacct\nversion=1\n' > "$MGACCT/.mvx"
+  printf 'SET-CONNECTION mongotest driver=mongo %s\n' "$MVX_MONGO" | \
+    "$TCL" -a "$MGACCT" >/dev/null 2>&1
+  printf 'ORDERS @mongotest\n' > "$MGACCT/BINDINGS"
+  "$TCL" -a "$MGACCT" -c 'DELETE-FILE ORDERS' >/dev/null 2>&1
+  # records round-trip byte-exact (marks and all) as { _id, rec } documents;
+  # write two, read one (multivalue preserved), delete the other.
+  printf 'OPEN "ORDERS" TO F ELSE STOP\nWRITE "Widget":@VM:"Gadget" ON F, "O1"\nWRITE "Acme" ON F, "O2"\nREAD V FROM F, "O1" THEN PRINT "read: ":V<1,1>:"/":V<1,2>\nDELETE F, "O2"\n' > "$TESTROOT/mg.b"
+  "$MVX" "$TESTROOT/mg.b" -o "$TESTROOT/mgbin" 2>/dev/null
+  check tcl-mongo "$( \
+    "$TCL" -a "$MGACCT" -c 'CREATE-FILE ORDERS USING @mongotest' 2>&1; \
+    (cd "$MGACCT" && MVXACCOUNT=. "$TESTROOT/mgbin"); \
+    printf 'COUNT ORDERS\nSELECT ORDERS\nLIST ORDERS\n' | \
+      "$TCL" -a "$MGACCT" 2>&1)"
+else
+  echo "  (mongo test skipped — set MVX_MONGO to run)"
+fi
+
 # ---------------------------------------------------------------- phase 3
 # The sieve result is deterministic (Count 78498); only its *execution*
 # on a loaded CI runner is occasionally flaky (a transient OOM during the

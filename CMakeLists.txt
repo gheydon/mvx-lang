@@ -36,6 +36,9 @@ endif()
 set(MVX_WITH_POSTGRES "${_mvx_pg_default}" CACHE STRING
   "Postgres driver: AUTO (build if libpq present), ON (require it), OFF")
 set_property(CACHE MVX_WITH_POSTGRES PROPERTY STRINGS AUTO ON OFF)
+set(MVX_WITH_MONGO "${_mvx_pg_default}" CACHE STRING
+  "MongoDB driver: AUTO (build if libmongoc present), ON (require it), OFF")
+set_property(CACHE MVX_WITH_MONGO PROPERTY STRINGS AUTO ON OFF)
 option(MVX_WITH_DAEMON "Build the mvx-lmdbd daemon and admin tool"
   ${_mvx_daemon_default})
 # Packages built into the system account at build time (#54): always available
@@ -128,6 +131,31 @@ if(MVX_POSTGRES_ENABLED)
   mvx_driver(postgres runtime/src/mvx_drv_postgres.c)
   target_include_directories(mvxdrv_postgres PRIVATE ${LIBPQ_INCLUDE_DIR})
   target_link_libraries(mvxdrv_postgres PRIVATE ${LIBPQ_LIBRARY})
+endif()
+
+# mongo driver — gated by MVX_WITH_MONGO.  The mongo-c-driver ships pkg-config
+# modules mongoc2 / bson2 (v2 API).
+set(MVX_MONGO_ENABLED OFF)
+if(NOT MVX_WITH_MONGO STREQUAL "OFF")
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    # v2 (Homebrew) exposes mongoc2/bson2; v1 (apt libmongoc-dev) libmongoc-1.0.
+    pkg_check_modules(MONGOC QUIET IMPORTED_TARGET mongoc2 bson2)
+    if(NOT MONGOC_FOUND)
+      pkg_check_modules(MONGOC QUIET IMPORTED_TARGET libmongoc-1.0 libbson-1.0)
+    endif()
+  endif()
+  if(MONGOC_FOUND)
+    set(MVX_MONGO_ENABLED ON)
+  elseif(MVX_WITH_MONGO STREQUAL "ON")
+    message(FATAL_ERROR
+      "MVX_WITH_MONGO=ON but libmongoc (pkg-config mongoc2/bson2) was not found")
+  endif()
+endif()
+if(MVX_MONGO_ENABLED)
+  message(STATUS "Building mongo driver against ${MONGOC_LIBRARIES}")
+  mvx_driver(mongo runtime/src/mvx_drv_mongo.c)
+  target_link_libraries(mvxdrv_mongo PRIVATE PkgConfig::MONGOC)
 endif()
 
 # --- the networked LMDB daemon (optional) ------------------------------
@@ -262,6 +290,9 @@ set(MVX_INSTALL_DRIVERS mvxrt mvxdrv_dir mvxdrv_lmdb mvxdrv_lmdbnet)
 if(MVX_POSTGRES_ENABLED)
   list(APPEND MVX_INSTALL_DRIVERS mvxdrv_postgres)
 endif()
+if(MVX_MONGO_ENABLED)
+  list(APPEND MVX_INSTALL_DRIVERS mvxdrv_mongo)
+endif()
 install(TARGETS ${MVX_INSTALL_DRIVERS} LIBRARY DESTINATION lib)
 install(FILES ${CMAKE_BINARY_DIR}/lib/mvx_crt.o DESTINATION lib)
 
@@ -269,6 +300,7 @@ install(FILES ${CMAKE_BINARY_DIR}/lib/mvx_crt.o DESTINATION lib)
 message(STATUS "")
 message(STATUS "MVX components:")
 message(STATUS "  postgres driver : ${MVX_POSTGRES_ENABLED}")
+message(STATUS "  mongo driver    : ${MVX_MONGO_ENABLED}")
 message(STATUS "  lmdbd daemon    : ${MVX_WITH_DAEMON}")
 message(STATUS "")
 
