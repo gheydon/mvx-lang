@@ -939,6 +939,16 @@ EOF
     { grep -q 'FILE' 'PARTS.DICT/%FILE%' && echo 'disk %FILE%: native'; }; \
     "$TCL" -a . -c 'LISTF' 2>&1 | normalise | grep -E '^PARTS |^ORDERS '; \
     "$TCL" -a . -c 'LIST PARTS NAME' 2>&1 | normalise | grep -E 'W1|Widget' | head -1 )"
+
+  # a materialised open account reads back clean: status translates the native
+  # disk form up to the open form, so the committed %FILE% controls, the
+  # .mv-account descriptor, and every record (incl. dir-backed dictionary items,
+  # which must not accumulate a trailing terminator) round-trip with no reported
+  # modification or deletion.  Provisioning artefacts BUILD creates (e.g. the
+  # VOC/CATALOG pointer) may show untracked (??); only ` M `/` D ` lines fault.
+  check tcl-mvxgit-clone-clean "$( cd "$MGCOC"; \
+    st="$( MVX="$TCL" "$ROOT/build/bin/mvx-git" status 2>&1 )"; \
+    echo "$st" | grep -E '^ (M|D) ' && echo 'DIRTY' || echo 'clean: no modified/deleted' )"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
