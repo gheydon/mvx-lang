@@ -287,6 +287,7 @@ int64_t mvx_mapdrop(mvx_ctx *ctx, const mv_value *fvar,
 int64_t mvx_mapcheck(mvx_ctx *ctx, const mv_value *fvar,
                      const mv_value *spec);
 int     mvx_openaccount(void);   /* open account format on? ($MVX_OPENACCOUNT) */
+void    mvx_account_hash(char *buf, size_t cap);  /* .mvx default hash type */
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
 int64_t mvx_deletefile(mvx_ctx *ctx, const mv_value *spec);

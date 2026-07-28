@@ -43,6 +43,15 @@
   `CREATEFILE(spec {,"DIR"})` and `DELETEFILE(spec)` — these are the
   primitives the CREATE-FILE / DELETE-FILE verbs will wrap when TCL
   arrives, since verbs are BASIC programs, not C.
+- **The account chooses its default hash backend.** `CREATE-FILE <name>`
+  with no explicit type creates the account's default hash file; the
+  built-in default is local lmdb, but the `.mvx` (or open-checkout
+  `.mv-account`) descriptor may set `hash = <spec>` — a CREATE-FILE type
+  such as `lmdb` or `USING postgres @pgmain` — to change it, so a whole
+  account can standardise on one backend. An explicit type on the verb
+  always overrides. On MVX, `mvx-git` checkout of an open account (where a
+  file's class is only `hash`) prompts for the backend and can record the
+  choice as this default; UniData has no such choice (hash and dir only).
 
 ## Indexing (ARCHITECTURE.md 5)
 
@@ -373,7 +382,11 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
     open blobs *from* the native account; on checkout it builds the native
     account *directly* from the open blobs (no intermediate open-form files, no
     checkout-then-convert); `status`/`diff` translate the on-disk native records
-    *up* to the open form before comparing against the open blobs.
+    *up* to the open form before comparing against the open blobs. This covers
+    the records too: a record's git blob is a legible **hybrid** form (marks ↔
+    newlines) so it browses and diffs on GitHub, but that form never lands on
+    disk — checkout materialises it straight into the backing store (the hash
+    file, directory file, …).
   - **`.DICT/%FILE%` is `DIR` or `hash` only** in git (the portable file class,
     connection dropped): `dir → DIR`, `lmdb`/any hash backend → `hash`; the
     reverse on checkout maps `hash` to the account's default hash backend and

@@ -2992,6 +2992,47 @@ static void voc_unregister(const char *name) {
     drv->close(v);
 }
 
+/* The account's default file type for CREATE-FILE with no explicit type, read
+   from the `.mvx` (or open-checkout `.mv-account`) descriptor line
+   `hash = <spec>`, where <spec> is a CREATE-FILE type such as `lmdb` or
+   `USING postgres @pgmain`.  Empty ⇒ the built-in default (local lmdb).  Lets an
+   account pick a default hash backend for new files while still allowing an
+   explicit type per CREATE-FILE. */
+void mvx_account_hash(char *buf, size_t cap) {
+    if (cap) buf[0] = '\0';
+    const char *acct = getenv("MVXACCOUNT");
+    if (!acct || !acct[0]) acct = ".";
+    const char *names[2] = {".mvx", ".mv-account"};
+    for (int i = 0; i < 2 && !buf[0]; i++) {
+        char p[4200];
+        snprintf(p, sizeof p, "%s/%s", acct, names[i]);
+        FILE *f = fopen(p, "r");
+        if (!f) continue;
+        char line[600];
+        while (fgets(line, sizeof line, f)) {
+            char *eq = strchr(line, '=');
+            if (!eq) continue;
+            char *k = line;
+            while (*k == ' ' || *k == '\t') k++;
+            char *ke = eq;
+            while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t')) ke--;
+            if ((size_t)(ke - k) != 4 || strncasecmp(k, "hash", 4) != 0)
+                continue;
+            char *v = eq + 1;
+            while (*v == ' ' || *v == '\t') v++;
+            size_t vl = strlen(v);
+            while (vl && (v[vl - 1] == '\n' || v[vl - 1] == '\r' ||
+                          v[vl - 1] == ' ' || v[vl - 1] == '\t'))
+                vl--;
+            if (vl >= cap) vl = cap - 1;
+            memcpy(buf, v, vl);
+            buf[vl] = '\0';
+            break;
+        }
+        fclose(f);
+    }
+}
+
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type) {
     (void)ctx;
@@ -3001,6 +3042,12 @@ int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
     char tb[600];
     const char *tp = "";
     if (type) mv_val_chars(type, tb, sizeof tb, &tp);
+    /* No explicit type: fall back to the account's default hash type. */
+    char defbuf[600];
+    if (!tp[0]) {
+        mvx_account_hash(defbuf, sizeof defbuf);
+        if (defbuf[0]) tp = defbuf;
+    }
     char err[256] = "";
 
     /* CREATE-FILE name USING <driver> {params}: bind at creation and

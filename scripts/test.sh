@@ -654,6 +654,19 @@ check tcl-createfile-voc "$(printf '%s\n' \
   'DELETE-FILE ORDERS' \
   'CT VOC ORDERS' | "$TCL" -a "$CFV" 2>&1 | normalise)"
 
+# .mvx default hash type: CREATE-FILE with no explicit type uses the account's
+# `hash =` default (F1 has none -> lmdb; after `hash = DIR`, F2 -> a directory
+# file); an explicit type still overrides the default (F3 DIR).
+DHA="$TESTROOT/defhash"
+"$ROOT/scripts/mkaccount.sh" "$DHA" >/dev/null
+check tcl-default-hash "$( \
+  "$TCL" -a "$DHA" -c 'CREATE-FILE F1' >/dev/null 2>&1; \
+  "$TCL" -a "$DHA" -c 'LISTF' 2>&1 | normalise | grep -E '^F1 '; \
+  printf 'hash = DIR\n' >> "$DHA/.mvx"; \
+  "$TCL" -a "$DHA" -c 'CREATE-FILE F2'     >/dev/null 2>&1; \
+  "$TCL" -a "$DHA" -c 'CREATE-FILE F3 DIR' >/dev/null 2>&1; \
+  "$TCL" -a "$DHA" -c 'LISTF' 2>&1 | normalise | grep -E '^F2 |^F3 ')"
+
 # %FILE%-driven type: on import each file is rebuilt as the backend its
 # dictionary's %FILE% names - a hash file for ORDERS, a directory file
 # for ARCHIVE.
