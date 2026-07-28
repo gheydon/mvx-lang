@@ -2895,6 +2895,31 @@ int mvx_openaccount(void) {
     return e && (*e == '1' || *e == 'y' || *e == 'Y' || *e == 't' || *e == 'T');
 }
 
+/* Classify a master-VOC record by its MVX type code for the record-git filter
+   (each MV platform defines its own set): 0 = keep (the user's own procs),
+   1 = always drop (a system verb/keyword the destination supplies), 2 = drop in
+   the open interchange only (a file/dir pointer — the portable form travels as
+   <file>.DICT/%FILE%).
+
+   On MVX the standard verbs come from the *system* account, so the account's
+   own VOC holds only the user's local verbs (cataloged from BP, which travels)
+   — those are kept.  Only file/dir pointers are platform-specific, dropped in
+   the open interchange since %FILE% carries the portable file type.  (Contrast
+   UniData, whose account VOC is populated with the system verbs, so its
+   classifier drops V/K.) */
+int mvx_voc_class(const char *type, int64_t len) {
+    static const struct { const char *t; int c; } tbl[] = {
+        {"F", 2}, {"DIR", 2}, {"Q", 2},     /* file / directory / q-pointer */
+        {NULL, 0}
+    };
+    for (int i = 0; tbl[i].t; i++) {
+        size_t sl = strlen(tbl[i].t);
+        if ((size_t)len == sl && strncasecmp(type, tbl[i].t, sl) == 0)
+            return tbl[i].c;
+    }
+    return 0;
+}
+
 /* Stamp a %FILE% control record into a just-created dictionary: a
    metadata hint that travels with the schema in git (BUILD reads it to
    know a file's backend after a clone).  On disk it is always the native

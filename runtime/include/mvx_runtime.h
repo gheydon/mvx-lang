@@ -287,6 +287,10 @@ int64_t mvx_mapdrop(mvx_ctx *ctx, const mv_value *fvar,
 int64_t mvx_mapcheck(mvx_ctx *ctx, const mv_value *fvar,
                      const mv_value *spec);
 int     mvx_openaccount(void);   /* open account format on? ($MVX_OPENACCOUNT) */
+/* Classify a master-VOC record type for the record-git filter: 0 keep (user
+   procs), 1 always-drop (system verb/keyword), 2 open-interchange-drop (file
+   pointer).  Platform-specific — see mv_voc_class in the record-git engine. */
+int     mvx_voc_class(const char *type, int64_t len);
 void    mvx_account_hash(char *buf, size_t cap);  /* .mvx default hash type */
 int64_t mvx_createfile(mvx_ctx *ctx, const mv_value *spec,
                        const mv_value *type);       /* type NULL/"DIR" */
