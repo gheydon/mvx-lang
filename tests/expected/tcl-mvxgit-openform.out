@@ -1,0 +1,6 @@
+git %FILE% = DIR
+git: .mv-account
+git: no .mvx
+git: no lmdb store
+disk %FILE%: native
+disk descriptor: .mvx

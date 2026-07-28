@@ -846,6 +846,28 @@ RGEOF
         || echo 'no nested .git (forwarded to main repo)'; }; \
     ( cd "$MGSUB/acct" && "$ROOT/build/bin/mvx-git" log --oneline 2>&1 \
         | sed -E 's/[0-9a-f]{7,40}/HASH/g' ))"
+
+  # open account format, commit side (mvx#73): with mvx.openaccount set, `add`
+  # normalises the staged git objects to the open form - %FILE% becomes DIR/hash,
+  # .mvx is stored at .mv-account, and the binary lmdb store is never tracked -
+  # while the working tree on disk stays a native MVX account.
+  MGF="$TESTROOT/mgopenform"
+  "$ROOT/scripts/mkaccount.sh" "$MGF" >/dev/null
+  "$TCL" -a "$MGF" -c 'CREATE-FILE PARTS DIR' >/dev/null 2>&1
+  ( cd "$MGF" && "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    git config mvx.openaccount true && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 && \
+    "$ROOT/build/bin/mvx-git" commit -m init >/dev/null 2>&1 )
+  check tcl-mvxgit-openform "$( cd "$MGF"; \
+    echo "git %FILE% = $(git cat-file -p 'HEAD:PARTS.DICT/%FILE%')"; \
+    { git cat-file -e 'HEAD:.mv-account' 2>/dev/null && echo 'git: .mv-account'; }; \
+    { git cat-file -e 'HEAD:.mvx' 2>/dev/null && echo 'git: .mvx (WRONG)' \
+        || echo 'git: no .mvx'; }; \
+    { git cat-file -e 'HEAD:mvxdata.lmdb/data.mdb' 2>/dev/null \
+        && echo 'git: lmdb store (WRONG)' || echo 'git: no lmdb store'; }; \
+    { grep -q 'FILE' 'PARTS.DICT/%FILE%' && echo 'disk %FILE%: native'; }; \
+    { [ -f .mvx ] && echo 'disk descriptor: .mvx'; })"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
