@@ -851,6 +851,31 @@ RGEOF
         || echo 'no nested .git (forwarded to main repo)'; }; \
     ( cd "$MGSUB/acct" && "$ROOT/build/bin/mvx-git" log --oneline 2>&1 \
         | sed -E 's/[0-9a-f]{7,40}/HASH/g' ))"
+
+  # open account format (mv_git): `mvx-git clone --open-account` sets the
+  # mvx.openaccount git config flag and rebuilds the checkout in the open form —
+  # %FILE% becomes the portable class DIR/hash even for a source committed in
+  # the legacy form.  A plain clone leaves the legacy form untouched.
+  MGO="$TESTROOT/mgopen"
+  "$ROOT/scripts/mkaccount.sh" "$MGO" >/dev/null
+  "$TCL" -a "$MGO" -c 'CREATE-FILE PARTS DIR' >/dev/null 2>&1
+  "$TCL" -a "$MGO" -c 'CREATE-FILE ORDERS'    >/dev/null 2>&1
+  ( cd "$MGO" && "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 && \
+    "$ROOT/build/bin/mvx-git" commit -m init >/dev/null 2>&1 )
+  MGOD="$TESTROOT/mgopen-clone"
+  MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" \
+    clone --open-account "$MGO" "$MGOD" </dev/null >/dev/null 2>&1
+  MGOP="$TESTROOT/mgopen-plain"
+  MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" \
+    clone "$MGO" "$MGOP" </dev/null >/dev/null 2>&1
+  check tcl-mvxgit-openaccount "$( \
+    echo "flag: $(git -C "$MGOD" config --get mvx.openaccount)"; \
+    echo "open PARTS %FILE% = $(cat "$MGOD/PARTS.DICT/%FILE%")"; \
+    "$TCL" -a "$MGOD" -c 'LISTF' 2>&1 | normalise | grep -E '^PARTS |^ORDERS '; \
+    { grep -q 'FILE' "$MGOP/PARTS.DICT/%FILE%" && echo 'plain clone kept legacy %FILE%'; }; \
+    { [ -z "$(git -C "$MGOP" config --get mvx.openaccount)" ] && echo 'plain clone flag unset'; })"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi

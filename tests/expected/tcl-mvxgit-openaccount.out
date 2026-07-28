@@ -1,0 +1,6 @@
+flag: true
+open PARTS %FILE% = DIR
+PARTS                    directory
+ORDERS                   lmdb
+plain clone kept legacy %FILE%
+plain clone flag unset
