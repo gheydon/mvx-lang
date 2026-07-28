@@ -49,9 +49,13 @@
   `.mv-account`) descriptor may set `hash = <spec>` — a CREATE-FILE type
   such as `lmdb` or `USING postgres @pgmain` — to change it, so a whole
   account can standardise on one backend. An explicit type on the verb
-  always overrides. On MVX, `mvx-git` checkout of an open account (where a
-  file's class is only `hash`) prompts for the backend and can record the
-  choice as this default; UniData has no such choice (hash and dir only).
+  always overrides. On checkout of an open account (where a file's class is only
+  `hash`) the tool prompts for the concrete type and can record the choice as
+  this default — but that prompt is **per-platform**: MVX chooses a backend
+  driver (lmdb / postgres / …), UniVerse chooses a hashed-file type (static
+  2–18, dynamic ~30 — usually just the default, ~18/19), and UniData has no
+  choice at all (hash and dir only, so `udt-git` never prompts). The `hash =`
+  default holds whichever the platform uses.
 
 ## Indexing (ARCHITECTURE.md 5)
 
