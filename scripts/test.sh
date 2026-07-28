@@ -611,14 +611,15 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
-# account round-trip: mvx-convert-acct --export snapshots a live account
-# to the git directory form; a plain-git-style clone (no hash-file store)
-# is then rebuilt into hash files by mvx-convert-acct.
-CONV="$ROOT/build/bin/mvx-convert-acct"
-RTS="$TESTROOT/rtsrc"
-"$ROOT/scripts/mkaccount.sh" "$RTS" >/dev/null
-rtseed="$TESTROOT/rtseed.b"
-cat > "$rtseed" <<'EOF'
+# account adoption: mvx-git commits a live account; a *plain* git clone lands
+# the tracked (directory) form; mvx-git-adopt rebuilds the live hash-file account
+# from it (the CI path — no export direction exists).
+CONV="$ROOT/build/bin/mvx-git-adopt"
+if command -v git >/dev/null 2>&1 && [ -x "$ROOT/build/bin/mvx-git" ]; then
+  RTS="$TESTROOT/rtsrc"
+  "$ROOT/scripts/mkaccount.sh" "$RTS" >/dev/null
+  rtseed="$TESTROOT/rtseed.b"
+  cat > "$rtseed" <<'EOF'
 X = CREATEFILE("PARTS")
 OPEN "PARTS" TO F ELSE STOP
 WRITE "Widget":@AM:"999" ON F, "W100"
@@ -629,17 +630,22 @@ OPEN "VOC" TO V ELSE STOP
 WRITE "V":@AM:"CATALOG/FOO" ON V, "FOO"
 PRINT "seeded"
 EOF
-"$MVX" "$rtseed" -o "$TESTROOT/rtseedbin" 2>/dev/null
-(cd "$RTS" && MVXACCOUNT=. "$TESTROOT/rtseedbin") >/dev/null
-MVX="$TCL" "$CONV" --export "$RTS" >/dev/null 2>&1
-RTC="$TESTROOT/rtclone"
-mkdir -p "$RTC"
-(cd "$RTS" && tar cf - --exclude=mvxdata.lmdb .) | (cd "$RTC" && tar xf -)
-MVX="$TCL" "$CONV" "$RTC" >/dev/null 2>&1
-check tcl-account "$(printf '%s\n' \
-  'COUNT PARTS' \
-  'LIST PARTS NAME BY NAME' \
-  'CT VOC FOO' | "$TCL" -a "$RTC" 2>&1 | normalise)"
+  "$MVX" "$rtseed" -o "$TESTROOT/rtseedbin" 2>/dev/null
+  (cd "$RTS" && MVXACCOUNT=. "$TESTROOT/rtseedbin") >/dev/null
+  ( cd "$RTS" && "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 && \
+    "$ROOT/build/bin/mvx-git" commit -m stock >/dev/null 2>&1 )
+  RTC="$TESTROOT/rtclone"
+  git clone -q "$RTS" "$RTC" >/dev/null 2>&1
+  MVX="$TCL" "$CONV" "$RTC" >/dev/null 2>&1
+  check tcl-account "$(printf '%s\n' \
+    'COUNT PARTS' \
+    'LIST PARTS NAME BY NAME' \
+    'CT VOC FOO' | "$TCL" -a "$RTC" 2>&1 | normalise)"
+else
+  echo "  (skipping tcl-account: git or mvx-git unavailable)"
+fi
 
 # #71: CREATE-FILE registers the file in the VOC as an "F" file pointer (attr 1
 # F, attr 2 data, attr 3 dictionary), for both directory and lmdb files;
@@ -667,13 +673,14 @@ check tcl-default-hash "$( \
   "$TCL" -a "$DHA" -c 'CREATE-FILE F3 DIR' >/dev/null 2>&1; \
   "$TCL" -a "$DHA" -c 'LISTF' 2>&1 | normalise | grep -E '^F2 |^F3 ')"
 
-# %FILE%-driven type: on import each file is rebuilt as the backend its
-# dictionary's %FILE% names - a hash file for ORDERS, a directory file
-# for ARCHIVE.
-RDS="$TESTROOT/rdsrc"
-"$ROOT/scripts/mkaccount.sh" "$RDS" >/dev/null
-rdseed="$TESTROOT/rdseed.b"
-cat > "$rdseed" <<'EOF'
+# %FILE%-driven type: adopting a plain-git checkout rebuilds each file as the
+# backend its dictionary's %FILE% names - a hash file for ORDERS, a directory
+# file for ARCHIVE - and its dictionary survives.
+if command -v git >/dev/null 2>&1 && [ -x "$ROOT/build/bin/mvx-git" ]; then
+  RDS="$TESTROOT/rdsrc"
+  "$ROOT/scripts/mkaccount.sh" "$RDS" >/dev/null
+  rdseed="$TESTROOT/rdseed.b"
+  cat > "$rdseed" <<'EOF'
 X = CREATEFILE("ORDERS")
 OPEN "ORDERS" TO F ELSE STOP
 WRITE "a":@AM:"1" ON F, "O1"
@@ -685,20 +692,24 @@ OPEN "ARCHIVE" TO A ELSE STOP
 WRITE "old":@AM:"x" ON A, "R1"
 PRINT "seeded"
 EOF
-"$MVX" "$rdseed" -o "$TESTROOT/rdseedbin" 2>/dev/null
-(cd "$RDS" && MVXACCOUNT=. "$TESTROOT/rdseedbin") >/dev/null
-MVX="$TCL" "$CONV" --export "$RDS" >/dev/null 2>&1
-RDC="$TESTROOT/rdclone"
-mkdir -p "$RDC"
-# clone without the hash-file store
-(cd "$RDS" && tar cf - --exclude=mvxdata.lmdb .) | (cd "$RDC" && tar xf -)
-MVX="$TCL" "$CONV" "$RDC" >/dev/null 2>&1
-check tcl-account-dict "$( \
-  "$TCL" -a "$RDC" -c 'COUNT ORDERS' 2>&1; \
-  "$TCL" -a "$RDC" -c 'CT DICT ORDERS WHO' 2>&1 | head -1; \
-  "$TCL" -a "$RDC" -c 'COUNT ARCHIVE' 2>&1; \
-  { [ -d "$RDC/ORDERS" ] && echo 'ORDERS still directory' || echo 'ORDERS is a hash file'; }; \
-  { [ -d "$RDC/ARCHIVE" ] && echo 'ARCHIVE stays a directory file' || echo 'ARCHIVE lost'; })"
+  "$MVX" "$rdseed" -o "$TESTROOT/rdseedbin" 2>/dev/null
+  (cd "$RDS" && MVXACCOUNT=. "$TESTROOT/rdseedbin") >/dev/null
+  ( cd "$RDS" && "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 && \
+    "$ROOT/build/bin/mvx-git" commit -m stock >/dev/null 2>&1 )
+  RDC="$TESTROOT/rdclone"
+  git clone -q "$RDS" "$RDC" >/dev/null 2>&1
+  MVX="$TCL" "$CONV" "$RDC" >/dev/null 2>&1
+  check tcl-account-dict "$( \
+    "$TCL" -a "$RDC" -c 'COUNT ORDERS' 2>&1; \
+    "$TCL" -a "$RDC" -c 'CT DICT ORDERS WHO' 2>&1 | head -1; \
+    "$TCL" -a "$RDC" -c 'COUNT ARCHIVE' 2>&1; \
+    { [ -d "$RDC/ORDERS" ] && echo 'ORDERS still directory' || echo 'ORDERS is a hash file'; }; \
+    { [ -d "$RDC/ARCHIVE" ] && echo 'ARCHIVE stays a directory file' || echo 'ARCHIVE lost'; })"
+else
+  echo "  (skipping tcl-account-dict: git or mvx-git unavailable)"
+fi
 
 # CONVERT-FILE: change one file's backend, records + dictionary intact
 CFA="$TESTROOT/cfacct"
@@ -740,9 +751,11 @@ PRINT "seeded"
 EOF
   "$MVX" "$mgseed" -o "$TESTROOT/mgseedbin" 2>/dev/null
   (cd "$MGS" && MVXACCOUNT=. "$TESTROOT/mgseedbin") >/dev/null
-  MVX="$TCL" "$CONV" --export "$MGS" >/dev/null 2>&1
-  ( cd "$MGS" && printf 'mvxdata.lmdb/\n' > .gitignore && git init -q -b main && \
-    git add -A && git -c user.email=t@t -c user.name=t commit -qm acct ) >/dev/null 2>&1
+  ( cd "$MGS" && printf 'mvxdata.lmdb/\n' > .gitignore && \
+    "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 && \
+    "$ROOT/build/bin/mvx-git" commit -m acct >/dev/null 2>&1 ) >/dev/null 2>&1
   MGC="$TESTROOT/mgclone"
   MVXCONVERT="$CONV" MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGS" "$MGC" >/dev/null 2>&1
   # a repo WITHOUT a .mvx descriptor: plain clone stays plain; only an

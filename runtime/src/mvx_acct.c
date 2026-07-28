@@ -16,7 +16,6 @@
  * files with no .DICT.  mvx-convert-acct and mvx-git call these.
  *
  *   mvx_acct_import  directory form  ->  hash files  (clone / checkout)
- *   mvx_acct_export  hash files      ->  directory form  (commit)
  *
  * The heavy provisioning (cataloging BP, linking packages, creating
  * empty bulk files from their dictionaries) stays in the BUILD verb,
@@ -177,14 +176,18 @@ static int file_type(mvx_ctx *ctx, const char *dictname, char *type,
 static void ensure_dir_meta(mvx_ctx *ctx, const char *nm) {
     mv_value f;
     if (!open_dict(ctx, nm, &f)) return;
-    mv_value id, rec; set(&id, "%FILE%", 6); mv_init(&rec);
-    if (!mvx_read(ctx, &rec, &f, &id, 0)) {
-        char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
-        mv_value v; set(&v, meta, sizeof meta);
-        mvx_write(ctx, &v, &f, &id, 0, 0);
-        mv_clear(&v);
-    }
-    mv_clear(&id); mv_clear(&rec); mv_clear(&f);
+    /* Write the native control unconditionally: a directory file's on-disk
+       %FILE% is always FILE<VM>dir, even when the checkout carried the open
+       form's portable "DIR" — the open form lives only in git. */
+    mv_value id;
+    set(&id, "%FILE%", 6);
+    char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
+    mv_value v;
+    set(&v, meta, sizeof meta);
+    mvx_write(ctx, &v, &f, &id, 0, 0);
+    mv_clear(&v);
+    mv_clear(&id);
+    mv_clear(&f);
 }
 
 static int64_t createfile(mvx_ctx *ctx, const char *name, const char *type,
@@ -364,60 +367,4 @@ int mvx_acct_import(mvx_ctx *ctx) {
     /* BUILD provisions the rest: empty bulk files from lone dictionaries,
      * cataloged BP, linked packages, indexes, and the .mvx descriptor. */
     return run_verb("BUILD");
-}
-
-/* ---- export: hash files -> directory form ----------------------------
- * The inverse of import: every hash-backed file becomes NAME/ (records)
- * beside NAME.DICT/ (dictionary), copying the dictionary verbatim so its
- * %FILE% keeps the real backend type — that is what tells a later import
- * to rebuild it as a hash file.  Files that are already directory files
- * (dir backend, e.g. CATALOG) are left as they are. */
-int mvx_acct_export(mvx_ctx *ctx) {
-    mv_value fl; mv_init(&fl);
-    mvx_filelist(ctx, &fl);
-    char nb[64]; const char *fp;
-    int64_t fllen = mv_val_chars(&fl, nb, sizeof nb, &fp);
-
-    char (*names)[256] = NULL;
-    size_t nn = 0, ncap = 0;
-    const char *p = fp, *end = fp + fllen;
-    while (p < end) {
-        const char *am = memchr(p, (char)0xFE, (size_t)(end - p));
-        const char *ee = am ? am : end;
-        const char *vm = memchr(p, (char)0xFD, (size_t)(ee - p));
-        const char *ne = vm ? vm : ee;
-        char ty = (vm && vm + 1 < ee) ? vm[1] : 'L';
-        if (ty != 'D' && ne > p) {             /* hash-backed file */
-            if (nn == ncap) {
-                ncap = ncap ? ncap * 2 : 32;
-                names = realloc(names, ncap * sizeof *names);
-                if (!names) mvx_fatal("out of memory converting account");
-            }
-            snprintf(names[nn], sizeof names[nn], "%.*s", (int)(ne - p), p);
-            nn++;
-        }
-        p = am ? am + 1 : end;
-    }
-    mv_clear(&fl);
-
-    int nexp = 0;
-    for (size_t i = 0; i < nn; i++) {
-        const char *nm = names[i];
-        if (infra(nm)) continue;
-
-        stash data = {0}, dict = {0};
-        mv_value f;
-        if (open_lit(ctx, nm, &f))  { drain(ctx, &f, &data, 0); mv_clear(&f); }
-        if (open_dict(ctx, nm, &f)) { drain(ctx, &f, &dict, 0); mv_clear(&f); }
-
-        char dirt[8]; snprintf(dirt, sizeof dirt, "dir");
-        createfile(ctx, nm, dirt, NULL);       /* NAME/ + NAME.DICT */
-        if (open_lit(ctx, nm, &f))  { pour(ctx, &f, &data); mv_clear(&f); }
-        if (open_dict(ctx, nm, &f)) { pour(ctx, &f, &dict); mv_clear(&f); }
-        stash_free(&data); stash_free(&dict);
-        nexp++;
-    }
-    free(names);
-    printf("exported %d file(s) to directory form\n", nexp);
-    return 0;
 }

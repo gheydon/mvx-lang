@@ -295,7 +295,6 @@ void    mvx_store_shutdown(mvx_ctx *ctx);           /* ctx destroy hook */
 
 /* --- account conversion: git directory form <-> live hash files ------- */
 int     mvx_acct_import(mvx_ctx *ctx);   /* directory form -> hash files */
-int     mvx_acct_export(mvx_ctx *ctx);   /* hash files -> directory form */
 
 /* --- runtime CALL resolution (jBASE catalog model) --------------------- */
 void mvx_call(mvx_ctx *ctx, const char *name, int32_t argc,

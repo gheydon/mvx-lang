@@ -173,10 +173,10 @@ if(MVX_WITH_DAEMON)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 endif()
 
-# --- mvx-convert-acct: bootstrap tool for plain-git checkouts ----------
-add_executable(mvx-convert-acct tools/mvx_convert_acct.c)
-target_link_libraries(mvx-convert-acct PRIVATE mvxrt)
-set_target_properties(mvx-convert-acct PROPERTIES
+# --- mvx-git-adopt: adopt a plain-git checkout into a native account ----
+add_executable(mvx-git-adopt tools/mvx_git_adopt.c)
+target_link_libraries(mvx-git-adopt PRIVATE mvxrt)
+set_target_properties(mvx-git-adopt PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- classic TCL shell -------------------------------------------------
@@ -277,10 +277,10 @@ if(APPLE)
 else()
   set(MVX_INSTALL_RPATH "\$ORIGIN/../lib")
 endif()
-set_target_properties(mvx mvx-basic mvx-convert-acct PROPERTIES
+set_target_properties(mvx mvx-basic mvx-git-adopt PROPERTIES
   INSTALL_RPATH "${MVX_INSTALL_RPATH}")
 
-set(MVX_INSTALL_BINS mvx mvx-basic mvx-convert-acct)
+set(MVX_INSTALL_BINS mvx mvx-basic mvx-git-adopt)
 if(MVX_WITH_DAEMON)
   list(APPEND MVX_INSTALL_BINS mvx-lmdbd mvx-lmdbd-admin)
 endif()
