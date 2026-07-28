@@ -891,6 +891,41 @@ EOF
     { git ls-files ORDERS/O1 | grep -q . && echo 'data: ORDERS/O1'; }; \
     { git ls-files 'ORDERS.DICT/WHO' | grep -q . && echo 'dict: ORDERS.DICT/WHO'; }; \
     { git ls-files 'ORDERS.DICT/%FILE%' | grep -q . && echo 'dict: ORDERS.DICT/%FILE%'; })"
+
+  # direct clone materialisation (mv_git#4): `mvx-git clone` of an open-format
+  # account builds a native MVX account straight from the git objects into the
+  # backend - the open form never lands on disk (no `<file>/` record dirs, no
+  # .mv-account, %FILE% is native), no adopt tool runs - with a DIR file, a hash
+  # file, and their dictionaries all round-tripping.
+  MGCO="$TESTROOT/mgcloneopen"
+  "$ROOT/scripts/mkaccount.sh" "$MGCO" >/dev/null
+  "$TCL" -a "$MGCO" -c 'CREATE-FILE PARTS DIR' >/dev/null 2>&1
+  cat > "$TESTROOT/mgcoseed.b" <<'EOF'
+OPEN "PARTS" TO F ELSE STOP
+WRITE "Widget":@AM:"9" ON F, "W1"
+OPEN "DICT", "PARTS" TO D ELSE STOP
+WRITE "D":@AM:"1":@AM:"":@AM:"Name":@AM:"12L" ON D, "NAME"
+X = CREATEFILE("ORDERS")
+OPEN "ORDERS" TO G ELSE STOP
+WRITE "Ada" ON G, "O1"
+PRINT "seeded"
+EOF
+  "$MVX" "$TESTROOT/mgcoseed.b" -o "$TESTROOT/mgcobin" 2>/dev/null
+  (cd "$MGCO" && MVXACCOUNT=. "$TESTROOT/mgcobin") >/dev/null
+  ( cd "$MGCO" && "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    git config mvx.openaccount true && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 && \
+    "$ROOT/build/bin/mvx-git" commit -m init >/dev/null 2>&1 )
+  MGCOC="$TESTROOT/mgcloneopen-clone"
+  MVX="$TCL" "$ROOT/build/bin/mvx-git" clone "$MGCO" "$MGCOC" </dev/null >/dev/null 2>&1
+  check tcl-mvxgit-clone "$( cd "$MGCOC"; \
+    { [ -f .mvx ] && echo 'descriptor: .mvx'; }; \
+    { [ ! -e .mv-account ] && echo 'no .mv-account on disk'; }; \
+    { [ ! -d ORDERS ] && [ -d mvxdata.lmdb ] && echo 'records in backend, not on disk'; }; \
+    { grep -q 'FILE' 'PARTS.DICT/%FILE%' && echo 'disk %FILE%: native'; }; \
+    "$TCL" -a . -c 'LISTF' 2>&1 | normalise | grep -E '^PARTS |^ORDERS '; \
+    "$TCL" -a . -c 'LIST PARTS NAME' 2>&1 | normalise | grep -E 'W1|Widget' | head -1 )"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
