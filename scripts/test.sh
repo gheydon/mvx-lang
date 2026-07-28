@@ -868,6 +868,29 @@ RGEOF
         && echo 'git: lmdb store (WRONG)' || echo 'git: no lmdb store'; }; \
     { grep -q 'FILE' 'PARTS.DICT/%FILE%' && echo 'disk %FILE%: native'; }; \
     { [ -f .mvx ] && echo 'disk descriptor: .mvx'; })"
+
+  # lmdb-file dictionaries: their records live in LMDB (no on-disk .DICT dir for
+  # git's own add to catch), so `add -A` stages them explicitly at
+  # <name>.DICT/<id> - the dictionary travels in git for a full round-trip.
+  MGD2="$TESTROOT/mgdict"
+  "$ROOT/scripts/mkaccount.sh" "$MGD2" >/dev/null
+  cat > "$TESTROOT/mgd2seed.b" <<'EOF'
+X = CREATEFILE("ORDERS")
+OPEN "ORDERS" TO F ELSE STOP
+WRITE "Ada":@AM:"London" ON F, "O1"
+OPEN "DICT", "ORDERS" TO D ELSE STOP
+WRITE "D":@AM:"2":@AM:"":@AM:"Who":@AM:"10L" ON D, "WHO"
+PRINT "seeded"
+EOF
+  "$MVX" "$TESTROOT/mgd2seed.b" -o "$TESTROOT/mgd2bin" 2>/dev/null
+  (cd "$MGD2" && MVXACCOUNT=. "$TESTROOT/mgd2bin") >/dev/null
+  ( cd "$MGD2" && "$ROOT/build/bin/mvx-git" init >/dev/null 2>&1 && \
+    git config user.email t@t && git config user.name t && \
+    "$ROOT/build/bin/mvx-git" add -A >/dev/null 2>&1 )
+  check tcl-mvxgit-dict "$( cd "$MGD2"; \
+    { git ls-files ORDERS/O1 | grep -q . && echo 'data: ORDERS/O1'; }; \
+    { git ls-files 'ORDERS.DICT/WHO' | grep -q . && echo 'dict: ORDERS.DICT/WHO'; }; \
+    { git ls-files 'ORDERS.DICT/%FILE%' | grep -q . && echo 'dict: ORDERS.DICT/%FILE%'; })"
 else
   echo "  (skipping tcl-mvxgit: git CLI or build/bin/mvx-git unavailable)"
 fi
