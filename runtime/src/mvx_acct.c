@@ -179,13 +179,8 @@ static void ensure_dir_meta(mvx_ctx *ctx, const char *nm) {
     if (!open_dict(ctx, nm, &f)) return;
     mv_value id, rec; set(&id, "%FILE%", 6); mv_init(&rec);
     if (!mvx_read(ctx, &rec, &f, &id, 0)) {
-        mv_value v;
-        if (mvx_openaccount()) {
-            set(&v, "DIR", 3);              /* open form: portable class */
-        } else {
-            char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
-            set(&v, meta, sizeof meta);
-        }
+        char meta[8] = {'F', 'I', 'L', 'E', (char)0xFD, 'd', 'i', 'r'};
+        mv_value v; set(&v, meta, sizeof meta);
         mvx_write(ctx, &v, &f, &id, 0, 0);
         mv_clear(&v);
     }
@@ -248,16 +243,25 @@ static int is_master(const char *n) {
  * master dictionary is created (VOC/MD leads the migration order).  BUILD
  * writes it too, as a fallback, and skips it when one is already present. */
 static void ensure_account(const char *acct) {
-    char p[4096];
-    snprintf(p, sizeof p, "%s/.mvx", acct);
+    /* The on-disk account is always native MVX: its descriptor is `.mvx`.  The
+       open account format's `.mv-account` lives only in git; a checkout of an
+       open account lands it on disk transiently, so rebuilding into a native
+       account renames it back to `.mvx`. */
+    char pmvx[4096], popn[4096];
+    snprintf(pmvx, sizeof pmvx, "%s/.mvx", acct);
+    snprintf(popn, sizeof popn, "%s/.mv-account", acct);
     struct stat sb;
-    if (stat(p, &sb) == 0) return;              /* already an account */
+    if (stat(pmvx, &sb) == 0) return;            /* already a native account */
+    if (stat(popn, &sb) == 0) {                  /* open checkout → native */
+        rename(popn, pmvx);
+        return;
+    }
     char cwd[4096];
     const char *base = acct;
     if (!strcmp(acct, ".") && getcwd(cwd, sizeof cwd)) base = cwd;
     const char *slash = strrchr(base, '/');
     if (slash && slash[1]) base = slash + 1;
-    FILE *f = fopen(p, "w");
+    FILE *f = fopen(pmvx, "w");
     if (!f) return;
     fprintf(f, "# MVX account descriptor\nname = %s\nversion = 1\n", base);
     fclose(f);

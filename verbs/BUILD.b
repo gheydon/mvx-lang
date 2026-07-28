@@ -26,7 +26,10 @@
 JUNK = CREATEFILE("VOC")
 * the .mvx descriptor marks this as an account (the VOC is not a
 * physical file when it lives in LMDB or on a daemon)
-IF OSREAD(".mvx") = "" THEN
+* On disk the account is always native MVX, so its descriptor is .mvx (the open
+* account format's .mv-account lives only in git).  A checkout of an open
+* account may leave .mv-account here transiently; treat it as an account too.
+IF OSREAD(".mvx") = "" AND OSREAD(".mv-account") = "" THEN
    AP = ENV("MVXACCTPATH")
    ANM = AP
    FOR AK = 1 TO LEN(AP)

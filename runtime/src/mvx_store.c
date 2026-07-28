@@ -2885,12 +2885,11 @@ static void binding_remove(const char *cspec) {
     fclose(fp);
 }
 
-/* The open account format (the record-git cross-platform interchange) is
-   enabled per session via $MVX_OPENACCOUNT — mvx-git sets it from the account's
-   git config `mvx.openaccount`.  In the open form a dictionary's %FILE% control
-   is just the portable file class, `DIR` or `hash`, with no driver name or
-   connection; a per-file remote binding is a local concern (BINDINGS), not part
-   of the portable schema.  See DECISIONS.md. */
+/* Whether the open account format is enabled ($MVX_OPENACCOUNT, set by mvx-git
+   from the account's git config `mvx.openaccount`).  The open form is a
+   git-boundary translation only: on disk an MVX account is always native, so
+   this gates how the record-git engine reads/writes git objects and how
+   status/diff compare — never what is written to disk.  See DECISIONS.md. */
 int mvx_openaccount(void) {
     const char *e = getenv("MVX_OPENACCOUNT");
     return e && (*e == '1' || *e == 'y' || *e == 'Y' || *e == 't' || *e == 'T');
@@ -2898,8 +2897,9 @@ int mvx_openaccount(void) {
 
 /* Stamp a %FILE% control record into a just-created dictionary: a
    metadata hint that travels with the schema in git (BUILD reads it to
-   know a file's backend after a clone).  Legacy record = "FILE" VM type VM
-   conn; open form = the bare class DIR or hash (attribute 1). */
+   know a file's backend after a clone).  On disk it is always the native
+   record = "FILE" VM type VM conn; the engine translates it to the portable
+   DIR/hash class when it writes the open form to git. */
 static void write_file_meta(const mvx_driver *drv, const char *dictspec,
                             const char *type, const char *conn) {
     char err[256] = "";
@@ -2907,20 +2907,14 @@ static void write_file_meta(const mvx_driver *drv, const char *dictspec,
     if (!d) return;
     char rec[700];
     size_t n = 0;
-    if (mvx_openaccount()) {
-        const char *cls = !strcmp(type, "dir") ? "DIR" : "hash";
-        n = strlen(cls);
-        memcpy(rec, cls, n);
-    } else {
-        memcpy(rec + n, "FILE", 4); n += 4;
-        rec[n++] = (char)0xFD;              /* value mark */
-        size_t tl = strlen(type);
-        memcpy(rec + n, type, tl); n += tl;
-        if (conn && conn[0]) {
-            rec[n++] = (char)0xFD;
-            size_t cl = strlen(conn);
-            memcpy(rec + n, conn, cl); n += cl;
-        }
+    memcpy(rec + n, "FILE", 4); n += 4;
+    rec[n++] = (char)0xFD;                  /* value mark */
+    size_t tl = strlen(type);
+    memcpy(rec + n, type, tl); n += tl;
+    if (conn && conn[0]) {
+        rec[n++] = (char)0xFD;
+        size_t cl = strlen(conn);
+        memcpy(rec + n, conn, cl); n += cl;
     }
     mv_value rv;
     mv_init(&rv);
