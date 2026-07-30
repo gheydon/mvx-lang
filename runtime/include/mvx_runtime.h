@@ -192,6 +192,7 @@ void mv_delete_fn(mv_value *dst, const mv_value *src, int64_t a,
 int64_t mv_locate_fn(const mv_value *item, const mv_value *src, int64_t a,
                      int64_t v, const mv_value *order, int64_t *pos);
 int64_t mv_len_fn(const mv_value *v);
+int64_t mv_cataloged_fn(const mv_value *name);   /* 1 if CALL name would resolve */
 int64_t mv_count_fn(const mv_value *src, const mv_value *what);
 int64_t mv_dcount_fn(const mv_value *src, const mv_value *delim);
 

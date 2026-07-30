@@ -74,7 +74,7 @@ const std::set<std::string> kStrIntrinsics = {
 
 // Integer-valued intrinsics whose arguments are strings.
 const std::set<std::string> kIntIntrinsics = {
-    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA",
+    "LEN", "COUNT", "DCOUNT", "SEQ", "INDEX", "NUM", "STATUS", "ALPHA", "CATALOGED",
     "CREATEFILE", "DELETEFILE", "COMPILE", "DATE",
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND", "MAPBUILD", "MAPDROP",
     "MAPCHECK", "QUERYSELECT", "TRANSSELECT", "QUERYCOUNT", "ORDERSELECT",
@@ -629,6 +629,9 @@ private:
             const std::string &f = e.sval;
             if (f == "LEN" && e.args.size() == 1)
                 return callRt("mv_len_fn", i64Ty_, {ptrTy_},
+                              {evalPtr(*e.args[0])});
+            if (f == "CATALOGED" && e.args.size() == 1)
+                return callRt("mv_cataloged_fn", i64Ty_, {ptrTy_},
                               {evalPtr(*e.args[0])});
             if (f == "COUNT" && e.args.size() == 2)
                 return callRt("mv_count_fn", i64Ty_, {ptrTy_, ptrTy_},

@@ -49,6 +49,22 @@ static mvx_subfn find_sub(const char *name) {
     return (mvx_subfn)p;
 }
 
+/* CATALOGED(name) — 1 if `CALL name` would resolve, 0 otherwise.  The MV
+   catalog-lookup idiom (Pick has no standard subroutine-exists function), done
+   here with the same resolution CALL uses, so a program can prefer an optional
+   subroutine when it is installed and fall back when it is not — decided at
+   run time, no recompile when the provider is added later. */
+int64_t mv_cataloged_fn(const mv_value *namev) {
+    char nb[40];
+    const char *p;
+    int64_t n = mv_val_chars(namev, nb, sizeof nb, &p);
+    if (n <= 0 || n >= 256) return 0;
+    char name[256];
+    memcpy(name, p, (size_t)n);
+    name[n] = '\0';
+    return find_sub(name) != NULL ? 1 : 0;
+}
+
 void mvx_call(mvx_ctx *ctx, const char *name, int32_t argc,
               mv_value **argv) {
     mvx_subfn f = find_sub(name);
