@@ -75,6 +75,32 @@ if [ -f "$PKG/NATIVE" ]; then
     echo "  built LIB/libmvxext_$PKGNAME.$EXT (native extension)"
   fi
 fi
+# Prefer a package's real dependencies when they are resolvable at build time.
+# For each dependency (PKG attribute 5+) found beside this package or on
+# $MVXPKGPATH, define HAVE_<DEP> so the package's source can $IFDEF it — e.g.
+# git binds to the full cmd when cmd is present, else its bundled CMD.MIN.*.
+DEFINES=""
+PKGPARENT="$(dirname "$PKG")"
+depno=0
+while IFS= read -r dline || [ -n "$dline" ]; do
+  depno=$((depno + 1))
+  [ "$depno" -ge 5 ] || continue
+  dep="$(printf '%s' "$dline" | tr -d '[:space:]')"
+  [ -n "$dep" ] || continue
+  found=""
+  [ -d "$PKGPARENT/$dep" ] && found=1
+  if [ -z "$found" ] && [ -n "${MVXPKGPATH:-}" ]; then
+    oldifs="$IFS"; IFS=:
+    for seg in $MVXPKGPATH; do [ -d "$seg/$dep" ] && found=1; done
+    IFS="$oldifs"
+  fi
+  if [ -n "$found" ]; then
+    sym="HAVE_$(printf '%s' "$dep" | tr 'a-z./-' 'A-Z___')"
+    DEFINES="$DEFINES -D $sym"
+    echo "  dependency $dep available -> defining $sym"
+  fi
+done < "$PKG/PKG"
+
 SUBS=""
 # Compile BP/ plus any additional <name>.BP source files (e.g. a package's
 # bundled fallback subroutines in CMD.BP).  An unmatched *.BP glob stays
@@ -100,14 +126,15 @@ for src in "$PKG"/BP/* "$PKG"/*.BP/*; do
   else
     # MVXSYSTEM=$PKG so the compiler sees this package's own EXPORTS — a verb
     # may call the package's extension functions as expressions.
-    MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
+    # shellcheck disable=SC2086
+    MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" $DEFINES "$src" -o "$PKG/CATALOG/$name"
     echo "  cataloged $name"
   fi
 done
 if [ -n "$SUBS" ]; then
   mkdir -p "$PKG/LIB"
   # shellcheck disable=SC2086
-  MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
+  MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" $DEFINES -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
   echo "  built LIB/lib$PKGNAME.$EXT"
 fi
 
