@@ -76,7 +76,10 @@ if [ -f "$PKG/NATIVE" ]; then
   fi
 fi
 SUBS=""
-for src in "$PKG"/BP/*; do
+# Compile BP/ plus any additional <name>.BP source files (e.g. a package's
+# bundled fallback subroutines in CMD.BP).  An unmatched *.BP glob stays
+# literal and is skipped by the -f guard below.
+for src in "$PKG"/BP/* "$PKG"/*.BP/*; do
   [ -f "$src" ] || continue
   name="$(basename "$src")"
   # first real statement token, skipping *,!,REM,// line comments and
