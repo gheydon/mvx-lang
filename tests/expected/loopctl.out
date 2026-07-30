@@ -2,3 +2,5 @@ fornum=1 2 4 5
 forval=ab
 loopsum=25 last=9
 nested=11 21 31 
+loopwhile=1 2 3 4 
+loopuntil=1 2 3 

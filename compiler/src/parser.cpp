@@ -883,7 +883,11 @@ private:
     StmtP loopStmt() {
         advance();
         auto s = mk(Stmt::K::Loop);
-        endStatement();
+        // Classic Pick/R83 allows the test on the same line as LOOP
+        // (`LOOP WHILE cond DO ... REPEAT`), so only require a statement
+        // terminator when a pre-test body follows on later lines.
+        if (!at(Tok::KwWhile) && !at(Tok::KwUntil) && !at(Tok::KwRepeat))
+            endStatement();
         s->pre = block({Tok::KwWhile, Tok::KwUntil, Tok::KwRepeat});
         if (at(Tok::KwWhile) || at(Tok::KwUntil)) {
             s->loopCond = at(Tok::KwWhile) ? Stmt::LoopCond::While
