@@ -5,3 +5,7 @@
 [submodule "packages/git"]
 	path = packages/git
 	url = git@github.com:mvx-lang/mv_git.git
+[submodule "packages/cmd"]
+	path = packages/cmd
+	url = git@github.com:mvx-lang/mv_cmd.git
+	branch = main
