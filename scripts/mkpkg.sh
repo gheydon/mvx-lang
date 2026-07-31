@@ -16,6 +16,13 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${1:?usage: mkpkg.sh <package-directory>}"
 
+# The compiler: a built tree's build/bin/mvx-basic by default, but overridable
+# with $MVXBASIC (or an installed mvx-basic on PATH) so a package can be built
+# against a setup-mvx toolchain in CI, with no mvx source checkout.
+MVXBASIC="${MVXBASIC:-$ROOT/build/bin/mvx-basic}"
+[ -x "$MVXBASIC" ] || command -v "$MVXBASIC" >/dev/null 2>&1 || MVXBASIC="$(command -v mvx-basic || true)"
+[ -n "$MVXBASIC" ] || { echo "mkpkg: no mvx-basic (set \$MVXBASIC or put it on PATH)" >&2; exit 1; }
+
 # A package has BASIC source (BP/) and/or a native language extension (NATIVE,
 # e.g. the http package: functions only, no BP programs).
 [ -d "$PKG/BP" ] || [ -f "$PKG/NATIVE" ] || {
@@ -145,7 +152,7 @@ for src in "$PKG"/BP/* "$PKG"/*.BP/*; do
     # may call the package's extension functions as expressions; MVXACCOUNT
     # (when set) adds the dependencies' EXPORTS resolved above.
     MVXSYSTEM="$PKG" MVXACCOUNT="$DEPACCT" \
-      "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
+      "$MVXBASIC" "$src" -o "$PKG/CATALOG/$name"
     echo "  cataloged $name"
   fi
 done
@@ -153,7 +160,7 @@ if [ -n "$SUBS" ]; then
   mkdir -p "$PKG/LIB"
   # shellcheck disable=SC2086
   MVXSYSTEM="$PKG" MVXACCOUNT="$DEPACCT" \
-    "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
+    "$MVXBASIC" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
   echo "  built LIB/lib$PKGNAME.$EXT"
 fi
 
