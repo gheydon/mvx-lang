@@ -1,0 +1,104 @@
+# MVX — a native compiler and runtime for Pick/MultiValue BASIC.
+# Copyright (C) 2026 Gordon Heydon.  GPL-2.0-only.
+#
+# setup-mvx — provision a published mvx toolchain (latest or a pinned version)
+# onto a CI runner, so any workflow can compile BASIC / build mvx packages
+# without recompiling the compiler.  It consumes the release tarballs this repo
+# publishes on every v* tag: mvx-lang-<ver>-linux-<arch>.tar.gz (amd64/arm64).
+#
+# The published tarball is built on ubuntu-latest, so run this on ubuntu-24.04
+# or newer (older glibc/libstdc++ will not satisfy the binaries).  For a fully
+# hermetic alternative, run the job in `container: ghcr.io/mvx-lang/mvx:<ver>`
+# instead of using this action.
+#
+#   - uses: mvx-lang/mvx/.github/actions/setup-mvx@main
+#     with:
+#       version: latest        # or a pinned "0.1.0" / "v0.1.0"
+name: Setup MVX
+description: Install a published mvx toolchain (latest or a pinned version) and put it on PATH.
+
+inputs:
+  version:
+    description: 'mvx version: "latest" (default) or a specific "X.Y.Z" / "vX.Y.Z".'
+    required: false
+    default: latest
+  install-dir:
+    description: Directory to unpack the toolchain into.
+    required: false
+    default: /opt/mvx
+  token:
+    description: GitHub token for the release API and asset download.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: The resolved mvx version (without the leading v).
+    value: ${{ steps.setup.outputs.version }}
+  home:
+    description: The install prefix (contains bin/, lib/, share/).
+    value: ${{ steps.setup.outputs.home }}
+  bindir:
+    description: The bin/ directory (also prepended to PATH).
+    value: ${{ steps.setup.outputs.bindir }}
+
+runs:
+  using: composite
+  steps:
+    - id: setup
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        MVX_VERSION: ${{ inputs.version }}
+        MVX_DIR: ${{ inputs.install-dir }}
+      run: |
+        set -euo pipefail
+        SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO=sudo
+
+        # Runtime dependencies: gcc + libc6-dev give mvx-basic the `cc` and C
+        # runtime objects it links programs against; the rest are the runtime's
+        # shared-library needs (LMDB store, line editor, libpq driver).
+        $SUDO apt-get update -qq
+        $SUDO apt-get install -y -qq --no-install-recommends \
+          ca-certificates curl gcc libc6-dev liblmdb0 libedit2 libpq5
+
+        case "$(uname -m)" in
+          x86_64|amd64)  ARCH=amd64 ;;
+          aarch64|arm64) ARCH=arm64 ;;
+          *) echo "::error::setup-mvx: unsupported architecture $(uname -m)"; exit 1 ;;
+        esac
+
+        REPO=mvx-lang/mvx
+        # "latest" resolves to the newest published release; anything else is a
+        # pinned version ("0.1.0" or "v0.1.0").
+        if [ -z "$MVX_VERSION" ] || [ "$MVX_VERSION" = latest ]; then
+          TAG="$(gh release view --repo "$REPO" --json tagName -q .tagName)"
+        else
+          case "$MVX_VERSION" in v*) TAG="$MVX_VERSION" ;; *) TAG="v$MVX_VERSION" ;; esac
+        fi
+        VER="${TAG#v}"
+        ASSET="mvx-lang-${VER}-linux-${ARCH}.tar.gz"
+        echo "setup-mvx: installing mvx $VER ($ARCH) from $REPO@$TAG"
+
+        $SUDO mkdir -p "$MVX_DIR"
+        gh release download "$TAG" --repo "$REPO" --pattern "$ASSET" --dir "$RUNNER_TEMP" --clobber
+        $SUDO tar -C "$MVX_DIR" -xzf "$RUNNER_TEMP/$ASSET"
+        PREFIX="$MVX_DIR/mvx-lang"
+        test -x "$PREFIX/bin/mvx-basic"
+
+        # Loader path for the runtime .so, and PATH/env for later steps.
+        echo "$PREFIX/lib" | $SUDO tee /etc/ld.so.conf.d/mvx.conf >/dev/null
+        $SUDO ldconfig
+        echo "$PREFIX/bin" >> "$GITHUB_PATH"
+        echo "MVXHOME=$PREFIX" >> "$GITHUB_ENV"
+
+        # Smoke test: compile and run a one-liner from the freshly installed set.
+        printf 'PRINT "setup-mvx-ok ":6*7\n' > "$RUNNER_TEMP/smoke.b"
+        "$PREFIX/bin/mvx-basic" "$RUNNER_TEMP/smoke.b" -o "$RUNNER_TEMP/smoke"
+        got="$("$RUNNER_TEMP/smoke")"
+        test "$got" = "setup-mvx-ok 42" || { echo "::error::setup-mvx smoke test failed: '$got'"; exit 1; }
+
+        echo "version=$VER" >> "$GITHUB_OUTPUT"
+        echo "home=$PREFIX" >> "$GITHUB_OUTPUT"
+        echo "bindir=$PREFIX/bin" >> "$GITHUB_OUTPUT"
+        echo "setup-mvx: mvx $VER ready at $PREFIX"
