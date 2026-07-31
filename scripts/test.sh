@@ -611,6 +611,28 @@ check tcl-packages "$(printf '%s\n' \
   "UNLINK-PKG $ROOT/packages/git" \
   "UNLINK-PKG $ROOT/packages/cmd" | tclrun)"
 
+# native package build: BUILD-PKG compiles a package's BP -> CATALOG/LIB
+# through the runtime (no shell, no mkpkg on PATH), needing only developer
+# privilege.  A main verb GREET plus a SUBROUTINE it CALLs proves both the
+# CATALOG (exe) and LIB (shared) outputs are produced and resolve.
+GPK="$TESTROOT/greet"
+mkdir -p "$GPK/BP" "$GPK/VOC"
+printf 'greet\n1.0\na built-natively test package\nmvx\n' > "$GPK/PKG"
+cat > "$GPK/BP/GREET" <<'EOF'
+M = ""
+CALL GREETSUB(M)
+PRINT M
+EOF
+cat > "$GPK/BP/GREETSUB" <<'EOF'
+SUBROUTINE GREETSUB(R)
+R = "hi from the built subroutine"
+RETURN
+EOF
+printf 'V\nCATALOG/GREET' > "$GPK/VOC/GREET"
+check tcl-buildpkg "$( \
+  printf 'BUILD-PKG %s\n' "$GPK" | MVXPRIV=developer "$TCL" -a "$ACCT" 2>&1 | normalise; \
+  printf '%s\n' "LINK-PKG $GPK" 'GREET' | tclrun)"
+
 # account adoption: mvx-git commits a live account; a *plain* git clone lands
 # the tracked (directory) form; mvx-git-adopt rebuilds the live hash-file account
 # from it (the CI path — no export direction exists).

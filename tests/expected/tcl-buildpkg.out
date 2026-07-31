@@ -1,0 +1,3 @@
+BUILD-PKG: @TESTROOT@/greet — 2 item(s) built, 0 error(s)
+linked @TESTROOT@/greet
+hi from the built subroutine
