@@ -33,6 +33,43 @@ esac
 PKGNAME="$(head -1 "$PKG/PKG" 2>/dev/null)"
 [ -n "$PKGNAME" ] || PKGNAME="$(basename "$PKG")"
 
+# Dependency EXPORTS visibility.  A package's programs may call functions
+# exported by a package it depends on (e.g. mvpkg calls HTTPGET/JSONDECODE
+# from http/json).  The compiler reads a linked package's EXPORTS through
+# MVXACCOUNT -> PACKAGES, so resolve this package's PKG dependencies (attr
+# 5+) to their directories — a sibling of $PKG, or a $MVXPKGPATH segment,
+# the same search LINK-PKG uses — and list them in a throwaway PACKAGES.
+# The package's own EXPORTS still comes via MVXSYSTEM=$PKG below.
+DEPACCT=""
+if [ -f "$PKG/PKG" ]; then
+  PKGPARENT="$(cd "$PKG/.." && pwd)"
+  DEPS="$(awk 'NR>=5 && NF { print $1 }' "$PKG/PKG")"
+  if [ -n "$DEPS" ]; then
+    DEPACCT="$(mktemp -d "${TMPDIR:-/tmp}/mkpkg.deps.XXXXXX")"
+    trap 'rm -rf "$DEPACCT"' EXIT
+    : > "$DEPACCT/PACKAGES"
+    for dep in $DEPS; do
+      depdir=""
+      # a sibling of $PKG first, then each $MVXPKGPATH segment
+      oldifs=$IFS; IFS=:
+      for base in "$PKGPARENT" ${MVXPKGPATH:-}; do
+        [ -n "$base" ] || continue
+        cand="$base/$dep"
+        if [ -f "$cand/EXPORTS" ] || [ -d "$cand/VOC" ] || [ -f "$cand/PKG" ]; then
+          depdir="$cand"; break
+        fi
+      done
+      IFS=$oldifs
+      if [ -n "$depdir" ]; then
+        echo "$depdir" >> "$DEPACCT/PACKAGES"
+        echo "  dep $dep -> $depdir (EXPORTS visible)"
+      else
+        echo "  dep $dep: unresolved (searched $PKGPARENT/, \$MVXPKGPATH)" >&2
+      fi
+    done
+  fi
+fi
+
 # SUBROUTINE sources bundle into ONE shared library per package (the
 # jBASE deployment shape — one dlopen, one artifact); main programs
 # become verb executables in CATALOG/.
@@ -99,15 +136,18 @@ for src in "$PKG"/BP/* "$PKG"/*.BP/*; do
     echo "  bundling $name"
   else
     # MVXSYSTEM=$PKG so the compiler sees this package's own EXPORTS — a verb
-    # may call the package's extension functions as expressions.
-    MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
+    # may call the package's extension functions as expressions; MVXACCOUNT
+    # (when set) adds the dependencies' EXPORTS resolved above.
+    MVXSYSTEM="$PKG" MVXACCOUNT="$DEPACCT" \
+      "$ROOT/build/bin/mvx-basic" "$src" -o "$PKG/CATALOG/$name"
     echo "  cataloged $name"
   fi
 done
 if [ -n "$SUBS" ]; then
   mkdir -p "$PKG/LIB"
   # shellcheck disable=SC2086
-  MVXSYSTEM="$PKG" "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
+  MVXSYSTEM="$PKG" MVXACCOUNT="$DEPACCT" \
+    "$ROOT/build/bin/mvx-basic" -shared $SUBS -o "$PKG/LIB/lib$PKGNAME.$EXT"
   echo "  built LIB/lib$PKGNAME.$EXT"
 fi
 
