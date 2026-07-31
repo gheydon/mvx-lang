@@ -12,10 +12,15 @@
 *  * @version 2.0
 *  */
 * LINK-PKG path — link a package and its dependency closure.
-* The PKG manifest (attr 1 name, 2 version, 3 description, 4..
-* dependency names) drives resolution: a dependency is satisfied by an
-* already-linked package of that name, or found beside the requiring
-* package, or on $MVXPKGPATH — and is linked automatically.
+* The PKG manifest (attr 1 name, 2 version, 3 description, 4 target
+* systems, 5.. dependency names) drives resolution: a dependency is
+* satisfied by an already-linked package of that name, or found beside
+* the requiring package, or on $MVXPKGPATH — and is linked automatically.
+* A dependency name prefixed '?' is optional: it is linked if it can be
+* resolved (overriding any bundled copy), but its absence is not an error
+* — the requiring package ships a fallback under the same names (e.g.
+* git bundles cmd in CMD.BP), so it runs standalone with no package
+* manager present.
 S = TRIM(SENTENCE())
 P = FIELD(S, " ", 2)
 IF P = "" THEN
@@ -82,16 +87,24 @@ UNTIL QUEUE = "" DO
       ND = DCOUNT(DEPLIST, @AM)
       FOR DI = 1 TO ND
          D = DEPLIST<DI>
+         * a '?' prefix marks an optional dependency: linked if resolvable
+         * (the full package overrides), else assumed satisfied by a copy the
+         * requiring package bundles (e.g. git's CMD.BP) — so do not fail.
+         OPTDEP = 0
+         IF D[1, 1] = "?" THEN OPTDEP = 1 ; D = D[2, LEN(D)]
          LOCATE(D, LNAMES; POS) THEN
             X = 0
          END ELSE
             GOSUB 9200
-            IF RPATH = "" THEN
-               PRINT "cannot resolve dependency '":D:"' of ":CUR
-               PRINT "searched: linked packages, ":CUR:"/../, $MVXPKGPATH"
-               STOP
+            IF RPATH # "" THEN
+               QUEUE<-1> = RPATH
+            END ELSE
+               IF OPTDEP = 0 THEN
+                  PRINT "cannot resolve dependency '":D:"' of ":CUR
+                  PRINT "searched: linked packages, ":CUR:"/../, $MVXPKGPATH"
+                  STOP
+               END
             END
-            QUEUE<-1> = RPATH
          END
       NEXT DI
    END

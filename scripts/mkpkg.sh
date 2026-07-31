@@ -49,6 +49,10 @@ if [ -f "$PKG/PKG" ]; then
     trap 'rm -rf "$DEPACCT"' EXIT
     : > "$DEPACCT/PACKAGES"
     for dep in $DEPS; do
+      # a '?' prefix marks an optional dependency (LINK-PKG semantics): the
+      # package bundles a fallback under the same names, so an unresolved one
+      # is expected, not a warning.
+      opt=""; case "$dep" in \?*) opt=1; dep="${dep#\?}" ;; esac
       depdir=""
       # a sibling of $PKG first, then each $MVXPKGPATH segment
       oldifs=$IFS; IFS=:
@@ -63,7 +67,7 @@ if [ -f "$PKG/PKG" ]; then
       if [ -n "$depdir" ]; then
         echo "$depdir" >> "$DEPACCT/PACKAGES"
         echo "  dep $dep -> $depdir (EXPORTS visible)"
-      else
+      elif [ -z "$opt" ]; then
         echo "  dep $dep: unresolved (searched $PKGPARENT/, \$MVXPKGPATH)" >&2
       fi
     done
