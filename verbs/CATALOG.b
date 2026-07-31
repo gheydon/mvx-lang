@@ -25,8 +25,8 @@ READ SRC FROM F, IT ELSE
 END
 * A SUBROUTINE source catalogs into LIB/ as a shared library the
 * runtime CALL resolver loads; only main programs become verbs.  Skip
-* comments in every style (* ! REM // and /* */ blocks) when finding
-* the first real statement.
+* comments in every style (* ! REM // and /* */ blocks) and $ preprocessor
+* directives when finding the first real statement.
 FIRST = ""
 INBLK = 0
 NA = DCOUNT(SRC, @AM)
@@ -49,6 +49,8 @@ FOR I = 1 TO NA
       CASE LN[1, 1] = "*" OR LN[1, 1] = "!" OR C2 = "//"
          X = 0
       CASE OCONV(FIELD(LN, " ", 1), "MCU") = "REM"
+         X = 0
+      CASE LN[1, 1] = "$"
          X = 0
       CASE 1
          FIRST = LN

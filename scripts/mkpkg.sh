@@ -123,8 +123,9 @@ SUBS=""
 for src in "$PKG"/BP/* "$PKG"/*.BP/*; do
   [ -f "$src" ] || continue
   name="$(basename "$src")"
-  # first real statement token, skipping *,!,REM,// line comments and
-  # /* */ block comments (so docblocks in either style are ignored)
+  # first real statement token, skipping *,!,REM,// line comments,
+  # /* */ block comments (so docblocks in either style are ignored) and
+  # $ preprocessor directives ($IFDEF/$DEFINE/...) that may precede SUBROUTINE
   first="$(awk '
     { line = $0 }
     inblk { if (line ~ /\*\//) { sub(/.*\*\//, "", line); inblk = 0 } else next }
@@ -132,6 +133,7 @@ for src in "$PKG"/BP/* "$PKG"/*.BP/*; do
     line ~ /^\/\*/ { if (line !~ /\*\//) { inblk = 1 }; next }
     line ~ /^(\*|!|\/\/)/ { next }
     line ~ /^[Rr][Ee][Mm]([ \t]|$)/ { next }
+    line ~ /^\$/ { next }
     line ~ /^[ \t]*$/ { next }
     { n = split(line, a, /[ \t]/); print a[1]; exit }
   ' "$src")"

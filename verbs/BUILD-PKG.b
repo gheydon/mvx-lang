@@ -81,8 +81,9 @@
    STOP
 
 * --- first real statement of SRC -> ISSUB (1 if a SUBROUTINE) -----------
-* Skip comments in every style (* ! REM // and /* */ blocks), matching the
-* CATALOG verb, then classify: a SUBROUTINE source builds a LIB library.
+* Skip comments in every style (* ! REM // and /* */ blocks) and $ preprocessor
+* directives, matching the CATALOG verb, then classify: a SUBROUTINE source
+* builds a LIB library.
 FIRSTSTMT:
    ISSUB = 0
    FIRST = ""
@@ -107,6 +108,8 @@ FIRSTSTMT:
          CASE LN[1, 1] = "*" OR LN[1, 1] = "!" OR C2 = "//"
             X = 0
          CASE OCONV(FIELD(LN, " ", 1), "MCU") = "REM"
+            X = 0
+         CASE LN[1, 1] = "$"
             X = 0
          CASE 1
             FIRST = LN
