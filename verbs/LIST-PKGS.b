@@ -56,8 +56,12 @@ OPEN CUR TO MPD THEN
       PSYS = MF<4>
       MN = DCOUNT(MF, @AM)
       FOR MI = 5 TO MN
-         IF MF<MI> # "" THEN
-            PDEPS<-1> = MF<MI>
+         DNAME = MF<MI>
+         * '?' marks an optional dependency (see LINK-PKG); it is a resolution
+         * marker, not part of the name, so strip it for display.
+         IF DNAME[1, 1] = "?" THEN DNAME = DNAME[2, LEN(DNAME)]
+         IF DNAME # "" THEN
+            PDEPS<-1> = DNAME
          END
       NEXT MI
    END

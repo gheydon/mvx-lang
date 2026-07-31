@@ -56,8 +56,13 @@ OPEN CUR TO MPD THEN
       PNAME = MF<1>
       MN = DCOUNT(MF, @AM)
       FOR MI = 5 TO MN
-         IF MF<MI> # "" THEN
-            PDEPS<-1> = MF<MI>
+         DNAME = MF<MI>
+         * a '?' prefix marks an optional dependency (see LINK-PKG); strip it
+         * so the reverse-dependency check still recognises the name — an
+         * optional dependency is still a dependency for unlink safety.
+         IF DNAME[1, 1] = "?" THEN DNAME = DNAME[2, LEN(DNAME)]
+         IF DNAME # "" THEN
+            PDEPS<-1> = DNAME
          END
       NEXT MI
    END
