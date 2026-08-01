@@ -1,6 +1,6 @@
 FUNCTION MAPFIELD(KEY, POS, CONV, TYPE, ASSOC)
-* MVX json package — portable (UniData/BASIC) MAPFIELD: build one %MAP% field
-* spec entry, matching the MVX MAPFIELD compiler builtin:
+* MVX mapfield package — portable (UniData/BASIC) MAPFIELD: build one %MAP%
+* field spec entry, matching the MVX MAPFIELD compiler builtin:
 *   name<VM>attr<VM>conv<VM>type<VM>assoc .  Pairs with JSONDECODE (and any
 * future spec-driven decoder — YAML, a dict projection).
 *   type   is TYPE, or derived from CONV when TYPE is empty:
