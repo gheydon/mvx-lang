@@ -9,3 +9,6 @@
 	path = packages/cmd
 	url = git@github.com:mvx-lang/mv_cmd.git
 	branch = main
+[submodule "packages/mapfield"]
+	path = packages/mapfield
+	url = git@github.com:mvx-lang/mapfield.git
