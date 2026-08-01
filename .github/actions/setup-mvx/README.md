@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04           # the tarball is built on ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: mvx-lang/mvx/.github/actions/setup-mvx@main
         with:
           version: latest           # or a pinned "0.1.0" / "v0.1.0"
