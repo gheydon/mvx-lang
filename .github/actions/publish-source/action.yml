@@ -1,0 +1,78 @@
+# MVX — a native compiler and runtime for Pick/MultiValue BASIC.
+# Copyright (C) 2026 Gordon Heydon.  GPL-2.0-only.
+#
+# publish-source — package the checked-out repo as the registry's source
+# artifact and attach it to the release.  Every MV package's release workflow
+# does the same thing: tar the working tree (minus VCS/CI metadata), checksum
+# it, and publish `<base>-<version>-source.tar.gz` (base = package name with
+# '/'->'_') as a GitHub release asset the package registry indexes.  This
+# collapses that copy-pasted `source` job to one step.
+#
+#   - uses: actions/checkout@v5
+#   - uses: mvx-lang/mvx/.github/actions/publish-source@main
+#     with:
+#       package: mvx-lang/git
+#       title: git
+#       body: "mv_git — git for hash-file records. Indexed by the package registry."
+#       extra-exclude: docs        # optional: a docs submodule, etc.
+name: Publish source package
+description: Tar the checked-out source (minus VCS/CI metadata), checksum it, and attach it to the release as <base>-<version>-source.tar.gz.
+
+inputs:
+  package:
+    description: 'Package name, e.g. "mvx-lang/git". The artifact base is this with "/" -> "_".'
+    required: true
+  title:
+    description: 'Release display-name prefix; the release is named "<title> <tag>".'
+    required: true
+  body:
+    description: Release notes body.
+    required: true
+  extra-exclude:
+    description: 'Space-separated extra top-level paths to leave out of the source tar (e.g. "docs" for a docs submodule). ".git" and ".github" are always excluded.'
+    required: false
+    default: ''
+  token:
+    description: GitHub token for creating/updating the release.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  tarball:
+    description: The source tarball filename (also attached to the release).
+    value: ${{ steps.pkg.outputs.tarball }}
+
+runs:
+  using: composite
+  steps:
+    - id: pkg
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        EXTRA_EXCLUDE: ${{ inputs.extra-exclude }}
+      run: |
+        set -euo pipefail
+        VER="${GITHUB_REF_NAME}"
+        # base = package name '/'->'_'; the registry maps <base>-<ver>-source.tar.gz.
+        BASE="$(printf '%s' "$PACKAGE" | tr '/' '_')-$VER-source"
+        # A clean checkout has only tracked files (build artifacts are git-ignored);
+        # drop the repo/CI metadata, plus any caller-named paths (e.g. a docs submodule).
+        EX="--exclude=./.git --exclude=./.github"
+        for p in $EXTRA_EXCLUDE; do EX="$EX --exclude=./$p"; done
+        tar czf "/tmp/$BASE.tar.gz" $EX .
+        mv "/tmp/$BASE.tar.gz" .
+        sha256sum "$BASE.tar.gz" > "$BASE.tar.gz.sha256"
+        echo "tarball=$BASE.tar.gz" >> "$GITHUB_OUTPUT"
+        echo "checksum=$BASE.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+
+    - name: Publish the source asset
+      uses: softprops/action-gh-release@v3
+      with:
+        token: ${{ inputs.token }}
+        tag_name: ${{ github.ref_name }}
+        name: ${{ inputs.title }} ${{ github.ref_name }}
+        body: ${{ inputs.body }}
+        files: |
+          ${{ steps.pkg.outputs.tarball }}
+          ${{ steps.pkg.outputs.checksum }}
+        fail_on_unmatched_files: true
