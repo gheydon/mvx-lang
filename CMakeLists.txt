@@ -296,6 +296,13 @@ endif()
 install(TARGETS ${MVX_INSTALL_DRIVERS} LIBRARY DESTINATION lib)
 install(FILES ${CMAKE_BINARY_DIR}/lib/mvx_crt.o DESTINATION lib)
 
+# Public runtime headers, so a native-extension package (build-native.sh or a
+# NATIVE manifest) can compile against an installed toolchain instead of an mvx
+# source tree: its build finds them at <prefix>/include, the install-prefix
+# counterpart of the source tree's runtime/include.
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/runtime/include/
+        DESTINATION include FILES_MATCHING PATTERN "*.h")
+
 # --- configuration summary ---------------------------------------------
 message(STATUS "")
 message(STATUS "MVX components:")
