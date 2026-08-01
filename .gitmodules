@@ -12,3 +12,6 @@
 [submodule "packages/mapfield"]
 	path = packages/mapfield
 	url = git@github.com:mvx-lang/mapfield.git
+[submodule "packages/json"]
+	path = packages/json
+	url = git@github.com:mvx-lang/json.git
