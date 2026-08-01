@@ -1,0 +1,89 @@
+FUNCTION JSONDECODE(JSON, SPEC)
+* MVX json package — portable (UniData/BASIC) JSONDECODE: decode JSON per a
+* MAPFIELD spec into an @AM array, each value at its mapped attribute.  The
+* native mvx JSONDECODE does the general case; this covers the common shapes:
+*   - scalar fields (assoc empty): a flat "key":"value" in the object;
+*   - one association: an array of flat objects under the assoc key, whose
+*     members decode into PARALLEL multivalued attributes (R<pos> a @VM list,
+*     R<pos,i> the i-th element's value).
+* Just enough JSON for MVPKG (metadata + search); the MVX json extension does
+* the general case.  Values are taken as the text between the first quote pair
+* after the key (no escape handling — sufficient for the registry).  GPL-2.0-only.
+   RESULT = ""
+   DQ = CHAR(34)
+   NF = DCOUNT(SPEC, @AM)
+
+* --- scalar fields (assoc empty): flat "key":"value" ------------------------
+   FOR FI = 1 TO NF
+      IF FIELD(SPEC<FI>, @VM, 5) = "" THEN
+         KEY = FIELD(SPEC<FI>, @VM, 1)
+         POS = FIELD(SPEC<FI>, @VM, 2)
+         SRC = JSON ; GOSUB QVALUE
+         RESULT<POS> = VAL
+      END
+   NEXT FI
+
+* --- associations: an array of objects under the assoc key ------------------
+* distinct assoc names, in spec order
+   ASSOCS = ""
+   FOR FI = 1 TO NF
+      A = FIELD(SPEC<FI>, @VM, 5)
+      IF A # "" THEN
+         LOCATE(A, ASSOCS; DUMP) ELSE ASSOCS<-1> = A
+      END
+   NEXT FI
+
+   FOR AI = 1 TO DCOUNT(ASSOCS, @AM)
+      ASC = ASSOCS<AI>
+      * the [ ... ] array that follows "asc"
+      AP = INDEX(JSON, DQ : ASC : DQ, 1)
+      IF AP > 0 THEN
+         TAIL = JSON[AP, LEN(JSON) - AP + 1]
+         OB = INDEX(TAIL, "[", 1)
+         CB = INDEX(TAIL, "]", 1)
+         IF OB > 0 AND CB > OB THEN
+            REST = TAIL[OB + 1, CB - OB - 1]
+            EI = 0
+            DONE = 0
+            LOOP
+               S1 = INDEX(REST, "{", 1)
+               IF S1 = 0 THEN DONE = 1
+            UNTIL DONE DO
+               E1 = INDEX(REST, "}", 1)
+               IF E1 = 0 THEN E1 = LEN(REST) + 1
+               OBJ = REST[S1 + 1, E1 - S1 - 1]
+               EI = EI + 1
+               FOR FI = 1 TO NF
+                  IF FIELD(SPEC<FI>, @VM, 5) = ASC THEN
+                     KEY = FIELD(SPEC<FI>, @VM, 1)
+                     POS = FIELD(SPEC<FI>, @VM, 2)
+                     SRC = OBJ ; GOSUB QVALUE
+                     RESULT<POS, EI> = VAL
+                  END
+               NEXT FI
+               REST = REST[E1 + 1, LEN(REST) - E1]
+            REPEAT
+         END
+      END
+   NEXT AI
+   RETURN RESULT
+
+* QVALUE: VAL = the string value of "KEY":"..." in SRC (or "" if absent).
+QVALUE:
+   VAL = ""
+   TAG = DQ : KEY : DQ
+   P = INDEX(SRC, TAG, 1)
+   IF P > 0 THEN
+      AFTER = SRC[P + LEN(TAG), LEN(SRC)]
+      C = INDEX(AFTER, ":", 1)
+      IF C > 0 THEN
+         AFTER = AFTER[C + 1, LEN(AFTER)]
+         OQ = INDEX(AFTER, DQ, 1)
+         IF OQ > 0 THEN
+            AFTER = AFTER[OQ + 1, LEN(AFTER)]
+            CQ = INDEX(AFTER, DQ, 1)
+            IF CQ > 0 THEN VAL = AFTER[1, CQ - 1]
+         END
+      END
+   END
+   RETURN

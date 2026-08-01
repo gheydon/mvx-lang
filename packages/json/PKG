@@ -1,4 +1,4 @@
 json
-1.0
-JSON encode/decode (JSONENCODE, JSONDECODE)
-mvx
+1.1
+JSON encode/decode (JSONENCODE, JSONDECODE) + MAPFIELD spec builder
+mvx udt
