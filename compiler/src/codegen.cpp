@@ -79,7 +79,8 @@ const std::set<std::string> kIntIntrinsics = {
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND", "MAPBUILD", "MAPDROP",
     "MAPCHECK", "QUERYSELECT", "TRANSSELECT", "QUERYCOUNT", "ORDERSELECT",
     "MULTISELECT", "TRANSORDERSELECT",
-    "OSWRITE", "OSDELETE", "OSEXEC", "EDITFILE", "SETCRED", "SETCONN",
+    "OSWRITE", "OSDELETE", "OSEXEC", "MKDIR", "RMTREE", "UNTAR",
+    "EDITFILE", "SETCRED", "SETCONN",
 };
 
 // String-valued intrinsics (boxed results).
@@ -674,6 +675,15 @@ private:
                 return callRt("mvx_run", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0]), cap});
             }
+            if (f == "MKDIR" && e.args.size() == 1)
+                return callRt("mvx_mkdir", i64Ty_, {ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0])});
+            if (f == "RMTREE" && e.args.size() == 1)
+                return callRt("mvx_rmtree", i64Ty_, {ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0])});
+            if (f == "UNTAR" && e.args.size() == 2)
+                return callRt("mvx_untar", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]), evalPtr(*e.args[1])});
             if (f == "EDITFILE" && e.args.size() == 1)
                 return callRt("mvx_editfile", i64Ty_, {ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0])});

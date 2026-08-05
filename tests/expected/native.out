@@ -1,0 +1,4 @@
+mkdir: 1
+untar: 0
+content: native-ok
+rmtree (not permitted): -1

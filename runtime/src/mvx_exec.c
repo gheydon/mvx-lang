@@ -31,6 +31,8 @@
  */
 #include "mvx_runtime.h"
 
+#include <errno.h>
+#include <ftw.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -177,6 +179,87 @@ int64_t mvx_run(mvx_ctx *ctx, const mv_value *argv, mv_value *capture) {
     free(av);
     free(buf);
     return st;
+}
+
+/* --- native filesystem primitives (permit-gated) -----------------------
+   MKDIR / RMTREE / UNTAR let a program do the common install-time file ops
+   with no external command and no shell — so a package need not be granted
+   raw Unix for them.  They are still mutating and powerful (a recursive
+   delete, an archive that writes a tree), so below the unrestricted tier
+   each needs a permit for its op name (`mkdir`, `rmtree`, `untar`), which a
+   site grants to the admin/dev groups that install packages.  UNAME and other
+   read-only info stay ungated, like OSREAD.  Path arguments are used as-is
+   (no shell), so there is nothing to inject. */
+
+/* Permitted to perform native op `op`?  Unrestricted bypasses; otherwise the
+   op name must be granted like an external command (mvx_perm.c). */
+static int perm_op(const char *op) {
+    if (priv_tier() >= TIER_UNRESTRICTED) return 1;
+    char *av[2] = {(char *)op, NULL};
+    return mvx_perm_allowed(av);
+}
+
+static void copy_path(const mv_value *v, char *out, size_t cap) {
+    char nb[40];
+    const char *p;
+    int64_t n = mv_val_chars(v, nb, sizeof nb, &p);
+    snprintf(out, cap, "%.*s", (int)n, p);
+}
+
+/* Make a directory and any missing parents (like `mkdir -p`). 1 ok, 0 fail. */
+static int make_dirs(char *path) {
+    for (char *s = path + 1; *s; s++)
+        if (*s == '/') { *s = '\0'; if (mkdir(path, 0777) != 0 && errno != EEXIST) { *s = '/'; return 0; } *s = '/'; }
+    return (mkdir(path, 0777) == 0 || errno == EEXIST) ? 1 : 0;
+}
+
+/* MKDIR(path) -> 1 created/exists, 0 failure, -1 denied. */
+int64_t mvx_mkdir(mvx_ctx *ctx, const mv_value *path) {
+    (void)ctx;
+    if (!perm_op("mkdir")) {
+        fprintf(stderr, "not allowed: MKDIR requires a 'mkdir' permit for your groups\n");
+        return -1;
+    }
+    char buf[4096];
+    copy_path(path, buf, sizeof buf);
+    if (!buf[0]) return 0;
+    return make_dirs(buf);
+}
+
+static int rm_cb(const char *p, const struct stat *sb, int t, struct FTW *f) {
+    (void)sb; (void)t; (void)f;
+    return remove(p);           /* files then, with FTW_DEPTH, their dirs */
+}
+
+/* RMTREE(path) -> 1 removed (or already gone), 0 failure, -1 denied. */
+int64_t mvx_rmtree(mvx_ctx *ctx, const mv_value *path) {
+    (void)ctx;
+    if (!perm_op("rmtree")) {
+        fprintf(stderr, "not allowed: RMTREE requires a 'rmtree' permit for your groups\n");
+        return -1;
+    }
+    char buf[4096];
+    copy_path(path, buf, sizeof buf);
+    if (!buf[0]) return 0;
+    if (nftw(buf, rm_cb, 16, FTW_DEPTH | FTW_PHYS) == 0) return 1;
+    return (errno == ENOENT) ? 1 : 0;    /* nothing to remove is success */
+}
+
+/* UNTAR(tarball, destdir) -> exit status (0 ok), -1 denied.  Creates destdir,
+   then extracts argv-style (no shell). */
+int64_t mvx_untar(mvx_ctx *ctx, const mv_value *tarball, const mv_value *dest) {
+    (void)ctx;
+    if (!perm_op("untar")) {
+        fprintf(stderr, "not allowed: UNTAR requires a 'untar' permit for your groups\n");
+        return -1;
+    }
+    char tar[4096], dst[4096];
+    copy_path(tarball, tar, sizeof tar);
+    copy_path(dest, dst, sizeof dst);
+    if (!tar[0] || !dst[0]) return -1;
+    make_dirs(dst);
+    char *argv[] = {"tar", "-xzf", tar, "-C", dst, NULL};
+    return spawn(argv, NULL, 1);
 }
 
 /* --- editor spawn (the VI verb) — unrestricted --------------------------

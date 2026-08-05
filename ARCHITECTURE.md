@@ -567,8 +567,15 @@ admin re-blesses the new hash — a user who catalogs their own program under th
 name `MVPKG` gets a different hash and inherits nothing.
 
 This gives least privilege for OS-touching primitives — a program that only
-needs `mkdir`/`tar` is granted just those, not full `!`/SH. Still to do: native
-`mkdir`/`rm`/untar/`uname` primitives so fewer command grants are needed at all.
+needs `mkdir`/`tar` is granted just those, not full `!`/SH.
+
+**Native primitives.** The common install-time ops are also built in, so a
+package does them with no external command (and no shell): `MKDIR(path)`,
+`RMTREE(path)`, `UNTAR(tarball, dest)`. They are still mutating, so below the
+unrestricted tier each needs a `permit` for its op name (`mkdir`, `rmtree`,
+`untar`) — which a site grants to the admin/dev groups that install packages —
+while read-only info like `UNAME` stays ungated (as `OSREAD` is). Paths are used
+as-is, never through a shell. (A native `UNAME` is the remaining follow-up.)
 
 ### 8.5 Container mode
 

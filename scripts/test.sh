@@ -198,6 +198,22 @@ else
   check osexec_sys "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
 fi
 
+# native FS primitives (#80): MKDIR / RMTREE / UNTAR, permit-gated by op name.
+# Account grants mkdir + untar but not rmtree, so the first two run and rmtree
+# is refused.
+PNAT="$TESTROOT/pnat"
+mkdir -p "$PNAT/.mvx-private"
+echo "permit * = mkdir untar" > "$PNAT/.mvx-private/permissions"
+( cd "$TESTROOT" && mkdir -p fx && printf 'native-ok' > fx/marker.txt \
+  && tar czf "$PNAT/fixture.tgz" -C fx . )
+out="$TESTROOT/native"
+if "$MVX" "$ROOT/tests/native.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  actual="$(cd "$PNAT" && MVXACCOUNT=. "$out" 2>/dev/null | normalise)"
+  check native "$actual"
+else
+  check native "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # program-identity binding (#80, 8.4 constraint 3): a prog:NAME grant applies
 # only when the running binary matches the system-blessed sha256 for NAME — a
 # stale hash (re-cataloged / substituted binary) no longer inherits the grant.

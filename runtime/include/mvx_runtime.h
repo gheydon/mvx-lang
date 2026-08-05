@@ -325,6 +325,12 @@ int64_t mvx_run(mvx_ctx *ctx, const mv_value *argv, mv_value *capture);
    arguments not blocked by a deny rule's switches); see mvx_perm.c. */
 int     mvx_perm_allowed(char *const argv[]);
 
+/* Native filesystem primitives — no shell; below unrestricted each needs a
+   permit for its op name (mkdir / rmtree / untar).  See mvx_exec.c. */
+int64_t mvx_mkdir(mvx_ctx *ctx, const mv_value *path);               /* MKDIR */
+int64_t mvx_rmtree(mvx_ctx *ctx, const mv_value *path);             /* RMTREE */
+int64_t mvx_untar(mvx_ctx *ctx, const mv_value *tarball, const mv_value *dest); /* UNTAR */
+
 /* --- account credential store, .mvx-private (see mvx_cred.c) ----------- */
 int64_t mvx_setcred(mvx_ctx *ctx, const mv_value *driver,
                     const mv_value *target, const mv_value *key,
