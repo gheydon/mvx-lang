@@ -61,6 +61,10 @@ static int term_raw(struct termios *saved) {
     if (tcgetattr(0, saved) != 0) return 0;
     struct termios t = *saved;
     t.c_lflag &= ~(ICANON | ECHO);      /* keep ISIG: ^C still breaks */
+    t.c_iflag &= ~IXON;                 /* deliver ^S/^Q to KEYIN, not the tty's
+                                           XOFF/XON flow control — a full-screen
+                                           key reader (EB binds ^S save/^Q quit)
+                                           must see them as ordinary keystrokes */
     t.c_cc[VMIN] = 1;
     t.c_cc[VTIME] = 0;
     tcsetattr(0, TCSANOW, &t);
