@@ -550,10 +550,25 @@ Grants are unioned from three files, in increasing authority:
    grants itself — the account files can only narrow, never escalate past a
    system deny.
 
+**Program-identity binding (constraint 3).** A grant may name a *program*
+instead of a user/group — `permit prog:MVPKG = mkdir tar mkpkg` — which applies
+for any user, but only when the running verb's binary matches the one **blessed**
+under that name. Blessings live only in the system layer, so a user cannot
+self-bless:
+
+```
+# <system>/.mvx-private/programs
+program MVPKG = <sha256-of-approved-binary>
+```
+
+The runtime sha256s the running binary and compares. Re-cataloging the program
+changes its binary and thus its hash, so the grant stops matching until the
+admin re-blesses the new hash — a user who catalogs their own program under the
+name `MVPKG` gets a different hash and inherits nothing.
+
 This gives least privilege for OS-touching primitives — a program that only
-needs `mkdir`/`tar` is granted just those, not full `!`/SH. Still to do:
-binding grants to program identity (constraint 3), and native `mkdir`/`rm`/
-untar/`uname` primitives so fewer command grants are needed at all.
+needs `mkdir`/`tar` is granted just those, not full `!`/SH. Still to do: native
+`mkdir`/`rm`/untar/`uname` primitives so fewer command grants are needed at all.
 
 ### 8.5 Container mode
 

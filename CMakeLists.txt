@@ -70,8 +70,10 @@ add_library(mvxrt SHARED
   runtime/src/mvx_call.c
   runtime/src/mvx_term.c
   runtime/src/mvx_os.c
-  runtime/src/mvx_acct.c)
+  runtime/src/mvx_acct.c
+  daemon/sha256.c)
 target_include_directories(mvxrt PUBLIC runtime/include)
+target_include_directories(mvxrt PRIVATE daemon)   # sha256.h for program identity
 # The runtime calls libm (sin/pow/sqrt/... for the numeric intrinsics);
 # glibc keeps libm separate, so link it explicitly (a no-op on macOS,
 # where it lives in libSystem).

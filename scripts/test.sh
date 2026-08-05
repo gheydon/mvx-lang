@@ -198,6 +198,28 @@ else
   check osexec_sys "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
 fi
 
+# program-identity binding (#80, 8.4 constraint 3): a prog:NAME grant applies
+# only when the running binary matches the system-blessed sha256 for NAME — a
+# stale hash (re-cataloged / substituted binary) no longer inherits the grant.
+PPROG="$TESTROOT/pacct-prog"
+mkdir -p "$PPROG/.mvx-private"
+echo "permit prog:TESTPROG = echo" > "$PPROG/.mvx-private/permissions"
+SYSPROG="$TESTROOT/sysacct-prog"
+mkdir -p "$SYSPROG/.mvx-private"
+out="$TESTROOT/osexec_prog"
+if "$MVX" "$ROOT/tests/osexec_prog.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  if command -v sha256sum >/dev/null 2>&1; then H="$(sha256sum "$out" | cut -d' ' -f1)"
+  else H="$(shasum -a 256 "$out" | cut -d' ' -f1)"; fi
+  echo "program TESTPROG = $H" > "$SYSPROG/.mvx-private/programs"
+  a1="$(cd "$PPROG" && MVXACCOUNT=. MVXSYSTEM="$SYSPROG" "$out" 2>/dev/null)"
+  echo "program TESTPROG = 0000000000000000000000000000000000000000000000000000000000000000" \
+    > "$SYSPROG/.mvx-private/programs"
+  a2="$(cd "$PPROG" && MVXACCOUNT=. MVXSYSTEM="$SYSPROG" "$out" 2>/dev/null)"
+  check osexec_prog "$(printf 'blessed: %s\nstale: %s' "$a1" "$a2")"
+else
+  check osexec_prog "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # ---------------------------------------------------------------- phase 2
 echo "== system tests"
 

@@ -1,0 +1,2 @@
+blessed: echo: status=0
+stale: echo: status=-1

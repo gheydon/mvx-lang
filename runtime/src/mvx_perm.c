@@ -43,18 +43,37 @@
  * A `deny` anywhere wins over any `permit`, so the system layer can lock a
  * command (or a switch) down for a user/group regardless of what an account
  * grants itself; the account files can only NARROW, not escalate past a system
- * deny.  A grant's `<group>` matches the caller's OS groups OR their username
+ * deny.  A grant's `<who>` matches the caller's OS groups OR their username
  * (so the system layer can scope per user), plus `*` for anyone.
+ *
+ * A grant may instead be bound to a PROGRAM's identity (8.4 constraint 3):
+ *
+ *     permit prog:MVPKG = mkdir tar mkpkg   # the program blessed as MVPKG
+ *
+ * applies for ANY user, but only when the running verb's binary matches the
+ * program blessed as that name.  Blessings live ONLY in the system layer
+ * (`<system>/.mvx-private/programs`), so a user cannot self-bless:
+ *
+ *     program MVPKG = <sha256-of-approved-binary>
+ *
+ * The check hashes the running binary (sha256) and compares.  Re-cataloging the
+ * program changes the binary, hence its hash — the grant no longer matches until
+ * the admin re-blesses the new hash.
  */
 #include "mvx_runtime.h"
+#include "sha256.h"
 
 #include <grp.h>
 #include <pwd.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>            /* _NSGetExecutablePath */
+#endif
 
 #define MAX_RULES 512
 #define MAX_GROUPS 256
@@ -68,7 +87,8 @@
    short-option letters and long-option names it forbids (empty => the whole
    command). */
 struct rule {
-    char group[GRP_LEN];
+    char who[GRP_LEN];      /* a group/username, "*", or (is_prog) a program name */
+    int is_prog;            /* who names a blessed program, matched by binary hash */
     char cmd[CMD_LEN];
     char shorts[SHORTS_LEN];
     char longs[MAX_LONGS][LONG_LEN];
@@ -80,6 +100,10 @@ static struct rule permits[MAX_RULES];
 static int npermits = 0;
 static struct rule denies[MAX_RULES];
 static int ndenies = 0;
+/* Blessed programs: name -> the sha256 (hex) of its approved binary.  Only the
+   system layer may bless (admins whitelist a program), so no self-blessing. */
+static struct { char name[GRP_LEN]; char hash[65]; } blessings[MAX_RULES];
+static int nblessings = 0;
 static char mygroups[MAX_GROUPS][GRP_LEN];
 static int nmygroups = 0;
 static int loaded = 0;
@@ -119,6 +143,13 @@ static void rule_add_switch(struct rule *r, const char *sw) {
     }
 }
 
+/* Set a rule's subject from its token: a `prog:<name>` binds it to a blessed
+   program (matched by binary hash); anything else is a group/username/`*`. */
+static void set_who(struct rule *r, const char *tok) {
+    if (strncmp(tok, "prog:", 5) == 0) { r->is_prog = 1; snprintf(r->who, GRP_LEN, "%s", tok + 5); }
+    else snprintf(r->who, GRP_LEN, "%s", tok);
+}
+
 static void parse_file(const char *path) {
     FILE *fp = fopen(path, "rb");
     if (!fp) return;
@@ -142,7 +173,7 @@ static void parse_file(const char *path) {
                 if (npermits >= MAX_RULES) break;
                 struct rule *r = &permits[npermits++];
                 memset(r, 0, sizeof *r);
-                snprintf(r->group, GRP_LEN, "%s", grp);
+                set_who(r, grp);
                 snprintf(r->cmd, CMD_LEN, "%s", cmd);
             }
         } else {
@@ -152,11 +183,37 @@ static void parse_file(const char *path) {
             if (ndenies >= MAX_RULES) continue;
             struct rule *r = &denies[ndenies++];
             memset(r, 0, sizeof *r);
-            snprintf(r->group, GRP_LEN, "%s", grp);
+            set_who(r, grp);
             snprintf(r->cmd, CMD_LEN, "%s", cmd);
             char sw[LONG_LEN + 4];
             while (next_tok(&p, sw, sizeof sw)) rule_add_switch(r, sw);
         }
+    }
+    fclose(fp);
+}
+
+/* Parse `program <name> = <sha256-hex>` lines — the system-layer bless list
+   that maps a program name to its approved binary's hash. */
+static void parse_blessings(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return;
+    char line[4096];
+    while (fgets(line, sizeof line, fp)) {
+        const char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "program", 7) != 0 || (p[7] != ' ' && p[7] != '\t')) continue;
+        p += 7;
+        char name[GRP_LEN];
+        if (!next_tok(&p, name, sizeof name)) continue;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p != '=') continue;
+        p++;
+        char h[80];
+        if (!next_tok(&p, h, sizeof h)) continue;
+        if (nblessings >= MAX_RULES) continue;
+        snprintf(blessings[nblessings].name, GRP_LEN, "%s", name);
+        snprintf(blessings[nblessings].hash, 65, "%s", h);
+        nblessings++;
     }
     fclose(fp);
 }
@@ -207,6 +264,8 @@ static void load(void) {
     if (sys && sys[0]) {
         snprintf(path, sizeof path, "%s/.mvx-private/permissions", sys);
         parse_file(path);
+        snprintf(path, sizeof path, "%s/.mvx-private/programs", sys);
+        parse_blessings(path);
     }
     load_groups();
 }
@@ -216,6 +275,53 @@ static int in_my_groups(const char *g) {
     for (int i = 0; i < nmygroups; i++)
         if (strcmp(mygroups[i], g) == 0) return 1;
     return 0;
+}
+
+/* The sha256 (hex) of the running verb's own binary — its identity — cached.
+   "" if it cannot be determined (then no prog: grant can match). */
+static const char *self_hash(void) {
+    static char hex[65];
+    static int done = 0;
+    if (done) return hex;
+    done = 1;
+    hex[0] = '\0';
+    char path[4096];
+#ifdef __APPLE__
+    uint32_t sz = sizeof path;
+    if (_NSGetExecutablePath(path, &sz) != 0) return hex;
+#else
+    ssize_t n = readlink("/proc/self/exe", path, sizeof path - 1);
+    if (n <= 0) return hex;
+    path[n] = '\0';
+#endif
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return hex;
+    sha256_ctx c;
+    sha256_init(&c);
+    unsigned char buf[65536];
+    size_t r;
+    while ((r = fread(buf, 1, sizeof buf, fp)) > 0) sha256_update(&c, buf, r);
+    fclose(fp);
+    uint8_t dig[32];
+    sha256_final(&c, dig);
+    for (int i = 0; i < 32; i++) snprintf(hex + i * 2, 3, "%02x", dig[i]);
+    return hex;
+}
+
+/* Does the running binary match the program blessed as `name`? */
+static int is_blessed_program(const char *name) {
+    const char *sh = self_hash();
+    if (!sh[0]) return 0;
+    for (int i = 0; i < nblessings; i++)
+        if (strcmp(blessings[i].name, name) == 0 && strcmp(blessings[i].hash, sh) == 0)
+            return 1;
+    return 0;
+}
+
+/* Does a rule's subject match the current caller — a group/username/`*`, or a
+   blessed program (by binary identity)? */
+static int who_matches(const struct rule *r) {
+    return r->is_prog ? is_blessed_program(r->who) : in_my_groups(r->who);
 }
 
 static const char *base_of(const char *cmd) {
@@ -251,13 +357,13 @@ int mvx_perm_allowed(char *const argv[]) {
 
     int permitted = 0;
     for (int i = 0; i < npermits && !permitted; i++)
-        if (strcmp(permits[i].cmd, base) == 0 && in_my_groups(permits[i].group))
+        if (strcmp(permits[i].cmd, base) == 0 && who_matches(&permits[i]))
             permitted = 1;
     if (!permitted) return 0;
 
     for (int i = 0; i < ndenies; i++) {
         const struct rule *r = &denies[i];
-        if (strcmp(r->cmd, base) != 0 || !in_my_groups(r->group)) continue;
+        if (strcmp(r->cmd, base) != 0 || !who_matches(r)) continue;
         if (!r->has_switches) return 0;                 /* whole-command deny */
         for (int a = 1; argv[a]; a++)
             if (switch_hits(r, argv[a])) return 0;      /* a forbidden switch is present */
