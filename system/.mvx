@@ -1,0 +1,14 @@
+# MVX system account descriptor
+name = system
+version = 1
+
+# Default OS-command permissions (ARCHITECTURE.md 8.4).  mkaccount.sh copies the
+# `permit`/`deny` lines below into every new account's .mvx as its baseline; the
+# account's own .mvx and its site-private .mvx-private/permissions then layer on
+# top, and the system-account layer overrides per user/group.  Edit this to set
+# your site's default policy.  Grammar:
+#   permit <group> = cmd cmd ...          # this group may run these (any args)
+#   permit *       = cmd                   # * = any user/group
+#   deny   <group> = cmd -r --recursive    # never that command WITH those switches
+#   deny   *       = cmd                    # never that command at all
+permit * = uname

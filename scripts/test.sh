@@ -168,6 +168,36 @@ for t in store storedir dict matread readv locked onerror; do
   fi
 done
 
+# OSEXEC — fine-grained command whitelist (#80): at the restricted tier a
+# command runs only when a .mvx-private/permissions grant permits it for the
+# caller's OS group; argv-style, so metacharacters are inert.
+PACCT="$TESTROOT/pacct"
+mkdir -p "$PACCT/.mvx-private"
+{ echo "permit * = echo"; echo "permit $(id -gn) = true"; echo "deny * = echo -n -r --long"; } > "$PACCT/.mvx-private/permissions"
+out="$TESTROOT/osexec"
+if "$MVX" "$ROOT/tests/osexec.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  actual="$(cd "$PACCT" && MVXACCOUNT=. "$out" 2>/dev/null | normalise)"
+  check osexec "$actual"
+else
+  check osexec "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
+# system-account layer (#80): a system-account 'deny' overrides an account
+# 'permit' — the account grants echo, the system denies it, deny wins.
+PSYS="$TESTROOT/pacct-sys"
+mkdir -p "$PSYS/.mvx-private"
+echo "permit * = echo" > "$PSYS/.mvx-private/permissions"
+SYSACCT="$TESTROOT/sysacct"
+mkdir -p "$SYSACCT/.mvx-private"
+echo "deny * = echo" > "$SYSACCT/.mvx-private/permissions"
+out="$TESTROOT/osexec_sys"
+if "$MVX" "$ROOT/tests/osexec_sys.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  actual="$(cd "$PSYS" && MVXACCOUNT=. MVXSYSTEM="$SYSACCT" "$out" 2>/dev/null | normalise)"
+  check osexec_sys "$actual"
+else
+  check osexec_sys "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # ---------------------------------------------------------------- phase 2
 echo "== system tests"
 

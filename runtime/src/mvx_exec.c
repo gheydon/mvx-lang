@@ -70,7 +70,7 @@ static const char *bin_dir(void) {
 /* Spawn argv, optionally capturing stdout into a dynamic array
    (newlines become attribute marks).  Returns the exit status, or -1
    on spawn failure. */
-static int64_t spawn(char *const argv[], mv_value *capture) {
+static int64_t spawn(char *const argv[], mv_value *capture, int use_path) {
     int fds[2] = {-1, -1};
     if (capture && pipe(fds) != 0) return -1;
 
@@ -82,7 +82,8 @@ static int64_t spawn(char *const argv[], mv_value *capture) {
             dup2(fds[1], 1);
             close(fds[1]);
         }
-        execv(argv[0], argv);
+        if (use_path) execvp(argv[0], argv);   /* bare command -> PATH search */
+        else          execv(argv[0], argv);    /* our own absolute-path spawns */
         fprintf(stderr, "mvx: cannot execute %s\n", argv[0]);
         _exit(127);
     }
@@ -129,6 +130,53 @@ int64_t mvx_unix_cmd(mvx_ctx *ctx, const char *cmd) {
     }
     int st = system(cmd);
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+/* --- fine-grained external command (the OSEXEC path) -------------------
+   Run one specific command argv-style — NEVER a shell, so metacharacters
+   in argument fields are inert (8.4).  `argv` is an FM-delimited dynamic
+   array: field 1 is the command (searched on PATH), the rest are its
+   arguments.  Allowed when the caller's OS groups are granted the command
+   by the .mvx / .mvx-private whitelist (mvx_perm.c), or unconditionally at
+   the unrestricted tier.  Returns the exit status, or -1 on deny/failure. */
+int64_t mvx_run(mvx_ctx *ctx, const mv_value *argv, mv_value *capture) {
+    (void)ctx;
+    char nb[40];
+    const char *ap;
+    int64_t al = mv_val_chars(argv, nb, sizeof nb, &ap);
+    if (al <= 0) return -1;
+
+    char *buf = malloc((size_t)al + 1);
+    if (!buf) return -1;
+    memcpy(buf, ap, (size_t)al);
+    buf[al] = '\0';
+
+    int argc = 1;
+    for (int64_t i = 0; i < al; i++) if (buf[i] == AM) argc++;
+    char **av = calloc((size_t)argc + 1, sizeof(char *));
+    if (!av) { free(buf); return -1; }
+    int k = 0;
+    av[k++] = buf;
+    for (int64_t i = 0; i < al; i++)
+        if (buf[i] == AM) { buf[i] = '\0'; av[k++] = buf + i + 1; }
+    av[k] = NULL;
+
+    if (!av[0][0]) { free(av); free(buf); return -1; }
+
+    if (priv_tier() < TIER_UNRESTRICTED && !mvx_perm_allowed(av)) {
+        fprintf(stderr,
+                "not allowed: '%s' is not permitted (no matching 'permit' "
+                "grant in .mvx / .mvx-private for your groups, or a 'deny' "
+                "rule blocks this command or one of its switches)\n",
+                av[0]);
+        free(av);
+        free(buf);
+        return -1;
+    }
+    int64_t st = spawn(av, capture, 1);
+    free(av);
+    free(buf);
+    return st;
 }
 
 /* --- editor spawn (the VI verb) — unrestricted --------------------------
@@ -234,7 +282,7 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
     argv[n++] = "-o";
     argv[n++] = outbuf;
     argv[n] = NULL;
-    return spawn(argv, NULL);
+    return spawn(argv, NULL, 0);
 }
 
 /* --- EXECUTE — run a TCL sentence (allowed at every tier) --------------
@@ -257,7 +305,7 @@ int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
     argv[1] = "-c";
     argv[2] = sent;
     argv[3] = NULL;
-    int64_t st = spawn(argv, capture);
+    int64_t st = spawn(argv, capture, 0);
     if (rc) mv_set_int(rc, st);
     return st == 0;
 }

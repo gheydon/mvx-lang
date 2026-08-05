@@ -21,4 +21,13 @@ mkdir -p "$ACCT"
 printf '# MVX account descriptor\nname = %s\nversion = 1\n' \
   "$(basename "$ACCT")" > "$ACCT/.mvx"
 
+# Seed the account's default OS-command permissions from the system account's
+# .mvx (its `permit`/`deny` lines), so a new account starts with the site
+# baseline; per-account and system-layer policy then layer on top (see
+# ARCHITECTURE.md 8.4).
+SYS="${MVXSYSTEM:-$ROOT/build/system}"
+if [ -f "$SYS/.mvx" ]; then
+  grep -E '^[[:space:]]*(permit|deny)[[:space:]]' "$SYS/.mvx" >> "$ACCT/.mvx" || true
+fi
+
 echo "account ready: $ACCT"

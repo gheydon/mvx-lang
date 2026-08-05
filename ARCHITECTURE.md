@@ -514,6 +514,47 @@ Three constraints make this safe, and they are painful to retrofit:
    grant. Re-cataloging a whitelisted program should invalidate the grant
    or require re-approval.
 
+**Mechanism (mvx_perm.c + `OSEXEC`).** A BASIC program runs one external
+command with `OSEXEC(argv[, capture])`, where `argv` is an FM-delimited
+dynamic array — field 1 the command, the rest its arguments. It spawns
+argv-style (constraint 2), so metacharacters in argument fields are inert.
+At any tier below `unrestricted` the command is checked against grant lines,
+scoped by an identity that matches the caller's OS **groups** or **username**,
+plus `*` for anyone:
+
+```
+permit <who> = mkdir tar rm mkpkg      # these commands, any arguments
+permit *     = uname                    # * = any user/group
+deny   <who> = rm -r -R --recursive     # ...but never rm WITH those switches
+deny   *     = shutdown                  # ...and never this command at all
+```
+
+A `permit` grants a command; a `deny` is a hard override that wins over any
+permit — with no switches it blocks the command outright, with switches it
+blocks it only when one is present. Switch matching handles **bundled short
+options** (a deny of `-r` also blocks `-fr`) and **long options**
+(`--recursive`, `--recursive=…`); list whichever forms a command accepts.
+Commands match by basename (`tar` covers `/bin/tar`).
+
+Grants are unioned from three files, in increasing authority:
+
+1. `<account>/.mvx` — the packager's declaration. A new account is **seeded**
+   from the system account's `.mvx` (`mkaccount.sh` copies its `permit`/`deny`
+   lines), so it starts with the site baseline.
+2. `<account>/.mvx-private/permissions` — the account's site policy
+   (git-ignored, file-permission protected).
+3. `<system>/.mvx-private/permissions` — the **system-account layer**
+   (`$MVXSYSTEM`, else `MVX_SYSTEM_DIR`): the admin's per-user/group override,
+   outside every account (8.3). Because a `deny` wins globally, this layer can
+   lock a command or switch down for a user/group regardless of what an account
+   grants itself — the account files can only narrow, never escalate past a
+   system deny.
+
+This gives least privilege for OS-touching primitives — a program that only
+needs `mkdir`/`tar` is granted just those, not full `!`/SH. Still to do:
+binding grants to program identity (constraint 3), and native `mkdir`/`rm`/
+untar/`uname` primitives so fewer command grants are needed at all.
+
 ### 8.5 Container mode
 
 In a Kubernetes deployment the container's Unix environment is minimal and

@@ -316,6 +316,15 @@ int64_t mvx_execute(mvx_ctx *ctx, const mv_value *sentence,
 int64_t mvx_editfile(mvx_ctx *ctx, const mv_value *path); /* unrestricted */
 void    mvx_tmpnam(mv_value *dst);
 
+/* OSEXEC(argv[, capture]) — run one external command argv-style (FM-delimited:
+   field 1 the command, rest its args).  Permitted by the .mvx / .mvx-private
+   command whitelist for the caller's groups (mvx_perm.c), or unconditionally at
+   the unrestricted tier.  No shell — metacharacters are inert. */
+int64_t mvx_run(mvx_ctx *ctx, const mv_value *argv, mv_value *capture);
+/* 1 if the caller's OS groups may run this argv (command permitted by basename,
+   arguments not blocked by a deny rule's switches); see mvx_perm.c. */
+int     mvx_perm_allowed(char *const argv[]);
+
 /* --- account credential store, .mvx-private (see mvx_cred.c) ----------- */
 int64_t mvx_setcred(mvx_ctx *ctx, const mv_value *driver,
                     const mv_value *target, const mv_value *key,

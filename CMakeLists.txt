@@ -64,6 +64,7 @@ add_library(mvxrt SHARED
   runtime/src/mvx_ext.c
   runtime/src/mvx_store.c
   runtime/src/mvx_exec.c
+  runtime/src/mvx_perm.c
   runtime/src/mvx_cred.c
   runtime/src/mvx_conn.c
   runtime/src/mvx_call.c
@@ -223,6 +224,8 @@ add_custom_target(system-account ALL
           ${CMAKE_SOURCE_DIR}/system/VOC ${MVX_SYS_DIR}/VOC
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_SOURCE_DIR}/system/VOC.DICT ${MVX_SYS_DIR}/VOC.DICT
+  COMMAND ${CMAKE_COMMAND} -E copy
+          ${CMAKE_SOURCE_DIR}/system/.mvx ${MVX_SYS_DIR}/.mvx
   ${MVX_PKG_INSTALL}
   DEPENDS ${MVX_SYS_VERBS} mvx-basic mvxrt mvx_crt mvxdrv_dir mvxdrv_lmdb)
 

@@ -1,0 +1,8 @@
+echo: status=0 out=[hi there]
+true: status=0
+false: status=-1
+meta: out=[a; echo b]
+deny -n: status=-1
+deny -fr: status=-1
+deny --long: status=-1
+allow -f: status=0

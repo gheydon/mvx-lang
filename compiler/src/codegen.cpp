@@ -79,7 +79,7 @@ const std::set<std::string> kIntIntrinsics = {
     "INDEXBUILD", "INDEXDROP", "INDEXSELECT", "RND", "MAPBUILD", "MAPDROP",
     "MAPCHECK", "QUERYSELECT", "TRANSSELECT", "QUERYCOUNT", "ORDERSELECT",
     "MULTISELECT", "TRANSORDERSELECT",
-    "OSWRITE", "OSDELETE", "EDITFILE", "SETCRED", "SETCONN",
+    "OSWRITE", "OSDELETE", "OSEXEC", "EDITFILE", "SETCRED", "SETCONN",
 };
 
 // String-valued intrinsics (boxed results).
@@ -667,6 +667,13 @@ private:
             if (f == "OSDELETE" && e.args.size() == 1)
                 return callRt("mv_osdelete", i64Ty_, {ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0])});
+            if (f == "OSEXEC" && (e.args.size() == 1 || e.args.size() == 2)) {
+                Value *cap = e.args.size() == 2
+                                 ? evalPtr(*e.args[1])
+                                 : (Value *)ConstantPointerNull::get(ptrTy_);
+                return callRt("mvx_run", i64Ty_, {ptrTy_, ptrTy_, ptrTy_},
+                              {ctxArg_, evalPtr(*e.args[0]), cap});
+            }
             if (f == "EDITFILE" && e.args.size() == 1)
                 return callRt("mvx_editfile", i64Ty_, {ptrTy_, ptrTy_},
                               {ctxArg_, evalPtr(*e.args[0])});
