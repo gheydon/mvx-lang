@@ -420,7 +420,12 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
     more than one.
   Without the flag the engine stores the platform's own legible form (native
   `%FILE%`), i.e. current behaviour. The flag lives in git config so it travels
-  with the clone, set once per account, like `autocrlf`. *(Landed: the flag,
-  `mvx.openaccount → $MVX_OPENACCOUNT` plumbing, `clone --open-account`, and the
-  native-descriptor rebuild. Remaining: the engine boundary translation itself —
-  commit native→open, checkout open→native directly, status/diff in open-space.)*
+  with the clone, set once per account, like `autocrlf`. *(Landed (mvx#25/#73):
+  the flag and `mvx.openaccount → $MVX_OPENACCOUNT` plumbing; the engine boundary
+  translation — commit native→open, checkout open→native directly, status/diff in
+  open-space — for records, `%FILE%` (DIR/hash + `hash =` default), legible
+  dictionaries (open-dict), `%INDEXES%`, and the `.mvx` ⇄ `.mv-account` descriptor
+  (a real conversion, not a rename: the portable form drops MVX-local `permit`/
+  `deny` policy, which is re-established locally and never shipped in git); and
+  the udt-git UniData ⇄ open converter. One descriptor schema, shared by both
+  builds via `mv_git_desc_open`.)*
