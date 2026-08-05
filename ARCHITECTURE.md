@@ -574,8 +574,8 @@ package does them with no external command (and no shell): `MKDIR(path)`,
 `RMTREE(path)`, `UNTAR(tarball, dest)`. They are still mutating, so below the
 unrestricted tier each needs a `permit` for its op name (`mkdir`, `rmtree`,
 `untar`) — which a site grants to the admin/dev groups that install packages —
-while read-only info like `UNAME` stays ungated (as `OSREAD` is). Paths are used
-as-is, never through a shell. (A native `UNAME` is the remaining follow-up.)
+while `UNAME(which)` (read-only platform info, for picking a prebuilt artifact)
+stays ungated, as `OSREAD` is. Paths are used as-is, never through a shell.
 
 ### 8.5 Container mode
 

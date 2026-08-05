@@ -1,0 +1,5 @@
+sysname nonempty: 1
+machine nonempty: 1
+default is sysname: 1
+first-letter selects: 1
+machine distinct key: 1

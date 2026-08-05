@@ -357,6 +357,7 @@ int     mvx_conn_lookup(const char *conn, const char *field, char *out,
 void    mv_osread(mvx_ctx *ctx, mv_value *dst, const mv_value *path);
 int64_t mv_oswrite(mvx_ctx *ctx, const mv_value *data, const mv_value *path);
 int64_t mv_osdelete(mvx_ctx *ctx, const mv_value *path);
+void    mvx_uname(mvx_ctx *ctx, mv_value *dst, const mv_value *which); /* UNAME */
 void   *mvx_ctx_store_get(mvx_ctx *ctx);
 void    mvx_ctx_store_set(mvx_ctx *ctx, void *p);
 

@@ -1147,6 +1147,10 @@ private:
             callRt("mv_osread", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
                    {ctxArg_, dest, evalPtr(*e.args[0])});
             return; }
+        if (f == "UNAME") { need(1);
+            callRt("mvx_uname", voidTy_, {ptrTy_, ptrTy_, ptrTy_},
+                   {ctxArg_, dest, evalPtr(*e.args[0])});
+            return; }
         if (f == "TMPNAM") { need(0);
             callRt("mvx_tmpnam", voidTy_, {ptrTy_}, {dest});
             return; }

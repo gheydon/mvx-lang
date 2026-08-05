@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 void mvx_ctx_set_status(mvx_ctx *ctx, int64_t s);   /* in mvx_ctx.c */
@@ -79,4 +80,32 @@ int64_t mv_osdelete(mvx_ctx *ctx, const mv_value *path) {
     const char *p;
     mv_val_chars(path, nb, sizeof nb, &p);
     return unlink(p) == 0;
+}
+
+/* UNAME(which) -> a uname(2) field; `which`'s first letter selects it:
+   s=sysname (default) n=nodename r=release v=version m=machine.  Read-only
+   platform info, so ungated at any tier (a package uses it to pick the right
+   prebuilt artifact without shelling out to `uname`). */
+void mvx_uname(mvx_ctx *ctx, mv_value *dst, const mv_value *which) {
+    struct utsname u;
+    if (uname(&u) != 0) {
+        mvx_ctx_set_status(ctx, 1);
+        mv_set_str(dst, "", 0);
+        return;
+    }
+    char nb[40];
+    const char *w;
+    int64_t wl = mv_val_chars(which, nb, sizeof nb, &w);
+    char c = wl > 0 ? w[0] : 's';
+    if (c >= 'A' && c <= 'Z') c += 32;
+    const char *v;
+    switch (c) {
+        case 'n': v = u.nodename; break;
+        case 'r': v = u.release; break;
+        case 'v': v = u.version; break;
+        case 'm': v = u.machine; break;
+        default:  v = u.sysname; break;
+    }
+    mvx_ctx_set_status(ctx, 0);
+    mv_set_str(dst, v, (int64_t)strlen(v));
 }
