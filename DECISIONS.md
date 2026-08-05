@@ -399,8 +399,12 @@ void mvx_sub_<NAME>(mvx_ctx *ctx, int32_t argc, mv_value **argv);
   - **`VOC`/`MD`** carry the classic portable `F` file pointers (attr 1
     `DIR`/`hash`, attr 2 data, attr 3 dictionary) — see CREATE-FILE (mvx#71).
   - **Dictionaries** travel as legible records so another MV system rebuilds
-    them — this is what makes the account exportable off MVX. This includes the
-    dict controls: `%FILE%` (normalised to DIR/hash, above) and **`%INDEXES%`**,
+    them — this is what makes the account exportable off MVX. The canonical
+    **open-dict** schema (and the `.mv-account` open-account descriptor) are
+    specified in the [Open Dict & Account Interchange](https://github.com/mvx-lang/mvx/wiki/open-dict)
+    wiki page, with a round-trip prototype in `tests/opendict.b`. This includes
+    the dict controls: `%FILE%`
+    (normalised to DIR/hash, above) and **`%INDEXES%`**,
     the portable list of indexed item names. The index *structures* are derived
     (never committed) and rebuilt on checkout (BUILD/CREATE-INDEX), so an index
     moves with the account. A platform without an on-disk `%INDEXES%` record

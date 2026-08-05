@@ -1,0 +1,7 @@
+CUSTNO open=D|1||Cust|6R||S| rt=ok
+AMOUNT open=D|3|MD2|Amount|10R||S| rt=ok
+ODATE open=D|2|D2/|Date|10R||S| rt=ok
+QTY open=D|5||Qty|6R|INV|M|C rt=ok
+PRICE open=D|6|MD2|Price|10R|INV|M|D rt=ok
+DESC open=D|7||Desc|20L|INV|M|D rt=ok
+FULLNAME open=I|FIRST" "LAST||Full Name|30L||S| rt=ok
