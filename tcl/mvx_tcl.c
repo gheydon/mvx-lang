@@ -287,11 +287,14 @@ static int voc_lookup(const char *verb, char *path, size_t cap) {
     return (g_voc_state < 0 && g_sysvoc_state < 0) ? -1 : 0;
 }
 
-static void run_verb(const char *path, const char *line) {
+/* Run a cataloged verb and return its process exit status, so a verb (e.g.
+   CHECK) can signal failure to a script or CI: `mvx -c 'CHECK ...'` exits with
+   the verb's code (STOP <code>). */
+static int run_verb(const char *path, const char *line) {
     pid_t pid = fork();
     if (pid < 0) {
         perror("mvx: fork");
-        return;
+        return 1;
     }
     if (pid == 0) {
         setenv("MVX_SENTENCE", line, 1);
@@ -308,19 +311,22 @@ static void run_verb(const char *path, const char *line) {
     }
     int st;
     waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 1;
 }
 
-static void command(char *line) {
+/* Execute one TCL line; return a process-style status (0 ok) so the -c
+   one-shot can exit with a verb's code. */
+static int command(char *line) {
     while (*line == ' ' || *line == '\t') line++;
     size_t len = strlen(line);
     while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r' ||
                        line[len - 1] == ' '))
         line[--len] = '\0';
-    if (len == 0) return;
+    if (len == 0) return 0;
 
     if (line[0] == '!') {               /* raw Unix — runtime-gated */
         mvx_unix_cmd(g_ctx, line + 1);
-        return;
+        return 0;
     }
 
     char verb[128];
@@ -337,7 +343,7 @@ static void command(char *line) {
     if (strcmp(verb, "SH") == 0) {      /* interactive shell — gated */
         const char *sh = getenv("SHELL");
         mvx_unix_cmd(g_ctx, sh && sh[0] ? sh : "/bin/sh");
-        return;
+        return 0;
     }
 
     if (strcmp(verb, "LOGTO") == 0) {   /* switch accounts */
@@ -346,11 +352,11 @@ static void command(char *line) {
         while (*arg == ' ' || *arg == '\t') arg++;
         if (!*arg) {
             fprintf(stderr, "usage: LOGTO account-directory\n");
-            return;
+            return 2;
         }
         if (chdir(arg) != 0) {
             fprintf(stderr, "LOGTO: cannot enter account %s\n", arg);
-            return;
+            return 2;
         }
         account_refresh();
         g_voc_state = 0;                /* re-resolve in the new account */
@@ -363,21 +369,20 @@ static void command(char *line) {
         }
         printf("now in account %s (%s)\n", g_acct_base, g_acct_path);
         fflush(stdout);
-        return;
+        return 0;
     }
 
     char path[1024];
     int r = voc_lookup(verb, path, sizeof path);
-    if (r > 0) {
-        run_verb(path, line);
-        return;
-    }
+    if (r > 0)
+        return run_verb(path, line);
     if (r < 0)
         fprintf(stderr, "mvx: no VOC found in this account or the "
                         "system account (%s); only builtins are "
                         "available\n", system_dir());
     else
         fprintf(stderr, "verb \"%s\" not found\n", verb);
+    return 127;                          /* command not found (Unix convention) */
 }
 
 int main(int argc, char **argv) {
@@ -427,11 +432,11 @@ int main(int argc, char **argv) {
 
     if (one_cmd) {                      /* ssh/cron style: -c and out */
         char *dup = strdup(one_cmd);
-        command(dup);
+        int rc = command(dup);          /* propagate the verb's exit status */
         free(dup);
         mvx_ctx_destroy(g_ctx);
         if (sesspath[0]) unlink(sesspath);
-        return 0;
+        return rc;
     }
 
     account_refresh();
