@@ -118,6 +118,16 @@ lang ongoto
 lang uname
 lang opendict
 
+# STOP <code> sets the process exit status (CHECK-style CI gating): capture
+# both stdout and the exit code so the whole contract is pinned.
+out="$TESTROOT/stopcode"
+if "$MVX" "$ROOT/tests/stopcode.b" -o "$out" 2>"$TESTROOT/cerr"; then
+  scout="$("$out" 2>&1)" ; sc=$?
+  check "stopcode" "out=[$scout] exit=$sc"
+else
+  check "stopcode" "COMPILE FAILED: $(cat "$TESTROOT/cerr")"
+fi
+
 # KEYIN decoding from piped bytes (printable, specials, escape
 # sequences, ESC pushback)
 out="$TESTROOT/keyin"

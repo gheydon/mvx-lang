@@ -1466,7 +1466,12 @@ private:
             b_.SetInsertPoint(newBB("dead"));
             break;
         case Stmt::K::Stop:
-            if (prog_.isSubroutine) {
+            if (s.value) {
+                // STOP <code>: end the whole program with a process exit status.
+                Value *code = b_.CreateTrunc(asI64(*s.value), i32Ty_);
+                callRt("mvx_exit", voidTy_, {i32Ty_}, {code});
+                b_.CreateUnreachable();
+            } else if (prog_.isSubroutine) {
                 // STOP ends the whole program, not just the subroutine.
                 callRt("mvx_stop", voidTy_, {}, {});
                 b_.CreateUnreachable();

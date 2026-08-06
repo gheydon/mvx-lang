@@ -503,6 +503,10 @@ private:
         case Tok::KwStop:
             advance();
             s = mk(Stmt::K::Stop);
+            // STOP <code>: an optional numeric process exit status (default 0).
+            if (!at(Tok::Eol) && !at(Tok::Semi) && !at(Tok::Eof) &&
+                !at(Tok::KwElse))
+                s->value = expression();
             endStatementSoft();
             break;
         case Tok::KwNull:                       // explicit no-op statement

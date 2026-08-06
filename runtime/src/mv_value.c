@@ -34,6 +34,12 @@ void mvx_stop(void) {
     exit(0);
 }
 
+/* STOP <code> — end the program with a process exit status (a verb like CHECK
+   uses it to gate CI).  Clamp to a byte, the portable exit-code range. */
+void mvx_exit(int32_t code) {
+    exit(code & 0xFF);
+}
+
 void mvx_arity_check(const char *name, int32_t expected, int32_t got) {
     if (expected != got)
         mvx_fatal("CALL %s: %d argument(s) passed, subroutine takes %d",
