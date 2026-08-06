@@ -694,17 +694,20 @@ check tcl-packages "$(printf '%s\n' \
 # native package build: BUILD-PKG compiles a package's BP -> CATALOG/LIB
 # through the runtime (no shell, no mkpkg on PATH), needing only developer
 # privilege.  A main verb GREET plus a SUBROUTINE it CALLs proves both the
-# CATALOG (exe) and LIB (shared) outputs are produced and resolve.
+# CATALOG (exe) and LIB (shared) outputs are produced and resolve.  The
+# subroutine's name carries a dot (GREET.SUB) — the MV convention — so this also
+# guards that a dotted name still gets the platform lib suffix and resolves (a
+# name-dot must not read as an extension).
 GPK="$TESTROOT/greet"
 mkdir -p "$GPK/BP" "$GPK/VOC"
 printf 'greet\n1.0\na built-natively test package\nmvx\n' > "$GPK/PKG"
 cat > "$GPK/BP/GREET" <<'EOF'
 M = ""
-CALL GREETSUB(M)
+CALL GREET.SUB(M)
 PRINT M
 EOF
-cat > "$GPK/BP/GREETSUB" <<'EOF'
-SUBROUTINE GREETSUB(R)
+cat > "$GPK/BP/GREET.SUB" <<'EOF'
+SUBROUTINE GREET.SUB(R)
 R = "hi from the built subroutine"
 RETURN
 EOF

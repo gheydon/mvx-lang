@@ -334,16 +334,20 @@ int64_t mvx_compile(mvx_ctx *ctx, const mv_value *mode,
     snprintf(srcbuf, sizeof srcbuf, "%.*s", (int)sl, sp);
     snprintf(outbuf, sizeof outbuf, "%.*s", (int)ol, op);
     if (mp[0] == 's' || mp[0] == 'S') {
-        /* Shared subroutine libraries get the platform suffix so BASIC
-           callers stay portable. */
-        const char *slash = strrchr(outbuf, '/');
-        if (!strchr(slash ? slash : outbuf, '.')) {
+        /* Shared subroutine libraries get the platform suffix so BASIC callers
+           stay portable — unless the caller already supplied it.  Test for the
+           suffix itself, not merely a '.': MV subroutine names routinely contain
+           dots (MVPKG.CONFIG, GIT.ADD), and a name-dot must not be mistaken for
+           an extension, or the lib is written without the suffix the loader
+           (mvx_ext.c) scans for and the subroutine never resolves. */
 #ifdef __APPLE__
-            strncat(outbuf, ".dylib", sizeof outbuf - strlen(outbuf) - 1);
+        const char *suf = ".dylib";
 #else
-            strncat(outbuf, ".so", sizeof outbuf - strlen(outbuf) - 1);
+        const char *suf = ".so";
 #endif
-        }
+        size_t obl = strlen(outbuf), sfl = strlen(suf);
+        if (obl < sfl || strcmp(outbuf + obl - sfl, suf) != 0)
+            strncat(outbuf, suf, sizeof outbuf - obl - 1);
     }
 
     /* Ensure the output directory exists — CATALOG/ and LIB/ are not
